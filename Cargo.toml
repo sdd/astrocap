@@ -1,0 +1,39 @@
+[package]
+name = "astrocap"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap-verbosity-flag = "2"
+eye = "0.4"
+gst = { package = "gstreamer", version = "0.21" }
+iced = "0.10"
+matroska = "0.26"
+opencv = {  version = "0.84" }
+futures-core = "0.3"
+http = "1.0.0"
+derive_more = "0.99.17"
+gst-app = { package = "gstreamer-app", version = "0.21.2" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+
+[[bin]]
+name = "read-mkv-metadata"
+path = "src/read-mkv-metadata/main.rs"
+
+[[bin]]
+name = "read-frame-from-file"
+path = "src/read-frame-from-file/main.rs"
+
+[[bin]]
+name = "opencv-load-from-file"
+path = "src/opencv-load-from-file/main.rs"
+
+[[bin]]
+name = "gst-rtsp-client"
+path = "src/gst-rtsp-client/main.rs"
