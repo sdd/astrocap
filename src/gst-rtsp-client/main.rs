@@ -1,13 +1,23 @@
+use std::mem::MaybeUninit;
 use std::ops::Deref;
-use anyhow::Result;
+use std::path::Path;
+use std::sync::Arc;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use derive_more::{Display, Error};
-use gst::{BufferRef, Bus, element_error, glib, Pipeline};
+use gst::{BufferRef, element_error, glib, Pipeline};
 use gst::prelude::*;
-use gst_video::{VideoFormat, VideoFrameRef};
+use gst_app::AppSink;
+use gst_video::{VideoFormat, VideoFrame, VideoFrameRef};
 use http::uri::Uri;
 use image::{EncodableLayout, GenericImageView, ImageBuffer, Luma, Pixel, PixelWithColorType, Rgb};
 use image::flat::View;
+use ringbuf::{Consumer, Producer, Rb, SharedRb};
+use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
+use gst_video::video_frame::Readable;
+use tracing::{debug, info, instrument, Level, span};
 
 mod run;
 
@@ -23,69 +33,130 @@ struct ErrorMessage {
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// rtsp URI to the host
-    uri: Uri,
+    #[arg(short, long)]
+    uri: Option<Uri>,
+
+    /// video file to read from
+    #[arg(short, long)]
+    file: Option<String>,
 
     #[clap(flatten)]
     verbose: clap_verbosity_flag::Verbosity,
 }
 
 fn app_main() -> Result<()> {
+    // Set up logging
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber)?;
+
     let args = Args::parse();
-    assert_eq!(args.uri.scheme_str(), Some("rtsp"));
+    info!(?args, "arguments");
+
+    if args.file.is_none() == args.uri.is_none() {
+        eprintln!("Either file or uri must be specified (but not both)");
+        return Err(anyhow!("Invalid Arguments"));
+    }
 
     // Initialize GStreamer
     gst::init()?;
 
-    let pipeline = build_rtsp_client_pipeline(
-        &args.uri,
-        VideoFormat::Gray8,
-        move |frame| {
-            save_frame_to_file::<Luma<u8>>(frame, "screenshot-luma-only.png")
-        }
-    )?;
+    // Set up the ring buffer
+    let rb = SharedRb::<VideoFrame<Readable>, Vec<_>>::new(5);
+    let (prod, cons) = rb.split();
 
-    run_pipeline(pipeline)
-}
+    let cons_thread = thread::spawn(move || consume_frames_to_snapshot_files(cons));
 
-fn run_pipeline(pipeline: Pipeline) -> Result<()> {
-    let bus = pipeline.bus().expect("Could not get the pipeline bus");
-    println!("Got the bus");
+    let prod_thread = thread::spawn(move || produce_frames(&args, prod));
 
-    pipeline.set_state(gst::State::Playing)?;
-    println!("Started the pipeline");
-
-    for msg in bus.iter_timed(gst::ClockTime::NONE) {
-        use gst::MessageView;
-        match msg.view() {
-            MessageView::Eos(..) => break,
-            MessageView::Error(err) => {
-                pipeline.set_state(gst::State::Null)?;
-                return Err(ErrorMessage {
-                    src: msg
-                        .src()
-                        .map(|s| s.path_string())
-                        .unwrap_or_else(|| glib::GString::from("UNKNOWN")),
-                    error: err.error(),
-                    debug: err.debug(),
-                }
-                    .into());
-            },
-            _ => (),
-        }
-    }
-
-    println!("Stopping the pipeline");
-    pipeline.set_state(gst::State::Null)?;
+    cons_thread.join().expect("problem with consumer thread");
+    prod_thread.join().expect("Problem with producer thread");
 
     Ok(())
 }
 
-fn build_rtsp_client_pipeline<
-    F: FnMut(VideoFrameRef<&BufferRef>) -> () + Send + 'static,
->(uri: &Uri, target_format: VideoFormat, mut frame_handler: F) -> Result<Pipeline> {
+#[instrument(skip_all)]
+fn consume_frames_to_snapshot_files(mut cons: Consumer<VideoFrame<Readable>, Arc<SharedRb<VideoFrame<Readable>, Vec<MaybeUninit<VideoFrame<Readable>>>>>>) {
+    let mut idx = 0;
+
+    loop {
+        sleep(Duration::from_millis(50));
+        if let Some(frame) = cons.pop() {
+            info!("Consuming a frame");
+            save_frame_to_file::<Luma<u8>>(frame, &format!("screenshot-luma-only-{}.png", idx));
+            info!("Saved a frame");
+            idx += 1;
+        }
+    }
+}
+
+#[instrument(skip_all)]
+fn produce_frames(args: &Args, mut prod: Producer<VideoFrame<Readable>, Arc<SharedRb<VideoFrame<Readable>, Vec<MaybeUninit<VideoFrame<Readable>>>>>>) -> Result<()> {
+    let (pipeline, appsink) = if let Some(uri) = &args.uri {
+        build_rtsp_client_pipeline(
+            uri,
+            VideoFormat::Gray8,
+        )
+    } else if let Some(path) = &args.file {
+        build_file_pipeline(
+            path,
+            VideoFormat::Gray8,
+        )
+    } else {
+        return Err(anyhow!("Invalid Arguments"));
+    }.unwrap();
+
+    info!("Trying to Play");
+    pipeline.set_state(gst::State::Playing).unwrap();
+    info!("Playing");
+
+    loop {
+        let sample = appsink.pull_sample().unwrap();
+        info!("Got a Sample");
+        let buffer = sample.buffer_owned().unwrap();
+        debug!("got a Buffer");
+
+        let caps = sample.caps().expect("Sample without caps");
+        debug!("got Caps");
+        let info = gst_video::VideoInfo::from_caps(caps).expect("Failed to parse caps");
+        debug!("got VideoInfo");
+
+        let frame = gst_video::VideoFrame::from_buffer_readable(
+            buffer,
+            &info,
+        ).expect("Could not create VideoFrame from Buffer and VideoInfo");
+        info!("got a VideoFrame");
+
+        if !prod.is_full() {
+            prod.push(frame).expect("Could not push frame to ring buffer");
+            info!("pushed to the RingBuffer");
+        } else {
+            debug!("skipped the RingBuffer");
+        }
+    }
+}
+
+fn build_rtsp_client_pipeline(uri: &Uri, target_format: VideoFormat) -> Result<(Pipeline, AppSink)> {
     let pipeline_str = format!(
-        "rtspsrc location={} latency=0 ! queue ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink name=sink",
+        "rtspsrc location={} latency=0 ! queue ! rtph264depay ! h264parse ! avdec_h264",
         uri
+    );
+
+    build_generic_pipeline(&pipeline_str, target_format)
+}
+
+fn build_file_pipeline(path: &str, target_format: VideoFormat) -> Result<(Pipeline, AppSink)> {
+    let pipeline_str = format!(
+        "filesrc location={} ! decodebin",
+        path
+    );
+
+    build_generic_pipeline(&pipeline_str, target_format)
+}
+
+fn build_generic_pipeline(pipeline_str: &str, target_format: VideoFormat) -> Result<(Pipeline, AppSink)> {
+    let pipeline_str = format!(
+        "{} ! videoconvert ! appsink name=sink",
+        pipeline_str
     );
     let pipeline = gst::parse_launch(&pipeline_str)?
         .downcast::<gst::Pipeline>()
@@ -105,61 +176,10 @@ fn build_rtsp_client_pipeline<
             .build(),
     ));
 
-    let mut got_snapshot = false;
-
-    appsink.set_callbacks(
-        gst_app::AppSinkCallbacks::builder()
-            // Add a handler to the "new-sample" signal.
-            .new_sample(move |appsink| {
-                println!("Got a sample");
-
-                let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                let buffer = sample.buffer().ok_or_else(|| {
-                    element_error!(
-                        appsink,
-                        gst::ResourceError::Failed,
-                        ("Failed to get buffer from appsink")
-                    );
-
-                    gst::FlowError::Error
-                })?;
-
-                // Make sure that we only get a single buffer
-                if got_snapshot {
-                    return Err(gst::FlowError::Eos);
-                }
-                got_snapshot = true;
-
-                let caps = sample.caps().expect("Sample without caps");
-                let info = gst_video::VideoInfo::from_caps(caps).expect("Failed to parse caps");
-
-                let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(
-                    buffer,
-                    &info,
-                ).map_err(|_| {
-                    element_error!(
-                            appsink,
-                            gst::ResourceError::Failed,
-                            ("Failed to map buffer readable")
-                        );
-
-                    gst::FlowError::Error
-                })?;
-                println!("frame info: {:?}", frame.info());
-
-                // Process the video frame here
-                frame_handler(frame);
-
-                Ok(gst::FlowSuccess::Ok)
-            })
-            .build(),
-    );
-    println!("Connected the new-sample event handler");
-
-    Ok(pipeline)
+    Ok((pipeline, appsink))
 }
 
-fn save_frame_to_file<P: Pixel>(frame: VideoFrameRef<&BufferRef>, path: &str)
+fn save_frame_to_file<P: Pixel>(frame: VideoFrame<Readable>, path: &str)
     where for<'a> &'a[u8]: Deref<Target = [P::Subpixel]>,
           [P::Subpixel]: EncodableLayout,
           P: PixelWithColorType,
@@ -168,51 +188,6 @@ fn save_frame_to_file<P: Pixel>(frame: VideoFrameRef<&BufferRef>, path: &str)
         frame.width(), frame.height(), frame.plane_data(0).unwrap()
     ).unwrap();
     img.save(path).unwrap();
-    println!("Saved a screenshot");
-}
-
-#[allow(dead_code)]
-fn save_video_frame_with_non_packed_pixels_to_file(frame: VideoFrameRef<&BufferRef>, path: &str) {
-    // the RGBx pixel layout in gstreamer includes an unused byte
-    // after each RGB triplet. This differs from what the image crate expects
-    // in order to be able to directly create an ImageBuffer,
-    // which is packed RGB with no unused byte padding the end of each pixel.
-
-    // First we need to tell image what the source layout is
-    let layout = image::flat::SampleLayout {
-        channels: 3,       // RGB
-        channel_stride: 1, // 1 byte from component to component
-        width: frame.width(),
-        width_stride: 4, // 4 byte from pixel to pixel (skipping the unused fourth byte per pixel)
-        height: frame.height(),
-        height_stride: frame.plane_stride()[0] as usize, // stride from line to line
-    };
-    println!("layout: {:?}", &layout);
-
-    // Then create a FlatSamples around the borrowed video frame data from GStreamer with
-    // the correct stride as provided by GStreamer.
-    let flat_samples = image::FlatSamples::<&[u8]> {
-        samples: frame.plane_data(0).unwrap(),
-        layout,
-        color_hint: Some(image::ColorType::Rgb8),
-    };
-
-    // we now create a View onto the flat_samples that lets us iterate
-    // over each pixel, removing the padded extra byte from each pixel
-    let view: View<&[u8], Rgb<u8>> = flat_samples.as_view().unwrap();
-
-    // we collect the pixels into a new buffer. This packs the pixels to remove
-    // the padding
-    let buffer: Vec<_> = view.pixels().flat_map(|p| p.2.0).collect();
-
-    // now that we have a packed pixel format, we can wrap the buffer into an ImageBuffer,
-    // giving us more capabilities
-    let ib = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(
-        view.width(), view.height(), buffer
-    ).unwrap();
-
-    // we can now use the ImageBuffer::save convenience method to save the frame as a PNG
-    ib.save(path).unwrap();
 }
 
 fn main() {
