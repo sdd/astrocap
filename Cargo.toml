@@ -12,12 +12,14 @@ clap-verbosity-flag = "2"
 eye = "0.4"
 gst = { package = "gstreamer", version = "0.21" }
 iced = "0.10"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 matroska = "0.26"
 opencv = {  version = "0.84" }
 futures-core = "0.3"
 http = "1.0.0"
 derive_more = "0.99.17"
 gst-app = { package = "gstreamer-app", version = "0.21.2" }
+gst-video = { package = "gstreamer-video", version = "0.21.2" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"

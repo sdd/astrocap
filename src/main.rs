@@ -1,6 +1,5 @@
 use std::io;
 use eye::prelude::*;
-
 fn main() -> io::Result<()> {
     // Create a context
     let ctx = Context::new();
@@ -28,7 +27,7 @@ fn main() -> io::Result<()> {
     // Here we create a loop and just capture images as long as the device produces them. Normally,
     // this loop will run forever unless we unplug the camera or exit the program.
     loop {
-        let frame = stream
+        let _frame = stream
             .next()
             .expect("Stream is dead")
             .expect("Failed to capture frame");

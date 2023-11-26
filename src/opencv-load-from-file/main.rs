@@ -1,11 +1,9 @@
 mod utils;
 
 use anyhow::Result;
-use std::io;
 use clap::Parser;
 
 use opencv::{
-    core::{psnr},
     prelude::*,
     videoio::{self, VideoCapture},
 };
@@ -36,15 +34,15 @@ fn main() -> Result<()> {
         panic!("OpenCV Could not open the file '{:?}'", &args.path);
     }
 
-    let mut frame = Mat::default();
+    let mut _frame = Mat::default();
     let mut frame_number = 0;
 
     loop {
 
         // reads frames one by onex
-        vidcap.read(&mut frame)?;
+        vidcap.read(&mut _frame)?;
 
-        if utils::empty(&frame)? {
+        if utils::empty(&_frame)? {
             println!("No more video frames to read");
             break;
         }
