@@ -15,6 +15,8 @@ mod cli;
 mod gst_pipeline;
 mod snapshot_consumer;
 mod point_extractor_consumer;
+mod fit_nelder_mead;
+mod point_detect_peak;
 // mod buffer;
 
 fn app_main() -> Result<()> {

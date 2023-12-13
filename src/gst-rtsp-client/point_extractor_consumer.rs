@@ -17,8 +17,10 @@ use kiddo::float::kdtree::KdTree;
 use kiddo::SquaredEuclidean;
 use show_image::{WindowOptions, WindowProxy};
 
-use solvastro::create_query::{PointDetector, PointFitter, QueryPointCandidate};
-use solvastro::point_fit_gaussian_neldermead::PointFitterGaussianNelderMead;
+use crate::fit_nelder_mead::PointFitterGaussianNelderMead;
+use crate::fit_nelder_mead::PointFitter;
+use crate::point_detect_peak::PointDetectPeak;
+use crate::point_detect_peak::PointDetector;
 
 type Tree = KdTree<f64, usize, 2, 32, u32>;
 // const ANNOTATED_IMG_MARKER_SRC_RADIUS: i32 = 10;
@@ -34,12 +36,12 @@ const STARTING_LOG_LIKELIHOOD: i64 = 3;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub struct ImagePointCandidate {
-    x: f64,
-    y: f64,
-    amplitude: f64,
-    radius: f64,
-    log_likelihood: i64, // f64,
-    age: u64,
+    pub x: f64,
+    pub y: f64,
+    pub amplitude: f64,
+    pub radius: f64,
+    pub log_likelihood: i64, // f64,
+    pub age: u64,
 }
 
 pub struct PointExtractorConsumer {
@@ -156,14 +158,14 @@ impl PointExtractorConsumer {
     pub fn process_image(&mut self, img: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<(), Box<dyn Error>> {
         let subtracted = self.preprocess_image(&img)?;
 
-        let point_extractor = solvastro::point_detect_peak::PointDetectPeak {};
+        let point_extractor = PointDetectPeak {};
 
-        let point_candidates: Vec<QueryPointCandidate> =
+        let point_candidates: Vec<ImagePointCandidate> =
             point_extractor.extract_from_img(&subtracted);
 
         let points: Vec<ImagePointCandidate> = point_candidates
             .iter()
-            .map(|candidate| self.fit_point_2(candidate, &subtracted))
+            .map(|candidate| self.fit_point(candidate, &subtracted))
             .filter(|cand|cand.x >= 0.0 && cand.y >= 0.0 && cand.x < img.width() as f64 && cand.y < img.height() as f64 && cand.radius < CANDIDATE_MAX_RADIUS && cand.radius > CANDIDATE_MIN_RADIUS)
             .collect();
 
@@ -177,18 +179,7 @@ impl PointExtractorConsumer {
         Ok(())
     }
 
-    // pub fn fit_point(&self, point: &QueryPointCandidate, img: &GrayImage) -> ImagePointCandidate {
-    //     ImagePointCandidate {
-    //         x: point.x,
-    //         y: point.y,
-    //         amplitude: img.get_pixel(point.x as u32, point.y as u32)[0] as f64,
-    //         radius: DEFAULT_RADIUS,
-    //         log_likelihood: STARTING_LOG_LIKELIHOOD,
-    //         age: 0,
-    //     }
-    // }
-
-    pub fn fit_point_2(&self, point: &QueryPointCandidate, img: &GrayImage) -> ImagePointCandidate {
+    pub fn fit_point(&self, point: &ImagePointCandidate, img: &GrayImage) -> ImagePointCandidate {
         let fitter = PointFitterGaussianNelderMead {};
 
         let result = fitter.fit_point(point, img);

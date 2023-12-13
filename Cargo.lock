@@ -531,6 +531,7 @@ name = "astrocap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "argmin",
  "clap 4.4.6",
  "clap-verbosity-flag",
  "cocoa 0.25.0",
@@ -545,6 +546,7 @@ dependencies = [
  "image",
  "imageproc",
  "kiddo 4.0.0",
+ "lazy_static",
  "matroska",
  "opencv",
  "rtrb",
