@@ -56,7 +56,7 @@ fn build_generic_pipeline(pipeline_str: &str, target_format: VideoFormat) -> any
 }
 
 #[instrument(skip_all)]
-pub fn produce_frames(args: &Args, mut prod: Producer<Arc<VideoFrame<Readable>>>) -> anyhow::Result<()> {
+pub fn produce_frames(args: &Args, mut prod: Producer<Arc<(isize, VideoFrame<Readable>)>>) -> anyhow::Result<()> {
     let (pipeline, appsink) = if let Some(uri) = &args.uri {
         build_rtsp_client_pipeline(
             uri,
@@ -71,13 +71,15 @@ pub fn produce_frames(args: &Args, mut prod: Producer<Arc<VideoFrame<Readable>>>
         return Err(anyhow!("Invalid Arguments"));
     }.unwrap();
 
-    info!("Trying to Play");
+    debug!("Trying to Play");
     pipeline.set_state(gst::State::Playing).unwrap();
     info!("Playing");
 
+    let mut frame_index = 0;
+
     loop {
         let sample = appsink.pull_sample().unwrap();
-        info!("Got a Sample");
+        debug!("Got a Sample");
         let buffer = sample.buffer_owned().unwrap();
         debug!("got a Buffer");
 
@@ -90,13 +92,15 @@ pub fn produce_frames(args: &Args, mut prod: Producer<Arc<VideoFrame<Readable>>>
             buffer,
             &info,
         ).expect("Could not create VideoFrame from Buffer and VideoInfo");
-        info!("got a VideoFrame");
+        debug!("got a VideoFrame");
 
         if !prod.is_full() {
-            prod.push(Arc::new(frame)).expect("Could not push frame to ring buffer");
-            info!("pushed to the RingBuffer");
+            prod.push(Arc::new((frame_index, frame))).expect("Could not push frame to ring buffer");
+            debug!("pushed to the RingBuffer");
         } else {
             debug!("skipped the RingBuffer");
         }
+
+        frame_index += 1;
     }
 }

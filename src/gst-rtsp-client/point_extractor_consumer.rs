@@ -1,0 +1,300 @@
+use std::error::Error;
+use image::{DynamicImage, EncodableLayout, GrayImage, ImageBuffer, Luma, Pixel, PixelWithColorType, Rgba};
+use gst_video::VideoFrame;
+use gst_video::video_frame::Readable;
+use std::ops::{Deref, Neg};
+use tracing::{debug, info, instrument};
+use rtrb::Consumer;
+use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
+use rusttype::Font;
+use imageproc::drawing::{draw_hollow_circle_mut, draw_text_mut};
+use imageproc::filter::median_filter;
+use imageproc::map::map_colors2;
+
+use kiddo::float::kdtree::KdTree;
+use kiddo::SquaredEuclidean;
+use show_image::{WindowOptions, WindowProxy};
+
+use solvastro::create_query::{PointDetector, PointFitter, QueryPointCandidate};
+use solvastro::point_fit_gaussian_neldermead::PointFitterGaussianNelderMead;
+
+type Tree = KdTree<f64, usize, 2, 32, u32>;
+// const ANNOTATED_IMG_MARKER_SRC_RADIUS: i32 = 10;
+const MAX_POINT_MATCH_DIST: f64 = 4.0;
+
+const CANDIDATE_MAX_RADIUS: f64 = 4.0;
+const CANDIDATE_MIN_RADIUS: f64 = 1.5;
+
+const UNMATCHED_POINT_PENALTY: i64 = 1;  // f64 = 1.0;
+const MATCHED_POINT_BENEFIT: i64 = 5;  // f64 = 1.0;
+const POINT_DISCARD_THRESHOLD: i64 = -5; // f64 = -5.0;
+const STARTING_LOG_LIKELIHOOD: i64 = 3;
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub struct ImagePointCandidate {
+    x: f64,
+    y: f64,
+    amplitude: f64,
+    radius: f64,
+    log_likelihood: i64, // f64,
+    age: u64,
+}
+
+pub struct PointExtractorConsumer {
+    state: Vec<ImagePointCandidate>,
+    kdtree: Tree,
+    window: WindowProxy,
+}
+
+impl PointExtractorConsumer {
+    pub fn new() -> Self {
+
+        let window = show_image::create_window("Annotated Frames", WindowOptions::default().set_size([1920, 1080])).expect("Could not create window");
+
+        PointExtractorConsumer {
+            state: vec![],
+            kdtree: Tree::new(),
+            window,
+        }
+    }
+
+    pub fn update_state(&mut self, points: Vec<ImagePointCandidate>) {
+        if self.state.len() == 0 {
+            self.state = points;
+            for (idx, point) in self.state.iter().enumerate() {
+                self.kdtree.add(&[point.x, point.y], idx);
+            }
+        } else {
+            let mut rematched_points = vec![false; self.state.len()];
+
+            for point in points {
+                let best_match = self.kdtree.nearest_one::<SquaredEuclidean>(&[point.x, point.y]);
+
+                if best_match.distance < MAX_POINT_MATCH_DIST {
+                    let matching = self.state.get_mut(best_match.item).unwrap();
+                    let update_scale = (point.log_likelihood as f64 / matching.log_likelihood.max(1) as f64).abs().max(0.25);
+
+                    let diff_x = point.x - matching.x;
+                    let update_x = diff_x * update_scale;
+                    matching.x += update_x;
+
+                    let diff_y = point.y - matching.y;
+                    let update_y = diff_y * update_scale;
+                    matching.y += update_y;
+
+                    let diff_radius = point.radius - matching.radius;
+                    let update_radius = diff_radius * update_scale;
+                    matching.radius += update_radius;
+
+                    let diff_amplitude = point.amplitude - matching.amplitude;
+                    let update_amplitude = diff_amplitude * update_scale;
+                    matching.amplitude += update_amplitude;
+
+                    matching.log_likelihood += MATCHED_POINT_BENEFIT;
+                    rematched_points[best_match.item] = true;
+                } else {
+                    self.state.push(point);
+                }
+            }
+
+            for (idx, was_matched) in rematched_points.iter().enumerate() {
+                let item = self.state.get_mut(idx).unwrap();
+                item.age += 1;
+                if !was_matched {
+                    item.log_likelihood -= UNMATCHED_POINT_PENALTY;
+                }
+
+            }
+        }
+
+        self.state = self.state.iter()
+            .filter(|cand|cand.log_likelihood > POINT_DISCARD_THRESHOLD)
+            .map(|x| x.clone())
+            .collect();
+
+        self.kdtree = Tree::with_capacity(self.state.len());
+        for (idx, point) in self.state.iter().enumerate() {
+            self.kdtree.add(&[point.x, point.y], idx);
+        }
+
+        info!("state len: {:?}", self.state.len());
+        self.state.sort_by_cached_key(|cand|cand.log_likelihood.neg());
+
+        let mut i = 0;
+        while i < self.state.len() && self.state[i].log_likelihood > 3 {
+            info!("{:?}", &self.state[i]);
+            i += 1;
+        }
+    }
+
+    pub fn preprocess_image(&self, img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<GrayImage, Box<dyn Error>> {
+        // TODO: have to perform expensive conversion from slice-based image to Vec-based image
+        //       due to inflexibility of imageproc's median_filter and map_colors2 functions
+        // let mut img_vec: Image<Luma<u8>> = Image::from_raw(img.width(), img.height(), img.to_vec()).unwrap();
+        //
+        // TODO: potentially eliminate this step by monte-carlo method
+        //       of sampling a random 10-100 points inside a block,
+        //       using the median of the points as the block median
+        let img_median: GrayImage = median_filter(img, 30, 30);
+        debug!("created median");
+        img_median.save("img_median.png")?;
+
+        // subtract median from original
+        let subtracted = map_colors2(img, &img_median, |p, q| {
+            Luma([(p[0] as u8).saturating_sub(q[0] as u8)])
+        });
+        debug!("subtracted median");
+
+        subtracted.save("preprocessed.png")?;
+        debug!("saved");
+
+        Ok(subtracted)
+    }
+
+    pub fn process_image(&mut self, img: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<(), Box<dyn Error>> {
+        let subtracted = self.preprocess_image(&img)?;
+
+        let point_extractor = solvastro::point_detect_peak::PointDetectPeak {};
+
+        let point_candidates: Vec<QueryPointCandidate> =
+            point_extractor.extract_from_img(&subtracted);
+
+        let points: Vec<ImagePointCandidate> = point_candidates
+            .iter()
+            .map(|candidate| self.fit_point_2(candidate, &subtracted))
+            .filter(|cand|cand.x >= 0.0 && cand.y >= 0.0 && cand.x < img.width() as f64 && cand.y < img.height() as f64 && cand.radius < CANDIDATE_MAX_RADIUS && cand.radius > CANDIDATE_MIN_RADIUS)
+            .collect();
+
+        self.update_state(points);
+
+        let img_query_annotated = self.annotate_image_query(&img.into(), &self.state);
+
+        let _ = self.window.set_image("Frame", img_query_annotated);
+        // img_query_annotated.save("query-annotated.png")?;
+
+        Ok(())
+    }
+
+    // pub fn fit_point(&self, point: &QueryPointCandidate, img: &GrayImage) -> ImagePointCandidate {
+    //     ImagePointCandidate {
+    //         x: point.x,
+    //         y: point.y,
+    //         amplitude: img.get_pixel(point.x as u32, point.y as u32)[0] as f64,
+    //         radius: DEFAULT_RADIUS,
+    //         log_likelihood: STARTING_LOG_LIKELIHOOD,
+    //         age: 0,
+    //     }
+    // }
+
+    pub fn fit_point_2(&self, point: &QueryPointCandidate, img: &GrayImage) -> ImagePointCandidate {
+        let fitter = PointFitterGaussianNelderMead {};
+
+        let result = fitter.fit_point(point, img);
+
+        ImagePointCandidate {
+            x: result.x,
+            y: result.y,
+            amplitude: result.amplitude,
+            radius: result.radius,
+            log_likelihood: STARTING_LOG_LIKELIHOOD,
+            age: 0,
+        }
+    }
+
+    #[instrument(skip_all)]
+    pub fn consume_frames_to_extracted_point_stream(&mut self, mut cons: Consumer<Arc<(isize, VideoFrame<Readable>)>>) {
+        let mut idx = 0;
+        let current_frame_index: isize = -1;
+
+        loop {
+            let mut processed_frame = false;
+            sleep(Duration::from_millis(1));
+            if let Ok(arc_frame_ref) = cons.peek() {
+                let idx_and_frame = arc_frame_ref.clone();
+                if idx_and_frame.0 > current_frame_index {
+                    debug!("Consuming a frame");
+
+                    let img_buf = self.video_frame_to_img_buf_cloned(&idx_and_frame.1);
+
+                    let result = self.process_image(img_buf).unwrap();
+                    debug!(?result, ?idx, "processed frame");
+                    idx += 1;
+                    processed_frame = true;
+                }
+            }
+
+            // TODO: this will need to be more sophisticated when we have multiple consumers on the ring buffer
+            if processed_frame {
+                let _ = cons.pop();
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    fn video_frame_to_img_buf<'a, P: Pixel>(&self, frame: &'a VideoFrame<Readable>) -> ImageBuffer<P, &'a [u8]>
+        where for<'b> &'b [u8]: Deref<Target=[P::Subpixel]>,
+              [P::Subpixel]: EncodableLayout,
+              P: PixelWithColorType,
+    {
+        ImageBuffer::<P, &[u8]>::from_raw(
+            frame.width(), frame.height(), frame.plane_data(0).unwrap()
+        ).expect("Could not create ImageBuffer from VideoFrame")
+    }
+
+    fn video_frame_to_img_buf_cloned(&self, frame: &VideoFrame<Readable>) -> ImageBuffer<Luma<u8>, Vec<u8>> {
+        let buf_cloned: Vec<u8> = frame.plane_data(0).unwrap().into();
+        ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(
+            frame.width(), frame.height(), buf_cloned
+        ).expect("Could not create ImageBuffer from VideoFrame")
+    }
+
+    pub fn annotate_image_query(&self, img: &DynamicImage, query: &Vec<ImagePointCandidate>) -> DynamicImage {
+        let blue = Rgba([0u8, 0u8, 255u8, 255u8]);
+        let green = Rgba([0u8, 255u8, 0u8, 255u8]);
+        let red = Rgba([255u8, 0u8, 0u8, 255u8]);
+
+        let font = Vec::from(include_bytes!("/System/Library/Fonts/Monaco.ttf") as &[u8]);
+        let font = Font::try_from_vec(font).unwrap();
+
+        let height = 18f32;
+        let scale = rusttype::Scale {
+            x: height,
+            y: height,
+        };
+
+        let mut new_img: DynamicImage = img.clone().into_rgba8().into();
+
+        for (idx, &point) in query.iter().enumerate() {
+            if point.log_likelihood < 5 && point.age < 5 {
+                continue;
+            }
+
+            let draw_color = if point.log_likelihood < 10 {
+                red
+            } else {
+                if point.age < 10 {
+                    blue
+                } else {
+                    green
+                }
+            };
+
+            let centre = (point.x as i32, point.y as i32);
+            draw_hollow_circle_mut(&mut new_img, centre, point.radius as i32 * 4, draw_color);
+
+            draw_text_mut(
+                &mut new_img,
+                draw_color,
+                (point.x as u32).saturating_sub(5u32) as i32,
+                (point.y as u32).saturating_sub(30u32) as i32,
+                scale,
+                &font,
+                idx.to_string().as_str(),
+            );
+        }
+
+        new_img
+    }
+}

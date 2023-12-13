@@ -8,15 +8,25 @@ use gst_video::video_frame::Readable;
 use tracing::info;
 use cli::Args;
 
+use crate::point_extractor_consumer::PointExtractorConsumer;
+
 mod run;
 mod cli;
 mod gst_pipeline;
 mod snapshot_consumer;
+mod point_extractor_consumer;
 // mod buffer;
 
 fn app_main() -> Result<()> {
     // Set up logging
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    let subscriber = tracing_subscriber::fmt()
+        .event_format(tracing_subscriber::fmt::format()
+            .with_target(false) // don't include targets
+            .with_thread_ids(false) // include the thread ID of the current thread
+            .with_thread_names(false) // include the name of the current thread
+            .compact()
+        )
+        .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     let args = Args::parse();
@@ -30,10 +40,14 @@ fn app_main() -> Result<()> {
     // Initialize GStreamer
     gst::init()?;
 
-    let (prod, cons) = RingBuffer::<Arc<VideoFrame<Readable>>>::new(5);
+    let (prod, cons) = RingBuffer::<Arc<(isize, VideoFrame<Readable>)>>::new(5);
 
-    let cons_thread = thread::spawn(move || snapshot_consumer::consume_frames_to_snapshot_files(cons));
     let prod_thread = thread::spawn(move || gst_pipeline::produce_frames(&args, prod));
+
+    let cons_thread = thread::spawn(move || {
+        let mut consumer = PointExtractorConsumer::new();
+        consumer.consume_frames_to_extracted_point_stream(cons)
+    });
 
     cons_thread.join().expect("problem with consumer thread");
     let _ = prod_thread.join().expect("Problem with producer thread");
@@ -41,6 +55,7 @@ fn app_main() -> Result<()> {
     Ok(())
 }
 
+#[show_image::main]
 fn main() {
     match run::run(app_main) {
         Ok(r) => r,

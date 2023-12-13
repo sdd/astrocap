@@ -2,7 +2,7 @@ use image::{EncodableLayout, ImageBuffer, Luma, Pixel, PixelWithColorType};
 use gst_video::VideoFrame;
 use gst_video::video_frame::Readable;
 use std::ops::Deref;
-use tracing::{info, instrument};
+use tracing::{debug, instrument};
 use rtrb::Consumer;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -16,14 +16,15 @@ pub fn consume_frames_to_snapshot_files(cons: Consumer<Arc<VideoFrame<Readable>>
         sleep(Duration::from_millis(50));
         if let Ok(arc_frame_ref) = cons.peek() {
             let frame = arc_frame_ref.clone();
-            info!("Consuming a frame");
+            debug!("Consuming a frame");
             save_frame_to_file::<Luma<u8>>(&frame, &format!("screenshot-luma-only-{}.png", idx));
-            info!("Saved a frame");
+            debug!("Saved a frame");
             idx += 1;
         }
     }
 }
 
+#[allow(dead_code)]
 fn save_frame_to_file<P: Pixel>(frame: &VideoFrame<Readable>, path: &str)
     where for<'a> &'a[u8]: Deref<Target = [P::Subpixel]>,
           [P::Subpixel]: EncodableLayout,

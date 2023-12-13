@@ -71,7 +71,7 @@ fn build_rtsp_client_pipeline(uri: &Uri, target_format: VideoFormat, mut prod: P
         gst_app::AppSinkCallbacks::builder()
             // Add a handler to the "new-sample" signal.
             .new_sample(move |appsink| {
-                info!("Got a sample");
+                debug!("Got a sample");
 
                 let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
                 let buffer = sample.buffer_owned().ok_or_else(|| {
@@ -105,7 +105,7 @@ fn build_rtsp_client_pipeline(uri: &Uri, target_format: VideoFormat, mut prod: P
 
                     gst::FlowError::Error
                 })?;
-                info!("frame info: {:?}", frame.info());
+                debug!("frame info: {:?}", frame.info());
 
                 // Process the video frame here
                 // frame_handler(frame);
@@ -116,14 +116,14 @@ fn build_rtsp_client_pipeline(uri: &Uri, target_format: VideoFormat, mut prod: P
             })
             .build(),
     );
-    info!("Connected the new-sample event handler");
+    debug!("Connected the new-sample event handler");
 
     Ok(pipeline)
 }
 
 fn run_pipeline(pipeline: Pipeline) -> Result<()> {
     let bus = pipeline.bus().expect("Could not get the pipeline bus");
-    info!("Got the bus");
+    debug!("Got the bus");
 
     pipeline.set_state(gst::State::Playing)?;
     info!("Started the pipeline");

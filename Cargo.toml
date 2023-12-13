@@ -3,26 +3,29 @@ name = "astrocap"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "2"
-eye = "0.4"
-gst = { package = "gstreamer", version = "0.21" }
-iced = "0.10"
-image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
-matroska = "0.26"
-opencv = {  version = "0.84" }
-futures-core = "0.3"
-http = "1.0.0"
 derive_more = "0.99.17"
+eye = "0.4"
+futures-core = "0.3"
+gst = { package = "gstreamer", version = "0.21" }
 gst-app = { package = "gstreamer-app", version = "0.21.2" }
 gst-video = { package = "gstreamer-video", version = "0.21.2" }
+http = "1.0.0"
+imageproc = "0.23.0"
+iced = "0.10"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+kiddo = { path = "../kiddo", package = "kiddo" }
+matroska = "0.26"
+opencv = {  version = "0.84" }
+rtrb = "0.3.0"
+solvastro = { path = "../solvastro", package = "solvastro" }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-rtrb = "0.3.0"
+rusttype = "0.9.3"
+show-image = { version = "0.13.1", features = ["image"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"
