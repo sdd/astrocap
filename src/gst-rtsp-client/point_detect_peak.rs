@@ -1,40 +1,34 @@
 use image::GrayImage;
+use ordered_float::OrderedFloat;
+use tracing::info;
 use crate::point_extractor_consumer::ImagePointCandidate;
 
-const POINT_SKIP_STEP: u32 = 3;
+// const POINT_SKIP_STEP: u32 = 3;
 const POINT_EXCLUSION_RADIUS: f64 = 20.0;
-// const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
-const POINT_THRESHOLD: u8 = 45;
+const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
+const POINT_THRESHOLD: u8 = 43;
 const STEP_X: u32 = 1;
 const STEP_Y: u32 = 1;
 pub const PATCH_SIZE: u32 = 20;
 
-const INITIAL_RADIUS: f64 = 3.0;
+const INITIAL_RADIUS: f64 = 2.2;
 
 pub trait PointDetector {
-    fn extract_from_img(&self, img: &GrayImage) -> Vec<ImagePointCandidate>;
+    fn extract_from_img(&self, img: &GrayImage, existing_points: &[ImagePointCandidate]) -> Vec<ImagePointCandidate>;
 }
 
 pub struct PointDetectPeak {}
 
 impl PointDetector for PointDetectPeak {
-    fn extract_from_img(&self, img: &GrayImage) -> Vec<ImagePointCandidate> {
+    fn extract_from_img(&self, img: &GrayImage, _existing_points: &[ImagePointCandidate]) -> Vec<ImagePointCandidate> {
         let mut points: Vec<ImagePointCandidate> = vec![];
-        let mut open_points: Vec<ImagePointCandidate> = vec![];
 
         let (img_w, img_h) = img.dimensions();
         let mut x: u32 = 0;
         let mut y: u32 = 0;
 
         while y < img_h {
-            open_points = open_points.into_iter().filter(|p| y as f64 - p.y < POINT_EXCLUSION_RADIUS).collect();
-
             while x < img_w {
-                if inside_existing_point(x, y, &open_points) {
-                    x += POINT_SKIP_STEP;
-                    continue;
-                }
-
                 let val: u8 = img.get_pixel(x, y)[0];
 
                 if val > POINT_THRESHOLD {
@@ -51,28 +45,52 @@ impl PointDetector for PointDetectPeak {
                         curr_val = img.get_pixel(point_x, point_y)[0];
                     }
 
-                    points.push(ImagePointCandidate {
-                        x: point_x as f64,
-                        y: point_y as f64,
-                        amplitude: curr_val as f64,
-                        radius: INITIAL_RADIUS,
-                        log_likelihood: 0,
-                        age: 0,
-                    });
+                    // find existing matches within POINT_EXCLUSION_RADIUS of current match
+                    let mut matching: Vec<(usize, ImagePointCandidate)> = points.iter()
+                        .enumerate()
+                    .filter(|&(_idx, existing)| {
+                        let xd = existing.x - (point_x as f64).abs();
+                        let yd = (existing.y - (point_y as f64)).abs();
+                        ((xd * xd) + (yd * yd)) < POINT_EXCLUSION_RADIUS_2
+                    })
+                        .map(|(n, i)|(n, i.clone()))
+                        .collect();
 
-                    open_points.push(ImagePointCandidate {
+                    matching.sort_by_key(|(_, p)|OrderedFloat(p.amplitude));
+
+                    // if one of these nearby existing matches has higher amplitude, skip
+                    // the current point
+                    if let Some((_, last)) =  matching.last() {
+                        if last.amplitude > curr_val as f64 {
+                            x += STEP_X;
+                            continue;
+                        } else {
+                            // otherwise remove the matches in favour of our new one
+                            matching.sort_by_key(|(idx, _)| 0 - (*idx as isize));
+                            for (idx, _) in matching.iter() {
+                                points.remove(*idx);
+                            }
+                        }
+                    }
+
+                    let new_point = ImagePointCandidate {
                         x: point_x as f64,
                         y: point_y as f64,
                         amplitude: curr_val as f64,
                         radius: INITIAL_RADIUS,
-                        log_likelihood: 0,
+                        log_likelihood: 0.0,
                         age: 0,
-                    });
+                        latest_score: -10e10,
+                        matched_last_frame: true,
+                    };
+
+                    points.push(new_point.clone());
                 }
 
                 x += STEP_X;
             }
             x = 0;
+            info!(y);
             y += STEP_Y;
         }
 
@@ -80,10 +98,90 @@ impl PointDetector for PointDetectPeak {
     }
 }
 
-pub fn inside_existing_point(x: u32, _y: u32, points: &[ImagePointCandidate]) -> bool {
+pub fn inside_existing_point(x: u32, y: u32, points: &[ImagePointCandidate]) -> bool {
     points.iter().any(|point| {
-        let xd =point.x - (x as f64);//.abs();
-        //let yd = (point.y - (y as f64)).abs();
-        xd < POINT_EXCLUSION_RADIUS// && ((xd * xd) + (yd * yd)) < POINT_EXCLUSION_RADIUS_2
+        let xd = point.x - (x as f64).abs();
+        let yd = (point.y - (y as f64)).abs();
+        ((xd * xd) + (yd * yd)) < POINT_EXCLUSION_RADIUS_2
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::fs::File;
+    use image::{GrayImage, ImageBuffer, Luma};
+    use image::io::Reader as ImageReader;
+    use imageproc::filter::median_filter;
+    use imageproc::map::map_colors2;
+    use kiddo::float::kdtree::KdTree;
+    use kiddo::SquaredEuclidean;
+
+    use crate::point_detect_peak::{PointDetector, PointDetectPeak};
+
+    type Tree = KdTree<f64, usize, 2, 32, u32>;
+
+    struct Point {
+        x: usize,
+        y: usize,
+        amp: u8
+    }
+
+    const MAX_PERMITTED_MATCH_DIST2: f64 = 4.0;
+    const MATCH_EXCLUSION_DIST2: f64 = 10.0;
+    #[test]
+    fn can_detect_known_stars() {
+        // Load a set of images with known good star positions
+        let raw_img = ImageReader::open("test-images/test-image-1.png").unwrap().decode().unwrap();
+        let img_height = raw_img.height();
+        let img_width = raw_img.width();
+        const MAX_FALSE_POSITIVES: usize = 500;
+
+        let img = ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(
+            img_width, img_height, raw_img.into_bytes()
+        ).expect("Could not create ImageBuffer from VideoFrame");
+
+        // pre-process the images as per the pipeline
+        let img_median: GrayImage = median_filter(&img, 30, 30);
+        let subtracted = map_colors2(&img, &img_median, |p, q| {
+            Luma([(p[0] as u8).saturating_sub(q[0] as u8)])
+        });
+        subtracted.save("test-images/test-image-1-subtracted.png").unwrap();
+
+        // perform the extract
+        let detector = PointDetectPeak {};
+        let results = detector.extract_from_img(&subtracted, &vec![]);
+
+        serde_json::to_writer(File::create("test-images/test-image-1-detected.json").unwrap(), &results).unwrap();
+
+        let mut tree: Tree = Tree::new();
+        for (idx, point) in results.iter().enumerate() {
+            tree.add(&[point.x, point.y], idx);
+        }
+
+        let known_good = [
+            Point { x: 1054, y: 506, amp: 80 },
+            Point { x: 1291, y: 427, amp: 52 },
+            Point { x: 1578, y: 522, amp: 62 },
+            Point { x: 316, y: 894, amp: 78 },
+        ];
+
+        // assert that the known good stars are detected
+        let mut matched_indexes: HashSet<usize> = HashSet::new();
+        for point in known_good.iter() {
+            let nearest = tree.nearest_one::<SquaredEuclidean>(&[point.x as f64, point.y as f64]);
+            assert!(nearest.distance < MAX_PERMITTED_MATCH_DIST2);
+            matched_indexes.insert(nearest.item);
+        }
+        assert_eq!(matched_indexes.len(), known_good.len());
+
+        // assert that there are no stars within an exclusion zone around each known good star
+        for point in known_good.iter() {
+            let nearest = tree.within::<SquaredEuclidean>(&[point.x as f64, point.y as f64], MATCH_EXCLUSION_DIST2);
+            assert_eq!(nearest.len(), 1);
+        }
+
+        // assert that the number of false positives are within a reasonable limit
+        assert!(results.len() - 4 < MAX_FALSE_POSITIVES);
+    }
 }

@@ -537,6 +537,7 @@ dependencies = [
  "cocoa 0.25.0",
  "derive_more",
  "eye",
+ "format_num",
  "futures-core",
  "gstreamer",
  "gstreamer-app",
@@ -549,8 +550,11 @@ dependencies = [
  "lazy_static",
  "matroska",
  "opencv",
+ "ordered-float",
  "rtrb",
  "rusttype",
+ "serde 1.0.193",
+ "serde_json",
  "show-image",
  "solvastro",
  "tracing",
@@ -2171,6 +2175,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "format_num"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14ac05eb8d2eb4ed1eeff847911deae077b0b53332465de9d6a26b0ea9961bc8"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
