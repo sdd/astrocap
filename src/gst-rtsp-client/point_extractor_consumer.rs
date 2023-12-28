@@ -27,15 +27,17 @@ use crate::point_detect_peak::PointDetector;
 
 type Tree = KdTree<f64, usize, 2, 32, u32>;
 // const ANNOTATED_IMG_MARKER_SRC_RADIUS: i32 = 10;
-const MAX_POINT_MATCH_DIST: f64 = 4.0;
-const MIN_EXISTING_MATCH_SCORE: f64 = 0.0;
-const CANDIDATE_MAX_RADIUS: f64 = 2.5;//2.5;
-const CANDIDATE_MIN_RADIUS: f64 = 1.6;//2.0;
+const MAX_POINT_MATCH_DIST: f64 = 7.5;
+const MIN_EXISTING_MATCH_SCORE: f64 = -5.0;
+const CANDIDATE_MIN_SCORE: f64 = 0.0;
 
-const UNMATCHED_POINT_PENALTY: f64 = 0.5;
+const UNMATCHED_POINT_PENALTY: f64 = 5.0; //0.5;
 // const MATCHED_POINT_BENEFIT: f64 = 5.0;
-const POINT_DISCARD_THRESHOLD: f64 = -5.0;
+const POINT_DISCARD_THRESHOLD: f64 = -10.0;
 // const STARTING_LOG_LIKELIHOOD: i64 = 3;
+
+const AMPLITUDE_PENALTY_THRESHOLD: f64 = 8.0;
+const AMPLITUDE_PENALTY: f64 = 15.0;
 
 #[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ImagePointCandidate {
@@ -53,19 +55,19 @@ impl ImagePointCandidate {
     pub fn update_with(&self, other: &ImagePointCandidate) -> Self {
         let update_scale = 0.25;//;other.log_likelihood.min(1.0) / self.log_likelihood.min(1.0);
 
-        let diff_x = self.x - other.x;
-        let update_x = diff_x * update_scale;
+        let diff_x = other.x - self.x;
+        let update_x = diff_x;// * update_scale;
         let x = self.x + update_x;
 
-        let diff_y = self.y - other.y;
-        let update_y = diff_y * update_scale;
+        let diff_y = other.y - self.y;
+        let update_y = diff_y;// * update_scale;
         let y = self.y + update_y;
 
-        let diff_radius = self.radius - other.radius;
+        let diff_radius = other.radius - self.radius;
         let update_radius = diff_radius * update_scale;
         let radius = self.radius + update_radius;
 
-        let diff_amplitude = self.amplitude - other.amplitude;
+        let diff_amplitude = other.amplitude - self.amplitude;
         let update_amplitude = diff_amplitude * update_scale;
         let amplitude = self.amplitude + update_amplitude;
 
@@ -120,21 +122,21 @@ impl PointExtractorConsumer {
 
                 if best_match.distance < MAX_POINT_MATCH_DIST {
                     let matching = self.state.get_mut(best_match.item).unwrap();
-                    let update_scale = 1.0;//(point.log_likelihood / matching.log_likelihood.max(1.0)).abs().max(0.25);
+                    let update_scale = 0.15;//(point.log_likelihood / matching.log_likelihood.max(1.0)).abs().max(0.25);
 
-                    let diff_x = point.x - matching.x;
+                    let diff_x = matching.x - point.x;
                     let update_x = diff_x * update_scale;
                     matching.x += update_x;
 
-                    let diff_y = point.y - matching.y;
+                    let diff_y = matching.y - point.y;
                     let update_y = diff_y * update_scale;
                     matching.y += update_y;
 
-                    let diff_radius = point.radius - matching.radius;
+                    let diff_radius = matching.radius - point.radius;
                     let update_radius = diff_radius * update_scale;
                     matching.radius += update_radius;
 
-                    let diff_amplitude = point.amplitude - matching.amplitude;
+                    let diff_amplitude = matching.amplitude - point.amplitude;
                     let update_amplitude = diff_amplitude * update_scale;
                     matching.amplitude += update_amplitude;
 
@@ -150,22 +152,27 @@ impl PointExtractorConsumer {
                 if !item.matched_last_frame {
                     item.log_likelihood -= UNMATCHED_POINT_PENALTY;
                 }
+
+                if item.amplitude < AMPLITUDE_PENALTY_THRESHOLD {
+                    item.log_likelihood -= AMPLITUDE_PENALTY;
+                }
             }
         }
 
+        let pre_discard_count = self.state.len();
         self.state = self.state.iter()
             .filter(|cand|cand.log_likelihood > POINT_DISCARD_THRESHOLD)
             .map(|x| x.clone())
             .collect();
 
-        info!("state len: {:?}", self.state.len());
+        info!(state_len = self.state.len(), discarded = pre_discard_count - self.state.len(), "state updated");
         self.state.sort_by_cached_key(|cand|OrderedFloat(cand.log_likelihood.neg()));
 
-        let mut i = 0;
-        while i < self.state.len() && self.state[i].log_likelihood > -5.0 {
-            info!("{:?}", &self.state[i]);
-            i += 1;
-        }
+        // let mut i = 0;
+        // while i < self.state.len() && self.state[i].log_likelihood > -5.0 {
+        //     info!("{:?}", &self.state[i]);
+        //     i += 1;
+        // }
     }
 
     pub fn preprocess_image(&self, img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<GrayImage, Box<dyn Error>> {
@@ -209,11 +216,6 @@ impl PointExtractorConsumer {
             .iter()
             .map(|candidate| self.fit_point(candidate, &subtracted))
             .enumerate()
-            .filter(|(_, cand)|
-                cand.x >= 0.0 && cand.y >= 0.0
-                    && cand.x < img.width() as f64 && cand.y < img.height() as f64
-                    && cand.radius < CANDIDATE_MAX_RADIUS && cand.radius > CANDIDATE_MIN_RADIUS
-            )
             .collect();
 
         let mut count_refitted: usize = 0;
@@ -222,6 +224,7 @@ impl PointExtractorConsumer {
         for (idx, refitted_point) in fitted_existing_points.iter() {
             if refitted_point.latest_score > MIN_EXISTING_MATCH_SCORE {
                 self.state[*idx] = self.state[*idx].update_with(refitted_point);
+                self.state[*idx].matched_last_frame = true;
                 count_refitted += 1;
             } else {
                 count_not_refitted += 1;
@@ -239,8 +242,10 @@ impl PointExtractorConsumer {
         let points: Vec<ImagePointCandidate> = point_candidates
             .iter()
             .map(|candidate| self.fit_point(candidate, &subtracted))
-            .filter(|cand|cand.x >= 0.0 && cand.y >= 0.0 && cand.x < img.width() as f64 && cand.y < img.height() as f64 && cand.radius < CANDIDATE_MAX_RADIUS && cand.radius > CANDIDATE_MIN_RADIUS)
+            .filter(|cand|cand.x >= 0.0 && cand.y >= 0.0 && cand.x < img.width() as f64 && cand.y < img.height() as f64 && cand.latest_score > CANDIDATE_MIN_SCORE)
             .collect();
+
+        info!(count_accepted = ?points.len(), "accepted");
 
         self.update_state(points);
 
@@ -324,14 +329,14 @@ impl PointExtractorConsumer {
         let mut new_img: DynamicImage = img.clone().into_rgba8().into();
 
         for (_idx, &point) in query.iter().enumerate() {
-            // if point.log_likelihood < 5 && point.age < 5 {
-            //     continue;
-            // }
+            if point.log_likelihood < 10.0 || point.age < 5 {
+                continue;
+            }
 
-            let draw_color = if point.log_likelihood < 10.0 {
+            let draw_color = if point.log_likelihood < 30.0 {
                 red
             } else {
-                if point.age < 10 {
+                if point.age < 30 {
                     blue
                 } else {
                     green
@@ -342,7 +347,7 @@ impl PointExtractorConsumer {
             draw_hollow_circle_mut(&mut new_img, centre, point.radius as i32 * 4, draw_color);
 
             let num = NumberFormat::new();
-            let label = format!("${} LL{} ∅{} ↑{}", num.format(".2s", point.latest_score), num.format(".2s", point.log_likelihood), num.format(".2s", point.radius), num.format(".2s", point.amplitude));
+            let label = format!("${} LL{} R{} A{}", num.format(".2s", point.latest_score), num.format(".2s", point.log_likelihood), num.format(".2s", point.radius), num.format(".2s", point.amplitude));
 
             draw_text_mut(
                 &mut new_img,

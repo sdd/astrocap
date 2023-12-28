@@ -46,7 +46,7 @@ impl PointDetector for PointDetectPeak {
                     }
 
                     // find existing matches within POINT_EXCLUSION_RADIUS of current match
-                    let mut matching: Vec<(usize, ImagePointCandidate)> = points.iter()
+                    let mut matching: Vec<(usize, ImagePointCandidate)> = points.iter().chain(_existing_points.iter())
                         .enumerate()
                     .filter(|&(_idx, existing)| {
                         let xd = existing.x - (point_x as f64).abs();
@@ -67,8 +67,11 @@ impl PointDetector for PointDetectPeak {
                         } else {
                             // otherwise remove the matches in favour of our new one
                             matching.sort_by_key(|(idx, _)| 0 - (*idx as isize));
+                            let points_len = points.len();
                             for (idx, _) in matching.iter() {
-                                points.remove(*idx);
+                                if *idx < points_len {
+                                    points.remove(*idx);
+                                }
                             }
                         }
                     }
@@ -81,7 +84,7 @@ impl PointDetector for PointDetectPeak {
                         log_likelihood: 0.0,
                         age: 0,
                         latest_score: -10e10,
-                        matched_last_frame: true,
+                        matched_last_frame: false,
                     };
 
                     points.push(new_point.clone());
@@ -90,7 +93,6 @@ impl PointDetector for PointDetectPeak {
                 x += STEP_X;
             }
             x = 0;
-            info!(y);
             y += STEP_Y;
         }
 

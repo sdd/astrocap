@@ -12,7 +12,7 @@ pub trait PointFitter {
     fn fit_point(&self, point: &ImagePointCandidate, img: &GrayImage) -> ImagePointCandidate;
 }
 
-const INITIAL_GAUSSIAN_ALPHA: f64 = 2.5f64;
+const INITIAL_GAUSSIAN_ALPHA: f64 = 2.5;
 const MAX_ITERATIONS: u64 = 100;
 const SD_TOLERANCE: f64 = 1.0;
 const PATCH_SIZE: u32 = 20;
@@ -22,13 +22,20 @@ lazy_static! {
 }
 
 const COST_FIT_COST_MULTIPLIER: f64 = 0.00002f64;
-const COST_RADIUS_TARGET: f64 = 2.0;
-const COST_RADIUS_MULTIPLIER: f64 = 2.0;
+const COST_RADIUS_TARGET: f64 = 2.3;
+const COST_RADIUS_MULTIPLIER: f64 = 10.0;
 
-pub fn transform_cost(cost: f64, radius_x: f64, radius_y: f64) -> f64 {
+const COST_AMPLITUDE_TARGET: f64 = 68.1;
+const COST_AMPLITUDE_MULTIPLIER: f64 = 0.001;
+
+const COST_OFFSET: f64 = 9.50;
+
+pub fn transform_cost(cost: f64, radius_x: f64, radius_y: f64, amplitude: f64) -> f64 {
     (cost * COST_FIT_COST_MULTIPLIER)
         - ( (COST_RADIUS_TARGET - radius_x).powi(2) * COST_RADIUS_MULTIPLIER)
         - ( (COST_RADIUS_TARGET - radius_y).powi(2) * COST_RADIUS_MULTIPLIER)
+        - ( (COST_AMPLITUDE_TARGET - amplitude).powi(2) * COST_AMPLITUDE_MULTIPLIER)
+        + COST_OFFSET
 }
 
 
@@ -63,19 +70,17 @@ impl PointFitter for PointFitterGaussianNelderMead {
 
         let avg_radius = (result.state.best_param[2] + result.state.best_param[3]) / 2.0;
 
-        let latest_score = transform_cost(result.state.cost, result.state.best_param[2], result.state.best_param[3]);
+        let latest_score = transform_cost(result.state.cost, result.state.best_param[2], result.state.best_param[3], result.state.best_param[4]);
 
         let response = ImagePointCandidate {
             x: point.x + result.state.best_param[0],
             y: point.y + result.state.best_param[1],
             radius: avg_radius,
             log_likelihood: point.log_likelihood + latest_score,
-            amplitude: result.state.best_param[4]
-                * ((result.state.best_param[2] + result.state.best_param[3]) / 2.0),
-
+            amplitude: result.state.best_param[4],
             age: point.age,
             latest_score,
-            matched_last_frame: true,
+            matched_last_frame: point.matched_last_frame,
         };
         if result.state.cost == 0.0 {
             warn!(?result.state, "Cost of zero")
@@ -111,7 +116,6 @@ pub fn create_simplex(point: &[f64], perturbations: &[f64]) -> Vec<Vec<f64>> {
         })
         .collect();
 
-    //println!("Simplex: {:?}", &simplex);
     simplex
 }
 
