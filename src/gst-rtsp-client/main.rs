@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use clap::Parser;
@@ -39,15 +41,19 @@ fn app_main() -> Result<()> {
         return Err(anyhow!("Invalid Arguments"));
     }
 
+    let shared_args: Arc<Args> = Arc::new(args);
+
     // Initialize GStreamer
     gst::init()?;
 
     let (prod, cons) = RingBuffer::<Arc<(isize, VideoFrame<Readable>)>>::new(5);
 
-    let prod_thread = thread::spawn(move || gst_pipeline::produce_frames(&args, prod));
+    let prod_thread_args = shared_args.clone();
+    let prod_thread = thread::spawn(move || gst_pipeline::produce_frames(prod_thread_args, prod));
 
+    let cons_thread_args = shared_args.clone();
     let cons_thread = thread::spawn(move || {
-        let mut consumer = PointExtractorConsumer::new();
+        let mut consumer = PointExtractorConsumer::new(cons_thread_args);
         consumer.consume_frames_to_extracted_point_stream(cons)
     });
 

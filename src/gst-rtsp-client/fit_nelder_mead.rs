@@ -1,9 +1,8 @@
-use argmin::core::{ArgminOp, ArgminSlogLogger, Error, Executor, ObserverMode, TerminationReason};
+use argmin::core::{CostFunction, Error, State, TerminationReason};
 use argmin::solver::neldermead::NelderMead;
-
 use image::GrayImage;
 use lazy_static::lazy_static;
-
+use ndarray::{array, Array1};
 use tracing::{debug, warn};
 
 use crate::point_extractor_consumer::ImagePointCandidate;
@@ -25,7 +24,7 @@ const COST_FIT_COST_MULTIPLIER: f64 = 0.00002f64;
 const COST_RADIUS_TARGET: f64 = 2.3;
 const COST_RADIUS_MULTIPLIER: f64 = 10.0;
 
-const COST_AMPLITUDE_TARGET: f64 = 68.1;
+const COST_AMPLITUDE_TARGET: f64 = 68.0;
 const COST_AMPLITUDE_MULTIPLIER: f64 = 0.001;
 
 const COST_OFFSET: f64 = 9.50;
@@ -57,36 +56,39 @@ impl PointFitter for PointFitterGaussianNelderMead {
             img.get_pixel(problem.centre_x as u32, problem.centre_y as u32)[0] as f64,
         ];
 
-        let solver = NelderMead::new()
-            .with_initial_params(create_simplex(&initial_params, &PERTURBATIONS))
-            .sd_tolerance(SD_TOLERANCE);
+        let solver = NelderMead::new(create_simplex(&initial_params, &PERTURBATIONS))
+            //.with_initial_params(create_simplex(&initial_params, &PERTURBATIONS))
+            .with_sd_tolerance(SD_TOLERANCE).unwrap();
 
-        let result = Executor::new(problem, solver, initial_params)
+        let result = argmin::core::Executor::new(problem, solver)
             //.add_observer(ArgminSlogLogger::term(), ObserverMode::NewBest)
-            .max_iters(MAX_ITERATIONS)
+            .configure(|state| state.max_iters(100))
             .timer(false)
             .run()
             .unwrap();
 
-        let avg_radius = (result.state.best_param[2] + result.state.best_param[3]) / 2.0;
+        let best = result.state().get_best_param().unwrap();
+        let cost = result.state().get_best_cost();
 
-        let latest_score = transform_cost(result.state.cost, result.state.best_param[2], result.state.best_param[3], result.state.best_param[4]);
+        let avg_radius = (best[2] + best[3]) / 2.0;
+
+        let latest_score = transform_cost(cost, best[2], best[3], best[4]);
 
         let response = ImagePointCandidate {
-            x: point.x + result.state.best_param[0],
-            y: point.y + result.state.best_param[1],
+            x: point.x + best[0],
+            y: point.y + best[1],
             radius: avg_radius,
             log_likelihood: point.log_likelihood + latest_score,
-            amplitude: result.state.best_param[4],
+            amplitude: best[4],
             age: point.age,
             latest_score,
             matched_last_frame: point.matched_last_frame,
         };
-        if result.state.cost == 0.0 {
+        if cost == 0.0 {
             warn!(?result.state, "Cost of zero")
         }
 
-        if result.state.termination_reason != TerminationReason::TargetToleranceReached {
+        if result.state().get_termination_reason().unwrap() != &TerminationReason::MaxItersReached {
             debug!(
                 "point fit unexpected result: {:#} (response: {:?})",
                 &result, &response
@@ -97,12 +99,12 @@ impl PointFitter for PointFitterGaussianNelderMead {
     }
 }
 
-pub fn create_simplex(point: &[f64], perturbations: &[f64]) -> Vec<Vec<f64>> {
+pub fn create_simplex(point: &[f64], perturbations: &[f64]) -> Vec<Array1<f64>> {
     let simplex = perturbations
         .iter()
         .enumerate()
         .map(|(perturbation_idx, &perturbation)| {
-            point
+            Array1::from_vec(point
                 .iter()
                 .enumerate()
                 .map(|(coord_idx, &coord)| {
@@ -112,7 +114,7 @@ pub fn create_simplex(point: &[f64], perturbations: &[f64]) -> Vec<Vec<f64>> {
                         coord
                     }
                 })
-                .collect()
+                .collect())
         })
         .collect();
 
@@ -126,14 +128,11 @@ struct Gaussian2DFitProblem<'a> {
     centre_y: f64,
 }
 
-impl ArgminOp for Gaussian2DFitProblem<'_> {
-    type Param = Vec<f64>;
+impl CostFunction for Gaussian2DFitProblem<'_> {
+    type Param = Array1<f64>;
     type Output = f64;
-    type Hessian = ();
-    type Jacobian = ();
-    type Float = f64;
 
-    fn apply(&self, params: &Self::Param) -> Result<Self::Output, Error> {
+    fn cost(&self, params: &Self::Param) -> Result<Self::Output, argmin::core::Error> {
         let mut residual: f64 = 0.0;
         let mut within_image = false;
 

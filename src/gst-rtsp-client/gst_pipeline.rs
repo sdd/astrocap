@@ -56,7 +56,7 @@ fn build_generic_pipeline(pipeline_str: &str, target_format: VideoFormat) -> any
 }
 
 #[instrument(skip_all)]
-pub fn produce_frames(args: &Args, mut prod: Producer<Arc<(isize, VideoFrame<Readable>)>>) -> anyhow::Result<()> {
+pub fn produce_frames(args: Arc<Args>, mut prod: Producer<Arc<(isize, VideoFrame<Readable>)>>) -> anyhow::Result<()> {
     let (pipeline, appsink) = if let Some(uri) = &args.uri {
         build_rtsp_client_pipeline(
             uri,

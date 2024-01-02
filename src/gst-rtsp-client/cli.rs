@@ -22,6 +22,10 @@ pub struct Args {
     #[arg(short, long)]
     pub(crate) file: Option<String>,
 
+    /// mask image
+    #[arg(short, long)]
+    pub(crate) mask: Option<String>,
+
     #[clap(flatten)]
     verbose: clap_verbosity_flag::Verbosity,
 }

@@ -3,7 +3,7 @@ use image::{DynamicImage, EncodableLayout, GrayImage, ImageBuffer, Luma, Pixel, 
 use gst_video::VideoFrame;
 use gst_video::video_frame::Readable;
 use format_num::NumberFormat;
-use ordered_float::OrderedFloat;
+use itertools::Itertools;
 use std::ops::{Deref, Neg};
 use tracing::{debug, info, instrument};
 use rtrb::Consumer;
@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use rusttype::Font;
+use image::io::Reader as ImageReader;
 use imageproc::drawing::{draw_hollow_circle_mut, draw_text_mut};
 use imageproc::filter::median_filter;
 use imageproc::map::map_colors2;
@@ -19,6 +20,7 @@ use kiddo::float::kdtree::KdTree;
 use kiddo::SquaredEuclidean;
 use show_image::{WindowOptions, WindowProxy};
 use serde::{Deserialize, Serialize};
+use crate::cli::Args;
 
 use crate::fit_nelder_mead::PointFitterGaussianNelderMead;
 use crate::fit_nelder_mead::PointFitter;
@@ -56,11 +58,11 @@ impl ImagePointCandidate {
         let update_scale = 0.25;//;other.log_likelihood.min(1.0) / self.log_likelihood.min(1.0);
 
         let diff_x = other.x - self.x;
-        let update_x = diff_x;// * update_scale;
+        let update_x = diff_x * update_scale;
         let x = self.x + update_x;
 
         let diff_y = other.y - self.y;
-        let update_y = diff_y;// * update_scale;
+        let update_y = diff_y * update_scale;
         let y = self.y + update_y;
 
         let diff_radius = other.radius - self.radius;
@@ -88,17 +90,30 @@ pub struct PointExtractorConsumer {
     state: Vec<ImagePointCandidate>,
     kdtree: Tree,
     window: WindowProxy,
+    mask: Option<ImageBuffer::<Luma<u8>, Vec<u8>>>,
 }
 
 impl PointExtractorConsumer {
-    pub fn new() -> Self {
+    pub fn new(args: Arc<Args>) -> Self {
 
         let window = show_image::create_window("Annotated Frames", WindowOptions::default().set_size([1920, 1080])).expect("Could not create window");
+
+        let mask = args.mask.clone().and_then(|mask_file_path| {
+            let image = ImageReader::open(mask_file_path).unwrap();
+            info!("loaded mask image");
+            let decoded_image = image.decode().unwrap();
+            info!("decoded mask image");
+            let luma8_image = decoded_image.to_luma8();
+            info!("converted mask image to luma8");
+
+            Some(luma8_image)
+        });
 
         PointExtractorConsumer {
             state: vec![],
             kdtree: Tree::new(),
             window,
+            mask
         }
     }
 
@@ -160,19 +175,11 @@ impl PointExtractorConsumer {
         }
 
         let pre_discard_count = self.state.len();
-        self.state = self.state.iter()
+        self.state = self.state.clone().into_iter()
             .filter(|cand|cand.log_likelihood > POINT_DISCARD_THRESHOLD)
-            .map(|x| x.clone())
             .collect();
 
         info!(state_len = self.state.len(), discarded = pre_discard_count - self.state.len(), "state updated");
-        self.state.sort_by_cached_key(|cand|OrderedFloat(cand.log_likelihood.neg()));
-
-        // let mut i = 0;
-        // while i < self.state.len() && self.state[i].log_likelihood > -5.0 {
-        //     info!("{:?}", &self.state[i]);
-        //     i += 1;
-        // }
     }
 
     pub fn preprocess_image(&self, img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<GrayImage, Box<dyn Error>> {
@@ -236,7 +243,7 @@ impl PointExtractorConsumer {
         let point_extractor = PointDetectPeak {};
 
         let point_candidates: Vec<ImagePointCandidate> =
-            point_extractor.extract_from_img(&subtracted, &self.state);
+            point_extractor.extract_from_img(&subtracted, &self.state, &self.mask);
         info!(count_extracted = ?point_candidates.len(), "extracted");
 
         let points: Vec<ImagePointCandidate> = point_candidates
@@ -248,6 +255,16 @@ impl PointExtractorConsumer {
         info!(count_accepted = ?points.len(), "accepted");
 
         self.update_state(points);
+
+        let strong_candidates: Vec<_> = self.state.iter().filter(|&c| {
+            c.age >= 30
+        }).collect();
+
+        if strong_candidates.len() > 6 {
+            info!("Attempting a fit");
+
+        }
+
 
         let img_query_annotated = self.annotate_image_query(&img.into(), &self.state);
 
@@ -313,11 +330,16 @@ impl PointExtractorConsumer {
     }
 
     pub fn annotate_image_query(&self, img: &DynamicImage, query: &Vec<ImagePointCandidate>) -> DynamicImage {
-        let blue = Rgba([0u8, 0u8, 255u8, 255u8]);
+        let cyan = Rgba([0u8, 255u8, 255u8, 255u8]);
         let green = Rgba([0u8, 255u8, 0u8, 255u8]);
         let red = Rgba([255u8, 0u8, 0u8, 255u8]);
 
+        #[cfg(target_os = "macos")]
         let font = Vec::from(include_bytes!("/System/Library/Fonts/Monaco.ttf") as &[u8]);
+
+        #[cfg(not(target_os = "macos"))]
+        let font = Vec::from(include_bytes!("/home/scotty/.fonts/f/Fira_Code_Regular_Nerd_Font_Complete.otf") as &[u8]);
+
         let font = Font::try_from_vec(font).unwrap();
 
         let height = 18f32;
@@ -337,7 +359,7 @@ impl PointExtractorConsumer {
                 red
             } else {
                 if point.age < 30 {
-                    blue
+                    cyan
                 } else {
                     green
                 }

@@ -1,10 +1,11 @@
 use image::GrayImage;
+use itertools::enumerate;
 use ordered_float::OrderedFloat;
-use tracing::info;
 use crate::point_extractor_consumer::ImagePointCandidate;
 
 // const POINT_SKIP_STEP: u32 = 3;
 const POINT_EXCLUSION_RADIUS: f64 = 20.0;
+const EXISTING_POINT_EXCLUSION_RADIUS_2: f64 = 100.0;
 const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
 const POINT_THRESHOLD: u8 = 43;
 const STEP_X: u32 = 1;
@@ -14,13 +15,13 @@ pub const PATCH_SIZE: u32 = 20;
 const INITIAL_RADIUS: f64 = 2.2;
 
 pub trait PointDetector {
-    fn extract_from_img(&self, img: &GrayImage, existing_points: &[ImagePointCandidate]) -> Vec<ImagePointCandidate>;
+    fn extract_from_img(&self, img: &GrayImage, existing_points: &[ImagePointCandidate], mask: &Option<GrayImage>) -> Vec<ImagePointCandidate>;
 }
 
 pub struct PointDetectPeak {}
 
 impl PointDetector for PointDetectPeak {
-    fn extract_from_img(&self, img: &GrayImage, _existing_points: &[ImagePointCandidate]) -> Vec<ImagePointCandidate> {
+    fn extract_from_img(&self, img: &GrayImage, existing_points: &[ImagePointCandidate], mask: &Option<GrayImage>) -> Vec<ImagePointCandidate> {
         let mut points: Vec<ImagePointCandidate> = vec![];
 
         let (img_w, img_h) = img.dimensions();
@@ -29,6 +30,13 @@ impl PointDetector for PointDetectPeak {
 
         while y < img_h {
             while x < img_w {
+                if let Some(mask) = mask {
+                    if mask.get_pixel(x, y)[0] == 0 {
+                        x += STEP_X;
+                        continue;
+                    }
+                }
+
                 let val: u8 = img.get_pixel(x, y)[0];
 
                 if val > POINT_THRESHOLD {
@@ -45,8 +53,20 @@ impl PointDetector for PointDetectPeak {
                         curr_val = img.get_pixel(point_x, point_y)[0];
                     }
 
+                    // find matches in pre-existing state within POINT_EXCLUSION_RADIUS of current match
+                    let matching_existing = existing_points.iter()
+                        .any(|&existing| {
+                            let xd = existing.x - (point_x as f64).abs();
+                            let yd = (existing.y - (point_y as f64)).abs();
+                            ((xd * xd) + (yd * yd)) < EXISTING_POINT_EXCLUSION_RADIUS_2
+                        });
+                    if matching_existing {
+                        x += STEP_X;
+                        continue;
+                    }
+
                     // find existing matches within POINT_EXCLUSION_RADIUS of current match
-                    let mut matching: Vec<(usize, ImagePointCandidate)> = points.iter().chain(_existing_points.iter())
+                    let mut matching: Vec<(usize, ImagePointCandidate)> = points.iter()
                         .enumerate()
                     .filter(|&(_idx, existing)| {
                         let xd = existing.x - (point_x as f64).abs();
