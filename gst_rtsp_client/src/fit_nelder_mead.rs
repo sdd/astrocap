@@ -1,8 +1,8 @@
-use argmin::core::{CostFunction, Error, State, TerminationReason};
+use argmin::core::{CostFunction, State, TerminationReason};
 use argmin::solver::neldermead::NelderMead;
 use image::GrayImage;
 use lazy_static::lazy_static;
-use ndarray::{array, Array1};
+use ndarray::Array1;
 use tracing::{debug, warn};
 
 use crate::point_extractor_consumer::ImagePointCandidate;
@@ -31,12 +31,11 @@ const COST_OFFSET: f64 = 9.50;
 
 pub fn transform_cost(cost: f64, radius_x: f64, radius_y: f64, amplitude: f64) -> f64 {
     (cost * COST_FIT_COST_MULTIPLIER)
-        - ( (COST_RADIUS_TARGET - radius_x).powi(2) * COST_RADIUS_MULTIPLIER)
-        - ( (COST_RADIUS_TARGET - radius_y).powi(2) * COST_RADIUS_MULTIPLIER)
-        - ( (COST_AMPLITUDE_TARGET - amplitude).powi(2) * COST_AMPLITUDE_MULTIPLIER)
+        - ((COST_RADIUS_TARGET - radius_x).powi(2) * COST_RADIUS_MULTIPLIER)
+        - ((COST_RADIUS_TARGET - radius_y).powi(2) * COST_RADIUS_MULTIPLIER)
+        - ((COST_AMPLITUDE_TARGET - amplitude).powi(2) * COST_AMPLITUDE_MULTIPLIER)
         + COST_OFFSET
 }
-
 
 pub struct PointFitterGaussianNelderMead {}
 
@@ -58,7 +57,8 @@ impl PointFitter for PointFitterGaussianNelderMead {
 
         let solver = NelderMead::new(create_simplex(&initial_params, &PERTURBATIONS))
             //.with_initial_params(create_simplex(&initial_params, &PERTURBATIONS))
-            .with_sd_tolerance(SD_TOLERANCE).unwrap();
+            .with_sd_tolerance(SD_TOLERANCE)
+            .unwrap();
 
         let result = argmin::core::Executor::new(problem, solver)
             //.add_observer(ArgminSlogLogger::term(), ObserverMode::NewBest)
@@ -104,17 +104,19 @@ pub fn create_simplex(point: &[f64], perturbations: &[f64]) -> Vec<Array1<f64>> 
         .iter()
         .enumerate()
         .map(|(perturbation_idx, &perturbation)| {
-            Array1::from_vec(point
-                .iter()
-                .enumerate()
-                .map(|(coord_idx, &coord)| {
-                    if coord_idx == perturbation_idx {
-                        coord + perturbation
-                    } else {
-                        coord
-                    }
-                })
-                .collect())
+            Array1::from_vec(
+                point
+                    .iter()
+                    .enumerate()
+                    .map(|(coord_idx, &coord)| {
+                        if coord_idx == perturbation_idx {
+                            coord + perturbation
+                        } else {
+                            coord
+                        }
+                    })
+                    .collect(),
+            )
         })
         .collect();
 
@@ -142,10 +144,8 @@ impl CostFunction for Gaussian2DFitProblem<'_> {
         let y_range = (self.centre_y as i32 - PATCH_SIZE as i32).max(0) as u32
             ..(self.centre_y as i32 + PATCH_SIZE as i32).min((self.img.height() - 1) as i32) as u32;
 
-        for x in x_range.clone()
-        {
-            for y in y_range.clone()
-            {
+        for x in x_range.clone() {
+            for y in y_range.clone() {
                 within_image = true;
                 let img_val = self.img.get_pixel(x, y)[0] as f64;
                 let model_val = gaussian_2d(
@@ -186,15 +186,14 @@ pub fn gaussian_2d(
     amplitude * (-(x_part * x_part) - (y_part * y_part)).exp()
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::fs::File;
-    use image::{ImageBuffer, Luma};
     use image::io::Reader as ImageReader;
+    use image::{ImageBuffer, Luma};
     use kiddo::float::kdtree::KdTree;
     use kiddo::SquaredEuclidean;
+    use std::collections::HashSet;
+    use std::fs::File;
 
     use crate::fit_nelder_mead::{PointFitter, PointFitterGaussianNelderMead};
     use crate::point_extractor_consumer::ImagePointCandidate;
@@ -202,7 +201,7 @@ mod tests {
     struct Point {
         x: usize,
         y: usize,
-        amp: u8
+        amp: u8,
     }
 
     type Tree = KdTree<f64, usize, 2, 32, u32>;
@@ -214,25 +213,52 @@ mod tests {
         let fitter = PointFitterGaussianNelderMead {};
 
         // Load a set of images with known good star positions
-        let raw_img = ImageReader::open("test-images/test-image-1-subtracted.png").unwrap().decode().unwrap();
+        let raw_img =
+            ImageReader::open("../test-images/gst_rtsp_client/test-image-1-subtracted.png")
+                .unwrap()
+                .decode()
+                .unwrap();
         let img_height = raw_img.height();
         let img_width = raw_img.width();
 
-        let img = ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(
-            img_width, img_height, raw_img.into_bytes()
-        ).expect("Could not create ImageBuffer from VideoFrame");
+        let img =
+            ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(img_width, img_height, raw_img.into_bytes())
+                .expect("Could not create ImageBuffer from VideoFrame");
 
-        let points: Vec<ImagePointCandidate> = serde_json::from_reader(File::open("test-images/test-image-1-detected.json").unwrap()).unwrap();
+        let points: Vec<ImagePointCandidate> = serde_json::from_reader(
+            File::open("../test-images/gst_rtsp_client/test-image-1-detected.json").unwrap(),
+        )
+        .unwrap();
 
         let known_good = [
-            Point { x: 1054, y: 506, amp: 80 },
-            Point { x: 1291, y: 427, amp: 52 },
-            Point { x: 1578, y: 522, amp: 62 },
-            Point { x: 316, y: 894, amp: 78 },
+            Point {
+                x: 1054,
+                y: 506,
+                amp: 80,
+            },
+            Point {
+                x: 1291,
+                y: 427,
+                amp: 52,
+            },
+            Point {
+                x: 1578,
+                y: 522,
+                amp: 62,
+            },
+            Point {
+                x: 316,
+                y: 894,
+                amp: 78,
+            },
         ];
 
         let results: Vec<_> = points.iter().map(|p| fitter.fit_point(p, &img)).collect();
-        serde_json::to_writer(File::create("test-images/test-image-1-fitted.json").unwrap(), &results).unwrap();
+        serde_json::to_writer(
+            File::create("../test-images/gst_rtsp_client/test-image-1-fitted.json").unwrap(),
+            &results,
+        )
+        .unwrap();
 
         let mut tree: Tree = Tree::new();
         for (idx, point) in results.iter().enumerate() {

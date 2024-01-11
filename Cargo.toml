@@ -1,60 +1,10 @@
-[package]
-name = "astrocap"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-[dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-clap-verbosity-flag = "2"
+members = [
+    "astrocap_model",
+    "gst_rtsp_client",
+    "opencv_load_from_file",
+    "read_mkv_metadata"
+]
 
-# removed due to conflict
-#eye = "0.4"
-
-derive_more = "0.99.17"
-futures-core = "0.3"
-gst = { package = "gstreamer", version = "0.21" }
-gst-app = { package = "gstreamer-app", version = "0.21.2" }
-gst-video = { package = "gstreamer-video", version = "0.21.2" }
-http = "1.0.0"
-imageproc = "0.23.0"
-iced = "0.10"
-image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
-kiddo = { version = "4.0.0" }
-matroska = "0.26"
-opencv = {  version = "0.84" }
-rtrb = "0.3.0"
-#solvastro = { path = "../solvastro-2", package = "solvastro" }
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-rusttype = "0.9.3"
-show-image = { version = "0.13.1", features = ["image"] }
-argmin = "0.8"
-argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
-
-lazy_static = "1.4.0"
-format_num = "0.1.0"
-ordered-float = "4.2.0"
-serde_json = "1.0.108"
-serde = { version = "1.0.193", features = ["derive"] }
-itertools = "0.12.0"
-ndarray = "0.15.6"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.25"
-
-[[bin]]
-name = "read-mkv-metadata"
-path = "src/read-mkv-metadata/main.rs"
-
-[[bin]]
-name = "read-frame-from-file"
-path = "src/read-frame-from-file/main.rs"
-
-[[bin]]
-name = "opencv-load-from-file"
-path = "src/opencv-load-from-file/main.rs"
-
-[[bin]]
-name = "gst-rtsp-client"
-path = "src/gst-rtsp-client/main.rs"
+resolver = "2"

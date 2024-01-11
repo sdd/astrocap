@@ -1,0 +1,14 @@
+[package]
+name = "opencv_load_from_file"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap-verbosity-flag = "2"
+opencv = {  version = "0.84" }
+
+[[bin]]
+name = "opencv-load-from-file"
+path = "src/main.rs"

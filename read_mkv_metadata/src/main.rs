@@ -16,7 +16,8 @@ struct Args {
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    let matroska = matroska::open(&args.path).expect(&format!("Could not open file '{:?}'", &args.path));
+    let matroska =
+        matroska::open(&args.path).expect(&format!("Could not open file '{:?}'", &args.path));
 
     println!("{:?}", &matroska);
 

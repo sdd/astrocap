@@ -1,34 +1,35 @@
 extern crate core;
 
-use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use cli::Args;
+use gst_video::video_frame::Readable;
 use gst_video::VideoFrame;
 use rtrb::RingBuffer;
+use std::sync::Arc;
 use std::thread;
-use gst_video::video_frame::Readable;
 use tracing::info;
-use cli::Args;
 
 use crate::point_extractor_consumer::PointExtractorConsumer;
 
-mod run;
 mod cli;
-mod gst_pipeline;
-mod snapshot_consumer;
-mod point_extractor_consumer;
 mod fit_nelder_mead;
+mod gst_pipeline;
 mod point_detect_peak;
+mod point_extractor_consumer;
+mod run;
+mod snapshot_consumer;
 // mod buffer;
 
 fn app_main() -> Result<()> {
     // Set up logging
     let subscriber = tracing_subscriber::fmt()
-        .event_format(tracing_subscriber::fmt::format()
-            .with_target(false) // don't include targets
-            .with_thread_ids(false) // include the thread ID of the current thread
-            .with_thread_names(false) // include the name of the current thread
-            .compact()
+        .event_format(
+            tracing_subscriber::fmt::format()
+                .with_target(false) // don't include targets
+                .with_thread_ids(false) // include the thread ID of the current thread
+                .with_thread_names(false) // include the name of the current thread
+                .compact(),
         )
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;

@@ -1,7 +1,7 @@
 use clap::Parser;
-use http::Uri;
 use derive_more::{Display, Error};
 use gst::glib;
+use http::Uri;
 
 #[derive(Debug, Display, Error)]
 #[display(fmt = "Received error from {src}: {error} (debug: {debug:?})")]

@@ -1,12 +1,12 @@
-use image::{EncodableLayout, ImageBuffer, Luma, Pixel, PixelWithColorType};
-use gst_video::VideoFrame;
 use gst_video::video_frame::Readable;
-use std::ops::Deref;
-use tracing::{debug, instrument};
+use gst_video::VideoFrame;
+use image::{EncodableLayout, ImageBuffer, Luma, Pixel, PixelWithColorType};
 use rtrb::Consumer;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
+use tracing::{debug, instrument};
 
 #[instrument(skip_all)]
 pub fn consume_frames_to_snapshot_files(cons: Consumer<Arc<VideoFrame<Readable>>>) {
@@ -26,12 +26,16 @@ pub fn consume_frames_to_snapshot_files(cons: Consumer<Arc<VideoFrame<Readable>>
 
 #[allow(dead_code)]
 fn save_frame_to_file<P: Pixel>(frame: &VideoFrame<Readable>, path: &str)
-    where for<'a> &'a[u8]: Deref<Target = [P::Subpixel]>,
-          [P::Subpixel]: EncodableLayout,
-          P: PixelWithColorType,
+where
+    for<'a> &'a [u8]: Deref<Target = [P::Subpixel]>,
+    [P::Subpixel]: EncodableLayout,
+    P: PixelWithColorType,
 {
     let img = ImageBuffer::<P, &[u8]>::from_raw(
-        frame.width(), frame.height(), frame.plane_data(0).unwrap()
-    ).unwrap();
+        frame.width(),
+        frame.height(),
+        frame.plane_data(0).unwrap(),
+    )
+    .unwrap();
     img.save(path).unwrap();
 }

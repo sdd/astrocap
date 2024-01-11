@@ -21,14 +21,17 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let str_path = args.path.to_str().expect("Could not parse filename from path argument");
+    let str_path = args
+        .path
+        .to_str()
+        .expect("Could not parse filename from path argument");
 
     println!("Attempting to read file '{:?}'", &str_path);
 
-    let mut vidcap = VideoCapture::from_file(
-        str_path,
-        videoio::CAP_ANY
-    ).expect(&format!("OpenCV Could not open the file '{:?}'", &args.path));
+    let mut vidcap = VideoCapture::from_file(str_path, videoio::CAP_ANY).expect(&format!(
+        "OpenCV Could not open the file '{:?}'",
+        &args.path
+    ));
 
     if !VideoCapture::is_opened(&vidcap)? {
         panic!("OpenCV Could not open the file '{:?}'", &args.path);
@@ -38,7 +41,6 @@ fn main() -> Result<()> {
     let mut frame_number = 0;
 
     loop {
-
         // reads frames one by onex
         vidcap.read(&mut _frame)?;
 
