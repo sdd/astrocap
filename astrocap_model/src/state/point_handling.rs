@@ -18,20 +18,20 @@ pub struct DetectedPoint<F: Axis> {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FittedPoint<F: Axis> {
-    pub(crate) x: F,
-    pub(crate) y: F,
-    pub(crate) amplitude: F,
-    pub(crate) radius: F,
-    pub(crate) score: F,
+    pub x: F,
+    pub y: F,
+    pub amplitude: F,
+    pub radius: F,
+    pub score: F,
     pub(crate) detected_point_index: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StarCandidate<F: Axis> {
-    age: usize,
-    log_likelihood: F,
+    pub age: usize,
+    pub log_likelihood: F,
 
-    fitted_point_match_history: Vec<Option<NonMaxUsize>>,
+    pub fitted_point_match_history: Vec<Option<NonMaxUsize>>,
 }
 
 impl<F: Axis + ArgminFloat + Sum> ModelState<F>

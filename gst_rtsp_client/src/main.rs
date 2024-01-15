@@ -13,12 +13,16 @@ use tracing::info;
 use crate::point_extractor_consumer::PointExtractorConsumer;
 
 mod cli;
-mod fit_nelder_mead;
+// mod fit_nelder_mead;
 mod gst_pipeline;
-mod point_detect_peak;
+// mod point_detect_peak;
+mod image_luma_extractor;
+mod map_colors_2;
+mod median_filter;
 mod point_extractor_consumer;
 mod run;
 mod snapshot_consumer;
+mod video_frame_to_image_buffer;
 // mod buffer;
 
 fn app_main() -> Result<()> {

@@ -27,16 +27,16 @@ pub struct FrameState<F: Axis + ArgminFloat + Sum> {
     detected_points_list: Vec<DetectedPoint<F>>,
     detected_points_tree: KdTree<F, 2>,
 
-    fitted_points_list: Vec<FittedPoint<F>>,
+    pub fitted_points_list: Vec<FittedPoint<F>>,
 }
 
 #[derive(Debug)]
 pub struct ModelState<F: Axis + ArgminFloat + Sum> {
     model_config: ModelConfig,
 
-    recent_frame_states: Vec<FrameState<F>>,
+    pub recent_frame_states: Vec<FrameState<F>>,
 
-    star_candidates: Vec<StarCandidate<F>>,
+    pub star_candidates: Vec<StarCandidate<F>>,
     star_candidates_tree: KdTree<F, 2>,
 
     wcs: Option<Wcs>,
@@ -147,7 +147,7 @@ where
             }
         }
 
-        // update existing moving targett
+        // update existing moving targets
         self.update_moving_targets();
 
         // detect new moving targets
