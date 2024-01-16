@@ -139,10 +139,10 @@ impl PointExtractorConsumer {
                 if idx_and_frame.0 > current_frame_index {
                     debug!("Consuming a frame");
 
-                    // let img_buf = self.video_frame_to_img_buf_cloned(&idx_and_frame.1);
                     let img_buf = VideoFrameExt(&idx_and_frame.1).as_img_buf_arc();
 
                     let result = self.process_frame(img_buf).unwrap();
+
                     debug!(?result, ?idx, "processed frame");
                     idx += 1;
                     processed_frame = true;

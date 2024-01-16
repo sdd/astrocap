@@ -32,6 +32,9 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
+    fn new(frame: Arc<dyn ImageLumaExtractor>) -> Self
+    where
+        Self: Sized;
     fn fit(&self, point: &DetectedPoint<F>) -> FittedPoint<F>;
 }
 

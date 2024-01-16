@@ -42,7 +42,7 @@ where
 }
 
 pub struct PointFitterGaussianNelderMead {
-    pub img: Arc<dyn ImageLumaExtractor>,
+    pub frame: Arc<dyn ImageLumaExtractor>,
 }
 
 impl<F: ArgminFloat + Axis + Sum> PointFitter<F> for PointFitterGaussianNelderMead
@@ -63,8 +63,12 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
+    fn new(frame: Arc<dyn ImageLumaExtractor>) -> Self {
+        PointFitterGaussianNelderMead { frame }
+    }
+
     fn fit(&self, point: &DetectedPoint<F>) -> FittedPoint<F> {
-        let img = self.img.as_ref();
+        let img = self.frame.as_ref();
 
         let problem = Gaussian2DFitProblem {
             img,
@@ -294,7 +298,7 @@ mod tests {
         let img_arc: Arc<dyn ImageLumaExtractor> = Arc::new(img);
         // let img_arc_clone = img_arc.clone();
 
-        let fitter = PointFitterGaussianNelderMead { img: img_arc };
+        let fitter = PointFitterGaussianNelderMead { frame: img_arc };
 
         let mut results: Vec<_> = vec![];
         for point in points {

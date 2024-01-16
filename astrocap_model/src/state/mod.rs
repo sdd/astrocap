@@ -14,6 +14,8 @@ use std::error::Error;
 use std::iter::Sum;
 use std::sync::Arc;
 
+use tracing::info;
+
 use crate::config::ModelConfig;
 use crate::traits::{ImageLumaExtractor, PointDetector, PointFitter};
 use az::{Az, Cast};
@@ -32,7 +34,7 @@ pub struct FrameState<F: Axis + ArgminFloat + Sum> {
 
 #[derive(Debug)]
 pub struct ModelState<F: Axis + ArgminFloat + Sum> {
-    model_config: ModelConfig,
+    model_config: ModelConfig<F>,
 
     pub recent_frame_states: Vec<FrameState<F>>,
 
@@ -47,7 +49,7 @@ pub struct ModelState<F: Axis + ArgminFloat + Sum> {
 }
 
 impl<F: Axis + ArgminFloat + Sum> ModelState<F> {
-    pub fn new(model_config: ModelConfig) -> Self {
+    pub fn new(model_config: ModelConfig<F>) -> Self {
         ModelState {
             model_config,
             recent_frame_states: vec![],
@@ -88,6 +90,8 @@ where
             detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
         }
 
+        info!(detected_point_qty = detected_points_list.len());
+
         Self {
             detected_points_list,
             detected_points_tree,
@@ -115,19 +119,25 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub fn process_frame<PD: PointDetector<F>, PF: PointFitter<F>>(
+    pub fn process_frame<PD: PointDetector<F>, PF: PointFitter<F> + 'static>(
         self: &mut Self,
         frame: Arc<dyn ImageLumaExtractor>,
     ) -> Result<(), Box<dyn Error>> {
         // Create a new frame state and run the point
         // detector against the incoming frame
         self.recent_frame_states
-            .push(FrameState::from_frame::<PD>(frame));
+            .push(FrameState::from_frame::<PD>(frame.clone()));
+
+        let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
 
         if self.recent_frame_states.len() > 1 {
             // try to fit existing star candidates
-            self.fit_existing_points::<PF>();
+            self.fit_existing_points::<PF>(point_fitter.clone());
         }
+
+        // fit high_quality candidates from the current frame that didn't
+        // already get fitted against existing candidates
+        self.fit_strong_unmatched_new_points::<PF>(point_fitter.clone());
 
         if self.wcs.is_some() {
             // state is currently solved.
