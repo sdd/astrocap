@@ -1,4 +1,6 @@
 #![feature(slice_pattern)]
+#![feature(slice_take)]
+
 // pub mod model_state;
 pub mod traits;
 

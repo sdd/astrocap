@@ -6,6 +6,7 @@ pub mod streaks;
 pub use moving_targets::MovingTarget;
 pub use point_handling::{DetectedPoint, FittedPoint, StarCandidate};
 pub use solution_handling::{StarMatch, Wcs};
+use std::collections::HashSet;
 pub use streaks::MovingStreak;
 
 use argmin::core::ArgminFloat;
@@ -20,16 +21,17 @@ use crate::config::ModelConfig;
 use crate::traits::{ImageLumaExtractor, PointDetector, PointFitter};
 use az::{Az, Cast};
 use kiddo::float::kdtree::Axis;
-use kiddo::KdTree;
+use kiddo::{KdTree, SquaredEuclidean};
 use ndarray::{ArrayBase, Dim, OwnedRepr};
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+
+const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
 #[derive(Debug)]
 pub struct FrameState<F: Axis + ArgminFloat + Sum> {
-    detected_points_list: Vec<DetectedPoint<F>>,
-    detected_points_tree: KdTree<F, 2>,
-
-    pub fitted_points_list: Vec<FittedPoint<F>>,
+    pub detected_points_list: Vec<DetectedPoint<F>>,
+    pub detected_points_tree: KdTree<F, 2>,
 }
 
 #[derive(Debug)]
@@ -81,22 +83,60 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub fn from_frame<PD: PointDetector<F>>(frame: Arc<dyn ImageLumaExtractor>) -> Self {
-        let detected_points_list = PD::detect(frame, None);
-
+    pub fn from_frame<PD: PointDetector<F>>(
+        frame: Arc<dyn ImageLumaExtractor>,
+        mask: Arc<dyn ImageLumaExtractor>,
+    ) -> Self {
+        let mut detected_points_list = PD::detect(frame, mask);
         let mut detected_points_tree: KdTree<F, 2> =
             KdTree::with_capacity(detected_points_list.len());
+
+        // let mut detected_points_removed_index_list: Vec<_> =
+        //     Vec::with_capacity(detected_points_list.len());
+
         for (idx, point) in detected_points_list.iter().enumerate() {
+            // let query = [point.x.az::<F>(), point.y.az::<F>()];
+            // let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
+            //     &query,
+            //     POINT_EXCLUSION_DIST.az::<F>(),
+            //     usize::MAX,
+            //     false,
+            // );
+            //
+            // near_neighbours.sort_unstable_by_key(|nn| {
+            //     OrderedFloat(detected_points_list[nn.item as usize].amplitude)
+            // });
+            // if let Some(brightest) = near_neighbours.pop() {
+            //     let brightest_point = &detected_points_list[brightest.item as usize];
+            //     if brightest_point.amplitude < point.amplitude {
+            //         detected_points_tree.remove(
+            //             &[brightest_point.x.az::<F>(), brightest_point.y.az::<F>()],
+            //             brightest.item,
+            //         );
+            //         detected_points_removed_index_list.push(brightest.item);
             detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
+            //     }
+            // }
+            // for close_point_result in near_neighbours {
+            //     let point = &detected_points_list[close_point_result.item as usize];
+            //     detected_points_tree.remove(
+            //         &[point.x.az::<F>(), point.y.az::<F>()],
+            //         close_point_result.item,
+            //     );
+            //     detected_points_removed_index_list.push(close_point_result.item);
+            // }
         }
+
+        // detected_points_removed_index_list.sort_unstable();
+        // for &idx in detected_points_removed_index_list.iter().rev() {
+        //     detected_points_list.remove(idx as usize);
+        // }
 
         info!(detected_point_qty = detected_points_list.len());
 
         Self {
             detected_points_list,
             detected_points_tree,
-
-            fitted_points_list: vec![],
         }
     }
 }
@@ -122,22 +162,30 @@ where
     pub fn process_frame<PD: PointDetector<F>, PF: PointFitter<F> + 'static>(
         self: &mut Self,
         frame: Arc<dyn ImageLumaExtractor>,
+        mask: Arc<dyn ImageLumaExtractor>,
     ) -> Result<(), Box<dyn Error>> {
         // Create a new frame state and run the point
         // detector against the incoming frame
         self.recent_frame_states
-            .push(FrameState::from_frame::<PD>(frame.clone()));
+            .push(FrameState::from_frame::<PD>(frame.clone(), mask));
 
         let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
 
-        if self.recent_frame_states.len() > 1 {
+        let matched_point_indixes = if self.recent_frame_states.len() > 1 {
             // try to fit existing star candidates
-            self.fit_existing_points::<PF>(point_fitter.clone());
-        }
+            self.fit_existing_points::<PF>(point_fitter.clone())
+        } else {
+            HashSet::<usize>::new()
+        };
 
         // fit high_quality candidates from the current frame that didn't
         // already get fitted against existing candidates
-        self.fit_strong_unmatched_new_points::<PF>(point_fitter.clone());
+        self.fit_strong_unmatched_new_points::<PF>(
+            point_fitter.clone(),
+            frame.width(),
+            frame.height(),
+            matched_point_indixes,
+        );
 
         if self.wcs.is_some() {
             // state is currently solved.
@@ -157,20 +205,58 @@ where
             }
         }
 
-        // update existing moving targets
         self.update_moving_targets();
 
-        // detect new moving targets
         self.detect_moving_targets();
 
-        // clean up any stale state
+        self.update_state();
+
         self.clean_up_state();
 
         Ok(())
     }
 
+    fn update_state(self: &mut Self) {
+        let Some(curr_frame_state) = self.recent_frame_states.last() else {
+            return;
+        };
+
+        for cand in self.star_candidates.iter_mut() {
+            cand.age += 1;
+
+            if let Some(last) = cand.detected_point_match_history.last() {
+                if let Some(fitted_point_idx) = last {
+                    // matched this frame
+                    let point = &curr_frame_state.detected_points_list[fitted_point_idx.get()];
+
+                    cand.log_likelihood += point.fitted_point.as_ref().unwrap().score;
+
+                    if point.amplitude < self.model_config.amplitude_penalty_threshold {
+                        cand.log_likelihood =
+                            cand.log_likelihood - self.model_config.amplitude_penalty;
+                    }
+                } else {
+                    // no match this frame
+                    cand.log_likelihood =
+                        cand.log_likelihood - self.model_config.star_candidate_unmatched_penalty;
+                }
+            }
+        }
+    }
+
     fn clean_up_state(self: &mut Self) {
-        // TODO
+        let pre_discard_count = self.star_candidates.len();
+        self.star_candidates = self
+            .star_candidates
+            .clone()
+            .into_iter()
+            .filter(|cand| cand.log_likelihood > self.model_config.star_candidate_discard_threshold)
+            .collect();
+
+        info!(
+            state_len = self.star_candidates.len(),
+            discarded = pre_discard_count - self.star_candidates.len(),
+        );
     }
 }
 

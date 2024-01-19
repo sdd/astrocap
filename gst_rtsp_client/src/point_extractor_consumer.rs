@@ -7,6 +7,7 @@ use image::{
     RgbImage, Rgba,
 };
 use imageproc::drawing::{draw_hollow_circle_mut, draw_text_mut};
+use imageproc::rect::Rect;
 use itertools::Itertools;
 use rtrb::Consumer;
 use rusttype::Font;
@@ -23,7 +24,8 @@ use show_image::{WindowOptions, WindowProxy};
 
 use astrocap_model::point_detect_peak::PointDetectPeak;
 use astrocap_model::point_fitter_nelder_mead::PointFitterGaussianNelderMead;
-use astrocap_model::state::ModelState;
+use astrocap_model::state::{FittedPoint, ModelState};
+use astrocap_model::traits::ImageLumaExtractor;
 
 use crate::image_luma_extractor::Img;
 use crate::map_colors_2::map_colors2;
@@ -46,7 +48,7 @@ const AMPLITUDE_PENALTY: f64 = 15.0;
 pub struct PointExtractorConsumer {
     state: ModelState<f32>,
     window: WindowProxy,
-    mask: Option<Arc<ImageBuffer<Luma<u8>, Vec<u8>>>>,
+    mask: Option<Arc<Img>>,
 }
 
 impl PointExtractorConsumer {
@@ -65,7 +67,7 @@ impl PointExtractorConsumer {
             let luma8_image = decoded_image.to_luma8();
             info!("converted mask image to luma8");
 
-            Some(Arc::new(luma8_image))
+            Some(Arc::new(Img(luma8_image)))
         });
 
         PointExtractorConsumer {
@@ -112,8 +114,11 @@ impl PointExtractorConsumer {
         let subtracted = self.preprocess_frame(&img)?;
         let arc_img = Arc::new(Img(subtracted));
 
+        // let arc_mask = self.mask.and_then(|x| Some(x.clone()));
+        let arc_mask = self.mask.clone().and_then(|x| Some(x.clone())).unwrap();
+
         self.state
-            .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(arc_img)?;
+            .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(arc_img, arc_mask)?;
 
         let img_query_annotated = self.annotate_image_query(&img);
 
@@ -231,7 +236,7 @@ impl PointExtractorConsumer {
             };
 
             for (frame_idx, fitted_point_match) in candidate
-                .fitted_point_match_history
+                .detected_point_match_history
                 .iter()
                 .rev()
                 .enumerate()
@@ -245,10 +250,12 @@ impl PointExtractorConsumer {
                         .skip(frame_idx)
                         .next()
                     {
-                        let fitted_point =
-                            &frame_state.fitted_points_list[detected_point_idx.get()];
+                        let detected_point =
+                            &frame_state.detected_points_list[detected_point_idx.get()];
 
-                        let centre = (fitted_point.x as i32, fitted_point.y as i32);
+                        let fitted_point = detected_point.fitted_point.as_ref().unwrap();
+
+                        let centre = (candidate.x as i32, candidate.y as i32);
                         draw_hollow_circle_mut(
                             &mut new_img,
                             centre,
@@ -268,8 +275,8 @@ impl PointExtractorConsumer {
                         draw_text_mut(
                             &mut new_img,
                             draw_color,
-                            (fitted_point.x as u32).saturating_sub(5u32) as i32,
-                            (fitted_point.y as u32).saturating_sub(30u32) as i32,
+                            (candidate.x as u32).saturating_sub(5u32) as i32,
+                            (candidate.y as u32).saturating_sub(30u32) as i32,
                             scale,
                             &font,
                             label.as_str(),

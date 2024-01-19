@@ -1,5 +1,5 @@
 use crate::state::ModelState;
-use crate::traits::{ImageLumaExtractor, PointFitter};
+use crate::traits::PointFitter;
 use argmin::core::ArgminFloat;
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
@@ -11,31 +11,33 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::iter::Sum;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::*;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DetectedPoint<F: Axis> {
-    pub(crate) x: u32,
-    pub(crate) y: u32,
-    pub(crate) amplitude: F,
+    pub x: u32,
+    pub y: u32,
+    pub amplitude: F,
+    pub fitted_point: Option<FittedPoint<F>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FittedPoint<F: Axis> {
     pub x: F,
     pub y: F,
     pub amplitude: F,
     pub radius: F,
     pub score: F,
-    pub(crate) detected_point_index: usize,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StarCandidate<F: Axis> {
+    pub x: F,
+    pub y: F,
     pub age: usize,
     pub log_likelihood: F,
 
-    pub fitted_point_match_history: Vec<Option<NonMaxUsize>>,
+    pub detected_point_match_history: Vec<Option<NonMaxUsize>>,
 }
 
 impl<F: Axis + ArgminFloat + Sum> ModelState<F>
@@ -59,91 +61,128 @@ where
     pub(crate) fn fit_existing_points<PF: PointFitter<F>>(
         self: &mut Self,
         frame: Arc<dyn PointFitter<F>>,
-    ) {
-        let penultimate_frame_idx = self.recent_frame_states.len() - 2;
-        let [prev_frame_state, curr_frame_state] =
-            &self.recent_frame_states[penultimate_frame_idx..]
-        else {
+    ) -> HashSet<usize> {
+        let mut match_indexes: HashSet<usize> = HashSet::new();
+
+        let Some(mut curr_frame_state) = self.recent_frame_states.last_mut() else {
             warn!("Not enough previous frame states found when trying to fit existing points");
-            return;
+            return match_indexes;
         };
 
-        let mut existing_fitted_qty = 0;
         for cand in self.star_candidates.iter_mut() {
-            if let Some(Some(idx)) = cand.fitted_point_match_history.last() {
-                // get position last frame
-                let FittedPoint { x, y, .. } = prev_frame_state.fitted_points_list[idx.get()];
+            let x = cand.x;
+            let y = cand.y;
 
-                // get matching points within radius from current frame
-                let matches = curr_frame_state
-                    .detected_points_tree
-                    .nearest_n_within::<SquaredEuclidean>(
-                        &[x, y],
-                        self.model_config.max_existing_candidate_match_dist,
-                        10, // arbitrary
-                        true,
-                    );
+            // get close detected points within radius from current frame
+            let nearby_detected_points = curr_frame_state
+                .detected_points_tree
+                .nearest_n_within::<SquaredEuclidean>(
+                    &[x, y],
+                    self.model_config.max_existing_candidate_match_dist,
+                    1, // TODO: increase this and pick the best rather than nearest?
+                    true,
+                );
 
-                // fit each match, if not already fitted
-                let fitted_matches = matches
-                    .iter()
-                    .map(|nn| (nn, &prev_frame_state.detected_points_list[nn.item as usize]))
-                    .collect::<Vec<_>>();
+            // fit those points
+            let mut nearby_fitted_points = nearby_detected_points
+                .iter()
+                .map(|nn| {
+                    let detected_point: &mut DetectedPoint<F> = curr_frame_state
+                        .detected_points_list
+                        .get_mut(nn.item as usize)
+                        .unwrap();
+                    let fitted_point = frame.fit(detected_point);
+                    detected_point.fitted_point = Some(fitted_point);
 
-                // pick the best match from the fitted points
-                if let Some(closest_match) = fitted_matches.first() {
-                    // TODO: some kind of matching based on the star_candidate's amplitude and radius
-                    //       rather than just closest
-                    cand.fitted_point_match_history.push(Some(
-                        NonMaxUsize::try_from(closest_match.0.item as usize).unwrap(),
-                    ));
-                    existing_fitted_qty += 1;
-                } else {
-                    cand.fitted_point_match_history.push(None);
-                }
+                    nn.item as usize
+                })
+                .collect::<Vec<_>>();
+
+            // pick the best match from the fitted points
+            if let Some(&detected_point_idx) = nearby_fitted_points.first() {
+                // TODO: some kind of matching based on the star_candidate's amplitude and radius
+                //       rather than just closest
+                cand.detected_point_match_history
+                    .push(Some(NonMaxUsize::try_from(detected_point_idx).unwrap()));
+
+                let detected_point: &DetectedPoint<F> =
+                    &curr_frame_state.detected_points_list[detected_point_idx];
+
+                // TODO: smoother update
+                cand.x = detected_point
+                    .fitted_point
+                    .as_ref()
+                    .and_then(|fp| Some(fp.x))
+                    .unwrap();
+                cand.y = detected_point
+                    .fitted_point
+                    .as_ref()
+                    .and_then(|fp| Some(fp.y))
+                    .unwrap();
+
+                match_indexes.insert(detected_point_idx);
+            } else {
+                cand.detected_point_match_history.push(None);
             }
         }
-        info!(existing_fitted_qty);
+        info!(existing_fitted_qty = match_indexes.len());
+
+        match_indexes
     }
 
     pub(crate) fn fit_strong_unmatched_new_points<PF: PointFitter<F>>(
         self: &mut Self,
         point_fitter: Arc<dyn PointFitter<F>>,
+        img_w: u32,
+        img_h: u32,
+        matched_point_indices: HashSet<usize>,
     ) {
-        let Some(curr_frame_state) = &self.recent_frame_states.last() else {
+        let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
             warn!("Not enough previous frame states found when trying to fit existing points");
             return;
         };
 
-        // TODO: could this be more elegant?
-        let mut already_fitted: HashSet<usize> = HashSet::new();
-        for sc in &self.star_candidates {
-            if let Some(last) = sc.fitted_point_match_history.last() {
-                if let Some(idx) = last {
-                    already_fitted.insert(idx.get());
-                }
+        let initial_len = self.star_candidates.len();
+
+        for (detected_point_index, detected_point) in
+            curr_frame_state.detected_points_list.iter_mut().enumerate()
+        {
+            if matched_point_indices.contains(&detected_point_index) {
+                continue;
+            }
+
+            if detected_point.amplitude
+                < self
+                    .model_config
+                    .detected_point_candidate_amplitude_threshold
+            {
+                continue;
+            }
+
+            if detected_point.fitted_point.is_none() {
+                detected_point.fitted_point = Some(point_fitter.fit(&detected_point));
+            }
+
+            let fitted_point = &detected_point.fitted_point.clone().unwrap();
+
+            if fitted_point.x >= F::zero()
+                && fitted_point.y >= F::zero()
+                && fitted_point.x < img_w.az::<F>()
+                && fitted_point.y < img_h.az::<F>()
+                && fitted_point.score > self.model_config.min_new_star_candidate_score
+            {
+                let new_cand = StarCandidate {
+                    x: fitted_point.x,
+                    y: fitted_point.y,
+                    age: 0,
+                    log_likelihood: fitted_point.score,
+                    detected_point_match_history: vec![NonMaxUsize::new(detected_point_index)],
+                };
+
+                self.star_candidates.push(new_cand);
             }
         }
 
-        let mut new_fitted_points = vec![];
-        for (idx, point) in curr_frame_state.detected_points_list.iter().enumerate() {
-            if already_fitted.contains(&idx) {
-                continue;
-            }
-
-            if point.amplitude < 40.0.az::<F>() {
-                continue;
-            }
-
-            let fitted_point = point_fitter.fit(point);
-
-            if fitted_point.amplitude < 40.0.az::<F>() {
-                continue;
-            }
-
-            new_fitted_points.push(fitted_point);
-        }
-
-        info!(new_fitted_qty = new_fitted_points.len());
+        info!(new_candidate_qty = self.star_candidates.len() - initial_len);
     }
 }

@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use argmin::core::ArgminFloat;
 use az::{Az, Cast};
 use kiddo::float::kdtree::Axis;
 use ordered_float::OrderedFloat;
-use std::sync::Arc;
+use tracing::*;
 
 use crate::state::DetectedPoint;
 use crate::traits::{ImageLumaExtractor, PointDetector};
@@ -28,23 +30,24 @@ where
 {
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
-        mask: Option<Arc<dyn ImageLumaExtractor>>,
+        mask: Arc<dyn ImageLumaExtractor>,
     ) -> Vec<DetectedPoint<F>> {
         let mut points: Vec<DetectedPoint<F>> = vec![];
 
         let img_w = img.width();
         let img_h = img.height();
+
         let mut x: u32 = 0;
         let mut y: u32 = 0;
 
         while y < img_h {
             while x < img_w {
-                if let Some(ref mask) = mask {
-                    if mask.get_luma8_for_pixel(x, y) == 0 {
-                        x += STEP_X;
-                        continue;
-                    }
+                // if let Some(ref mask) = mask {
+                if mask.get_luma8_for_pixel(x, y) == 0 {
+                    x += STEP_X;
+                    continue;
                 }
+                // }
 
                 let val: u8 = img.get_luma8_for_pixel(x, y);
 
@@ -112,6 +115,7 @@ where
                         x: point_x,
                         y: point_y,
                         amplitude: curr_val.az::<F>(),
+                        fitted_point: None,
                     };
 
                     points.push(new_point.clone());

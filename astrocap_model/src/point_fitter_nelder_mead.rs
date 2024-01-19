@@ -14,11 +14,7 @@ use tracing::{debug, warn};
 const INITIAL_GAUSSIAN_ALPHA: f64 = 2.5;
 const MAX_ITERATIONS: u64 = 100;
 const SD_TOLERANCE: f64 = 1.0;
-const PATCH_SIZE: u32 = 20;
-
-// lazy_static! {
-//     static ref PERTURBATIONS: Vec<f64> = vec![-4.0, -4.0, 1.0, 1.0, 1.0];
-// }
+const PATCH_SIZE: u32 = 4;
 
 const COST_FIT_COST_MULTIPLIER: f64 = 0.00002;
 const COST_RADIUS_TARGET: f64 = 2.3;
@@ -118,7 +114,6 @@ where
             radius: avg_radius,
             score: latest_score,
             amplitude: best[4],
-            detected_point_index: 0,
         };
         if cost == F::zero() {
             warn!(?result.state, "Cost of zero")

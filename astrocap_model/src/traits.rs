@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub trait PointDetector<F: ArgminFloat + Axis> {
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
-        mask: Option<Arc<dyn ImageLumaExtractor>>,
+        mask: Arc<dyn ImageLumaExtractor>,
     ) -> Vec<DetectedPoint<F>>;
 }
 
