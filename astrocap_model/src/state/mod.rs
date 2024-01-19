@@ -91,46 +91,50 @@ where
         let mut detected_points_tree: KdTree<F, 2> =
             KdTree::with_capacity(detected_points_list.len());
 
-        // let mut detected_points_removed_index_list: Vec<_> =
-        //     Vec::with_capacity(detected_points_list.len());
+        // TODO: this dedupe code seems to remove everything
+
+        let mut detected_points_removed_index_list: Vec<_> =
+            Vec::with_capacity(detected_points_list.len());
 
         for (idx, point) in detected_points_list.iter().enumerate() {
-            // let query = [point.x.az::<F>(), point.y.az::<F>()];
-            // let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
-            //     &query,
-            //     POINT_EXCLUSION_DIST.az::<F>(),
-            //     usize::MAX,
-            //     false,
-            // );
-            //
-            // near_neighbours.sort_unstable_by_key(|nn| {
-            //     OrderedFloat(detected_points_list[nn.item as usize].amplitude)
-            // });
-            // if let Some(brightest) = near_neighbours.pop() {
-            //     let brightest_point = &detected_points_list[brightest.item as usize];
-            //     if brightest_point.amplitude < point.amplitude {
-            //         detected_points_tree.remove(
-            //             &[brightest_point.x.az::<F>(), brightest_point.y.az::<F>()],
-            //             brightest.item,
-            //         );
-            //         detected_points_removed_index_list.push(brightest.item);
-            detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
-            //     }
-            // }
-            // for close_point_result in near_neighbours {
-            //     let point = &detected_points_list[close_point_result.item as usize];
-            //     detected_points_tree.remove(
-            //         &[point.x.az::<F>(), point.y.az::<F>()],
-            //         close_point_result.item,
-            //     );
-            //     detected_points_removed_index_list.push(close_point_result.item);
-            // }
+            let query = [point.x.az::<F>(), point.y.az::<F>()];
+            let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
+                &query,
+                POINT_EXCLUSION_DIST.az::<F>(),
+                usize::MAX,
+                false,
+            );
+
+            near_neighbours.sort_unstable_by_key(|nn| {
+                OrderedFloat(detected_points_list[nn.item as usize].amplitude)
+            });
+            if let Some(brightest) = near_neighbours.pop() {
+                let brightest_point = &detected_points_list[brightest.item as usize];
+                if brightest_point.amplitude < point.amplitude {
+                    detected_points_tree.remove(
+                        &[brightest_point.x.az::<F>(), brightest_point.y.az::<F>()],
+                        brightest.item,
+                    );
+                    detected_points_removed_index_list.push(brightest.item);
+                    detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
+                }
+            } else {
+                detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
+            }
+            for close_point_result in near_neighbours {
+                let point = &detected_points_list[close_point_result.item as usize];
+                detected_points_tree.remove(
+                    &[point.x.az::<F>(), point.y.az::<F>()],
+                    close_point_result.item,
+                );
+                detected_points_removed_index_list.push(close_point_result.item);
+            }
         }
 
-        // detected_points_removed_index_list.sort_unstable();
-        // for &idx in detected_points_removed_index_list.iter().rev() {
-        //     detected_points_list.remove(idx as usize);
-        // }
+        detected_points_removed_index_list.sort_unstable();
+        for &idx in detected_points_removed_index_list.iter().rev() {
+            detected_points_list.remove(idx as usize);
+        }
 
         info!(detected_point_qty = detected_points_list.len());
 
