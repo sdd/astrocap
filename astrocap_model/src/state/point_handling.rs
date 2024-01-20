@@ -7,6 +7,7 @@ use kiddo::float::kdtree::Axis;
 use kiddo::SquaredEuclidean;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use nonmax::NonMaxUsize;
+use num_traits::float::FloatCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::iter::Sum;
@@ -64,12 +65,12 @@ where
     ) -> HashSet<usize> {
         let mut match_indexes: HashSet<usize> = HashSet::new();
 
-        let Some(mut curr_frame_state) = self.recent_frame_states.last_mut() else {
+        let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
             warn!("Not enough previous frame states found when trying to fit existing points");
             return match_indexes;
         };
 
-        for cand in self.star_candidates.iter_mut() {
+        'outer: for cand in self.star_candidates.iter_mut() {
             let x = cand.x;
             let y = cand.y;
 
@@ -79,12 +80,12 @@ where
                 .nearest_n_within::<SquaredEuclidean>(
                     &[x, y],
                     self.model_config.max_existing_candidate_match_dist,
-                    1, // TODO: increase this and pick the best rather than nearest?
+                    usize::MAX,
                     true,
                 );
 
             // fit those points
-            let mut nearby_fitted_points = nearby_detected_points
+            let nearby_fitted_points = nearby_detected_points
                 .iter()
                 .map(|nn| {
                     let detected_point: &mut DetectedPoint<F> = curr_frame_state
@@ -98,32 +99,36 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            // pick the best match from the fitted points
-            if let Some(&detected_point_idx) = nearby_fitted_points.first() {
-                // TODO: some kind of matching based on the star_candidate's amplitude and radius
-                //       rather than just closest
+            let mut rev_points = nearby_fitted_points.iter().rev();
+            while let Some(&detected_point_idx) = rev_points.next() {
+                let detected_point = &curr_frame_state.detected_points_list[detected_point_idx];
+
+                let Some(fitted_point) = &detected_point.fitted_point else {
+                    panic!("no fitted point, should not happen");
+                };
+
+                if fitted_point.radius > self.model_config.max_star_candidate_radius {
+                    continue;
+                }
+
                 cand.detected_point_match_history
                     .push(Some(NonMaxUsize::try_from(detected_point_idx).unwrap()));
 
-                let detected_point: &DetectedPoint<F> =
-                    &curr_frame_state.detected_points_list[detected_point_idx];
+                let delta_x = fitted_point.x - cand.x;
+                let delta_y = fitted_point.y - cand.y;
 
-                // TODO: smoother update
-                cand.x = detected_point
-                    .fitted_point
-                    .as_ref()
-                    .and_then(|fp| Some(fp.x))
-                    .unwrap();
-                cand.y = detected_point
-                    .fitted_point
-                    .as_ref()
-                    .and_then(|fp| Some(fp.y))
-                    .unwrap();
+                let update_scale =
+                    FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
+
+                cand.x = cand.x + delta_x * update_scale;
+                cand.y = cand.y + delta_y * update_scale;
 
                 match_indexes.insert(detected_point_idx);
-            } else {
-                cand.detected_point_match_history.push(None);
+
+                continue 'outer;
             }
+
+            cand.detected_point_match_history.push(None);
         }
         info!(existing_fitted_qty = match_indexes.len());
 
@@ -170,6 +175,7 @@ where
                 && fitted_point.x < img_w.az::<F>()
                 && fitted_point.y < img_h.az::<F>()
                 && fitted_point.score > self.model_config.min_new_star_candidate_score
+                && fitted_point.radius < self.model_config.max_star_candidate_radius
             {
                 let new_cand = StarCandidate {
                     x: fitted_point.x,

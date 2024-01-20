@@ -6,7 +6,7 @@ use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
 use kiddo::float::kdtree::Axis;
 use ndarray::{Array1, ArrayBase, Dim, OwnedRepr};
-use num_traits::float::Float;
+use num_traits::float::{Float, FloatCore};
 use std::iter::Sum;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -18,23 +18,30 @@ const PATCH_SIZE: u32 = 4;
 
 const COST_FIT_COST_MULTIPLIER: f64 = 0.00002;
 const COST_RADIUS_TARGET: f64 = 2.3;
-const COST_RADIUS_MULTIPLIER: f64 = 10.0;
+const COST_RADIUS_MULTIPLIER: f64 = 15.0;
 
 const COST_AMPLITUDE_TARGET: f64 = 68.0;
 const COST_AMPLITUDE_MULTIPLIER: f64 = 0.001;
 
-const COST_OFFSET: f64 = 9.50;
+const COST_OFFSET: f64 = 10.0;
+
+const SCORE_FLOOR: f64 = -10.0;
 
 pub fn transform_cost<F: Axis + Float>(cost: F, radius_x: F, radius_y: F, amplitude: F) -> F
 where
     f64: Cast<F>,
 {
-    (cost * COST_FIT_COST_MULTIPLIER.az::<F>())
-        - Float::powi(COST_RADIUS_TARGET.az::<F>() - radius_x, 2) * COST_RADIUS_MULTIPLIER.az::<F>()
-        - Float::powi(COST_RADIUS_TARGET.az::<F>() - radius_y, 2) * COST_RADIUS_MULTIPLIER.az::<F>()
-        - (Float::powi(COST_AMPLITUDE_TARGET.az::<F>() - amplitude, 2)
-            * COST_AMPLITUDE_MULTIPLIER.az::<F>())
-        + COST_OFFSET.az::<F>()
+    FloatCore::max(
+        SCORE_FLOOR.az::<F>(),
+        (cost * COST_FIT_COST_MULTIPLIER.az::<F>())
+            - Float::powi(COST_RADIUS_TARGET.az::<F>() - radius_x, 2)
+                * COST_RADIUS_MULTIPLIER.az::<F>()
+            - Float::powi(COST_RADIUS_TARGET.az::<F>() - radius_y, 2)
+                * COST_RADIUS_MULTIPLIER.az::<F>()
+            - (Float::powi(COST_AMPLITUDE_TARGET.az::<F>() - amplitude, 2)
+                * COST_AMPLITUDE_MULTIPLIER.az::<F>())
+            + COST_OFFSET.az::<F>(),
+    )
 }
 
 pub struct PointFitterGaussianNelderMead {
@@ -63,6 +70,7 @@ where
         PointFitterGaussianNelderMead { frame }
     }
 
+    #[inline]
     fn fit(&self, point: &DetectedPoint<F>) -> FittedPoint<F> {
         let img = self.frame.as_ref();
 
@@ -90,13 +98,12 @@ where
         ];
 
         let solver = NelderMead::new(create_simplex(&initial_params, &perturbations))
-            //.with_initial_params(create_simplex(&initial_params, &PERTURBATIONS))
             .with_sd_tolerance(SD_TOLERANCE.az::<F>())
             .unwrap();
 
         let result = argmin::core::Executor::new(problem, solver)
             //.add_observer(ArgminSlogLogger::term(), ObserverMode::NewBest)
-            .configure(|state| state.max_iters(100))
+            .configure(|state| state.max_iters(MAX_ITERATIONS))
             .timer(false)
             .run()
             .unwrap();
@@ -130,7 +137,7 @@ where
     }
 }
 
-pub fn create_simplex<F: Axis + Float>(point: &[F], perturbations: &[F]) -> Vec<Array1<F>> {
+fn create_simplex<F: Axis + Float>(point: &[F], perturbations: &[F]) -> Vec<Array1<F>> {
     let simplex = perturbations
         .iter()
         .enumerate()

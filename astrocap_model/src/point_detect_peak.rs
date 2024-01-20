@@ -4,21 +4,16 @@ use argmin::core::ArgminFloat;
 use az::{Az, Cast};
 use kiddo::float::kdtree::Axis;
 use ordered_float::OrderedFloat;
-use tracing::*;
 
 use crate::state::DetectedPoint;
 use crate::traits::{ImageLumaExtractor, PointDetector};
 
 // const POINT_SKIP_STEP: u32 = 3;
-const POINT_EXCLUSION_RADIUS: f64 = 20.0;
-const EXISTING_POINT_EXCLUSION_RADIUS_2: f64 = 100.0;
 const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
 const POINT_THRESHOLD: u8 = 43;
 const STEP_X: u32 = 1;
 const STEP_Y: u32 = 1;
 pub const PATCH_SIZE: u32 = 20;
-
-const INITIAL_RADIUS: f64 = 2.2;
 
 pub struct PointDetectPeak {}
 
@@ -28,6 +23,7 @@ where
     u8: Cast<F>,
     F: Cast<u32>,
 {
+    #[inline]
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
         mask: Arc<dyn ImageLumaExtractor>,
@@ -67,17 +63,6 @@ where
                         point_y += 1;
                         curr_val = img.get_luma8_for_pixel(point_x, point_y);
                     }
-
-                    // find matches in pre-existing state within POINT_EXCLUSION_RADIUS of current match
-                    // let matching_existing = existing_points.iter().any(|&existing| {
-                    //     let xd = existing.x - (point_x as f64).abs();
-                    //     let yd = (existing.y - (point_y as f64)).abs();
-                    //     ((xd * xd) + (yd * yd)) < EXISTING_POINT_EXCLUSION_RADIUS_2
-                    // });
-                    // if matching_existing {
-                    //     x += STEP_X;
-                    //     continue;
-                    // }
 
                     // find existing matches within POINT_EXCLUSION_RADIUS of current match
                     let mut matching: Vec<_> = points

@@ -16,7 +16,7 @@ pub fn build_rtsp_client_pipeline(
     target_format: VideoFormat,
 ) -> anyhow::Result<(Pipeline, AppSink)> {
     let pipeline_str = format!(
-        "rtspsrc location={} latency=0 ! queue ! rtph264depay ! h264parse ! avdec_h264",
+        "rtspsrc location={} latency=0 ! queue ! rtph265depay ! h265parse ! avdec_h265",
         uri
     );
 

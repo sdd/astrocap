@@ -5,6 +5,14 @@ pub struct ModelConfig<F> {
     pub min_reqd_qty_to_attempt_solve: usize,
     pub max_existing_candidate_match_dist: F,
     pub min_new_star_candidate_score: F,
+    pub max_star_candidate_radius: F,
+
+    // TODO: implement these. Also update the log likelihood
+    // of an initialized star candidate so that it can't be
+    // cleaned up for at least 4 frames
+    pub star_candidate_strong_match_bonus: F,
+    pub star_candidate_strong_match_threshold: F,
+
     pub star_candidate_unmatched_penalty: F,
     pub amplitude_penalty_threshold: F,
     pub amplitude_penalty: F,
@@ -19,13 +27,17 @@ where
     fn default() -> Self {
         Self {
             min_reqd_qty_to_attempt_solve: 6,
-            max_existing_candidate_match_dist: 7.5f64.az::<F>(),
+            max_existing_candidate_match_dist: 5f64.az::<F>(),
             min_new_star_candidate_score: 0f64.az::<F>(),
+            max_star_candidate_radius: 4.5f64.az::<F>(),
+            star_candidate_strong_match_bonus: 10f64.az::<F>(),
+            star_candidate_strong_match_threshold: 5.0f64.az::<F>(),
             star_candidate_unmatched_penalty: 5.0f64.az::<F>(),
             amplitude_penalty_threshold: 8.0f64.az::<F>(),
-            amplitude_penalty: 15.0f64.az::<F>(),
+            amplitude_penalty: 0.0f64.az::<F>(),
+
             star_candidate_discard_threshold: (-10.0f64).az::<F>(),
-            detected_point_candidate_amplitude_threshold: 30.0f64.az::<F>(),
+            detected_point_candidate_amplitude_threshold: 25.0f64.az::<F>(),
         }
     }
 }

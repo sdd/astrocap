@@ -1,7 +1,6 @@
 use gst_video::video_frame::Readable;
 use gst_video::VideoFrame;
-use image::{EncodableLayout, ImageBuffer, Luma, Pixel, PixelWithColorType};
-use std::ops::Deref;
+use image::{ImageBuffer, Luma};
 use std::sync::Arc;
 
 pub(crate) struct VideoFrameExt<'a>(pub &'a VideoFrame<Readable>);

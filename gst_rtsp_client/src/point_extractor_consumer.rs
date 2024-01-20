@@ -7,8 +7,6 @@ use image::{
     RgbImage, Rgba,
 };
 use imageproc::drawing::{draw_hollow_circle_mut, draw_text_mut};
-use imageproc::rect::Rect;
-use itertools::Itertools;
 use rtrb::Consumer;
 use rusttype::Font;
 use std::error::Error;
@@ -24,8 +22,7 @@ use show_image::{WindowOptions, WindowProxy};
 
 use astrocap_model::point_detect_peak::PointDetectPeak;
 use astrocap_model::point_fitter_nelder_mead::PointFitterGaussianNelderMead;
-use astrocap_model::state::{FittedPoint, ModelState};
-use astrocap_model::traits::ImageLumaExtractor;
+use astrocap_model::state::ModelState;
 
 use crate::image_luma_extractor::Img;
 use crate::map_colors_2::map_colors2;
@@ -33,17 +30,6 @@ use crate::median_filter::median_filter;
 use crate::video_frame_to_image_buffer::VideoFrameExt;
 
 // const ANNOTATED_IMG_MARKER_SRC_RADIUS: i32 = 10;
-const MAX_POINT_MATCH_DIST: f64 = 7.5;
-const MIN_EXISTING_MATCH_SCORE: f64 = -5.0;
-const CANDIDATE_MIN_SCORE: f64 = 0.0;
-
-const UNMATCHED_POINT_PENALTY: f64 = 5.0; //0.5;
-                                          // const MATCHED_POINT_BENEFIT: f64 = 5.0;
-const POINT_DISCARD_THRESHOLD: f64 = -10.0;
-// const STARTING_LOG_LIKELIHOOD: i64 = 3;
-
-const AMPLITUDE_PENALTY_THRESHOLD: f64 = 8.0;
-const AMPLITUDE_PENALTY: f64 = 15.0;
 
 pub struct PointExtractorConsumer {
     state: ModelState<f32>,
@@ -179,6 +165,7 @@ impl PointExtractorConsumer {
         .expect("Could not create ImageBuffer from VideoFrame")
     }
 
+    #[allow(dead_code)]
     fn video_frame_to_img_buf_cloned(
         &self,
         frame: &VideoFrame<Readable>,

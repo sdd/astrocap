@@ -23,8 +23,8 @@ use az::{Az, Cast};
 use kiddo::float::kdtree::Axis;
 use kiddo::{KdTree, SquaredEuclidean};
 use ndarray::{ArrayBase, Dim, OwnedRepr};
+use num_traits::float::FloatCore;
 use ordered_float::OrderedFloat;
-use serde::{Deserialize, Serialize};
 
 const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
@@ -41,12 +41,16 @@ pub struct ModelState<F: Axis + ArgminFloat + Sum> {
     pub recent_frame_states: Vec<FrameState<F>>,
 
     pub star_candidates: Vec<StarCandidate<F>>,
+    #[allow(dead_code)]
     star_candidates_tree: KdTree<F, 2>,
 
     wcs: Option<Wcs>,
+    #[allow(dead_code)]
     star_matches: Option<Vec<StarMatch<F>>>,
 
     moving_targets: Vec<MovingTarget<F>>,
+
+    #[allow(dead_code)]
     moving_streaks: Vec<MovingStreak>,
 }
 
@@ -90,8 +94,6 @@ where
         let mut detected_points_list = PD::detect(frame, mask);
         let mut detected_points_tree: KdTree<F, 2> =
             KdTree::with_capacity(detected_points_list.len());
-
-        // TODO: this dedupe code seems to remove everything
 
         let mut detected_points_removed_index_list: Vec<_> =
             Vec::with_capacity(detected_points_list.len());
@@ -175,7 +177,7 @@ where
 
         let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
 
-        let matched_point_indixes = if self.recent_frame_states.len() > 1 {
+        let matched_point_indexes = if self.recent_frame_states.len() > 1 {
             // try to fit existing star candidates
             self.fit_existing_points::<PF>(point_fitter.clone())
         } else {
@@ -188,7 +190,7 @@ where
             point_fitter.clone(),
             frame.width(),
             frame.height(),
-            matched_point_indixes,
+            matched_point_indexes,
         );
 
         if self.wcs.is_some() {
@@ -225,6 +227,9 @@ where
             return;
         };
 
+        let mut max_score = <F as FloatCore>::min_value();
+        let mut min_score = <F as FloatCore>::max_value();
+
         for cand in self.star_candidates.iter_mut() {
             cand.age += 1;
 
@@ -233,7 +238,10 @@ where
                     // matched this frame
                     let point = &curr_frame_state.detected_points_list[fitted_point_idx.get()];
 
-                    cand.log_likelihood += point.fitted_point.as_ref().unwrap().score;
+                    let score = point.fitted_point.as_ref().unwrap().score;
+                    max_score = FloatCore::max(max_score, score);
+                    min_score = FloatCore::min(min_score, score);
+                    cand.log_likelihood += score;
 
                     if point.amplitude < self.model_config.amplitude_penalty_threshold {
                         cand.log_likelihood =
@@ -246,6 +254,11 @@ where
                 }
             }
         }
+
+        info!(
+            max_score = max_score.az::<i32>(),
+            min_score = min_score.az::<i32>()
+        );
     }
 
     fn clean_up_state(self: &mut Self) {
