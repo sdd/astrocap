@@ -2,15 +2,11 @@ use format_num::NumberFormat;
 use gst_video::video_frame::Readable;
 use gst_video::VideoFrame;
 use image::io::Reader as ImageReader;
-use image::{
-    DynamicImage, EncodableLayout, GrayImage, ImageBuffer, Luma, Pixel, PixelWithColorType,
-    RgbImage, Rgba,
-};
+use image::{DynamicImage, GrayImage, ImageBuffer, Luma, Pixel, RgbImage, Rgba};
 use imageproc::drawing::{draw_hollow_circle_mut, draw_text_mut};
 use rtrb::Consumer;
 use rusttype::Font;
 use std::error::Error;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
@@ -45,7 +41,7 @@ impl PointExtractorConsumer {
         )
         .expect("Could not create window");
 
-        let mask = args.mask.clone().and_then(|mask_file_path| {
+        let mask = args.mask.clone().map(|mask_file_path| {
             let image = ImageReader::open(mask_file_path).unwrap();
             info!("loaded mask image");
             let decoded_image = image.decode().unwrap();
@@ -53,7 +49,7 @@ impl PointExtractorConsumer {
             let luma8_image = decoded_image.to_luma8();
             info!("converted mask image to luma8");
 
-            Some(Arc::new(Img(luma8_image)))
+            Arc::new(Img(luma8_image))
         });
 
         PointExtractorConsumer {
@@ -82,9 +78,7 @@ impl PointExtractorConsumer {
         //       original in same step as creating median
 
         // subtract median from original
-        let subtracted = map_colors2(img, &img_median, |p, q| {
-            Luma([(p[0] as u8).saturating_sub(q[0] as u8)])
-        });
+        let subtracted = map_colors2(img, &img_median, |p, q| Luma([(p[0]).saturating_sub(q[0])]));
         debug!("subtracted median");
 
         // subtracted.save("../../preprocessed.png")?;
@@ -100,14 +94,12 @@ impl PointExtractorConsumer {
         let subtracted = self.preprocess_frame(&img)?;
         let arc_img = Arc::new(Img(subtracted));
 
-        // let arc_mask = self.mask.and_then(|x| Some(x.clone()));
-        let arc_mask = self.mask.clone().and_then(|x| Some(x.clone())).unwrap();
+        let arc_mask = self.mask.clone().unwrap();
 
         self.state
             .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(arc_img, arc_mask)?;
 
         let img_query_annotated = self.annotate_image_query(&img);
-
         let _ = self.window.set_image("Frame", img_query_annotated);
         // img_query_annotated.save("query-annotated.png")?;
 
@@ -132,9 +124,9 @@ impl PointExtractorConsumer {
 
                     let img_buf = VideoFrameExt(&idx_and_frame.1).as_img_buf_arc();
 
-                    let result = self.process_frame(img_buf).unwrap();
+                    self.process_frame(img_buf).unwrap();
 
-                    debug!(?result, ?idx, "processed frame");
+                    debug!(?idx, "processed frame");
                     idx += 1;
                     processed_frame = true;
                 }
@@ -145,34 +137,6 @@ impl PointExtractorConsumer {
                 let _ = cons.pop();
             }
         }
-    }
-
-    #[allow(dead_code)]
-    fn video_frame_to_img_buf<'a, P: Pixel>(
-        &self,
-        frame: &'a VideoFrame<Readable>,
-    ) -> ImageBuffer<P, &'a [u8]>
-    where
-        for<'b> &'b [u8]: Deref<Target = [P::Subpixel]>,
-        [P::Subpixel]: EncodableLayout,
-        P: PixelWithColorType,
-    {
-        ImageBuffer::<P, &[u8]>::from_raw(
-            frame.width(),
-            frame.height(),
-            frame.plane_data(0).unwrap(),
-        )
-        .expect("Could not create ImageBuffer from VideoFrame")
-    }
-
-    #[allow(dead_code)]
-    fn video_frame_to_img_buf_cloned(
-        &self,
-        frame: &VideoFrame<Readable>,
-    ) -> ImageBuffer<Luma<u8>, Vec<u8>> {
-        let buf_cloned: Vec<u8> = frame.plane_data(0).unwrap().into();
-        ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(frame.width(), frame.height(), buf_cloned)
-            .expect("Could not create ImageBuffer from VideoFrame")
     }
 
     pub fn annotate_image_query(&self, img: &ImageBuffer<Luma<u8>, Arc<[u8]>>) -> DynamicImage {
@@ -207,19 +171,17 @@ impl PointExtractorConsumer {
 
         let mut new_img: DynamicImage = DynamicImage::ImageRgb8(new_img);
 
-        for (_idx, &ref candidate) in self.state.star_candidates.iter().enumerate() {
+        for candidate in &self.state.star_candidates {
             if candidate.log_likelihood < 10.0 || candidate.age < 5 {
                 continue;
             }
 
             let draw_color = if candidate.log_likelihood < 30.0 {
                 red
+            } else if candidate.age < 30 {
+                cyan
             } else {
-                if candidate.age < 30 {
-                    cyan
-                } else {
-                    green
-                }
+                green
             };
 
             for (frame_idx, fitted_point_match) in candidate
@@ -229,13 +191,8 @@ impl PointExtractorConsumer {
                 .enumerate()
             {
                 if let Some(detected_point_idx) = fitted_point_match {
-                    if let Some(&ref frame_state) = &self
-                        .state
-                        .recent_frame_states
-                        .iter()
-                        .rev()
-                        .skip(frame_idx)
-                        .next()
+                    if let Some(frame_state) =
+                        &self.state.recent_frame_states.iter().rev().nth(frame_idx)
                     {
                         let detected_point =
                             &frame_state.detected_points_list[detected_point_idx.get()];

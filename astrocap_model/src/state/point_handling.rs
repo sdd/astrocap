@@ -59,10 +59,7 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub(crate) fn fit_existing_points<PF: PointFitter<F>>(
-        self: &mut Self,
-        frame: Arc<dyn PointFitter<F>>,
-    ) -> HashSet<usize> {
+    pub(crate) fn fit_existing_points(&mut self, frame: Arc<dyn PointFitter<F>>) -> HashSet<usize> {
         let mut match_indexes: HashSet<usize> = HashSet::new();
 
         let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
@@ -99,8 +96,8 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            let mut rev_points = nearby_fitted_points.iter().rev();
-            while let Some(&detected_point_idx) = rev_points.next() {
+            let rev_points = nearby_fitted_points.iter().rev();
+            for &detected_point_idx in rev_points {
                 let detected_point = &curr_frame_state.detected_points_list[detected_point_idx];
 
                 let Some(fitted_point) = &detected_point.fitted_point else {
@@ -120,8 +117,8 @@ where
                 let update_scale =
                     FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
 
-                cand.x = cand.x + delta_x * update_scale;
-                cand.y = cand.y + delta_y * update_scale;
+                cand.x += delta_x * update_scale;
+                cand.y += delta_y * update_scale;
 
                 match_indexes.insert(detected_point_idx);
 
@@ -135,8 +132,8 @@ where
         match_indexes
     }
 
-    pub(crate) fn fit_strong_unmatched_new_points<PF: PointFitter<F>>(
-        self: &mut Self,
+    pub(crate) fn fit_strong_unmatched_new_points(
+        &mut self,
         point_fitter: Arc<dyn PointFitter<F>>,
         img_w: u32,
         img_h: u32,
@@ -165,7 +162,7 @@ where
             }
 
             if detected_point.fitted_point.is_none() {
-                detected_point.fitted_point = Some(point_fitter.fit(&detected_point));
+                detected_point.fitted_point = Some(point_fitter.fit(detected_point));
             }
 
             let fitted_point = &detected_point.fitted_point.clone().unwrap();

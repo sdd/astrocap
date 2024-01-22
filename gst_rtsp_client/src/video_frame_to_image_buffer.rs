@@ -27,7 +27,7 @@ impl VideoFrameExt<'_> {
     }
 
     #[allow(dead_code)]
-    pub fn into_img_buf(self: Self) -> ImageBuffer<Luma<u8>, Vec<u8>> {
+    pub fn into_img_buf(self) -> ImageBuffer<Luma<u8>, Vec<u8>> {
         let buf_cloned: Vec<u8> = self.0.plane_data(0).unwrap().into();
         ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(self.0.width(), self.0.height(), buf_cloned)
             .expect("Could not create ImageBuffer from VideoFrame")

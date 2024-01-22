@@ -8,8 +8,8 @@ pub struct ModelConfig<F> {
     pub max_star_candidate_radius: F,
 
     // TODO: implement these. Also update the log likelihood
-    // of an initialized star candidate so that it can't be
-    // cleaned up for at least 4 frames
+    //  of an initialized star candidate so that it can't be
+    //  cleaned up for at least 4 frames
     pub star_candidate_strong_match_bonus: F,
     pub star_candidate_strong_match_threshold: F,
 

@@ -28,10 +28,8 @@ fn main() -> Result<()> {
 
     println!("Attempting to read file '{:?}'", &str_path);
 
-    let mut vidcap = VideoCapture::from_file(str_path, videoio::CAP_ANY).expect(&format!(
-        "OpenCV Could not open the file '{:?}'",
-        &args.path
-    ));
+    let mut vidcap = VideoCapture::from_file(str_path, videoio::CAP_ANY)
+        .unwrap_or_else(|_| panic!("OpenCV Could not open the file '{:?}'", &args.path));
 
     if !VideoCapture::is_opened(&vidcap)? {
         panic!("OpenCV Could not open the file '{:?}'", &args.path);
@@ -50,7 +48,7 @@ fn main() -> Result<()> {
         }
 
         println!("Frame: #{}", frame_number);
-        frame_number = frame_number + 1;
+        frame_number += 1;
     }
 
     Ok(())

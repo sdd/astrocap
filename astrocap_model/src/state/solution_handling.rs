@@ -35,16 +35,16 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub(crate) fn verify_solution(self: &mut Self) -> bool {
+    pub(crate) fn verify_solution(&mut self) -> bool {
         // TODO
         true
     }
 
-    pub(crate) fn tune_solution(self: &mut Self) {
+    pub(crate) fn tune_solution(&mut self) {
         // TODO
     }
 
-    pub(crate) fn solve(self: &mut Self) {
+    pub(crate) fn solve(&mut self) {
         // TODO
     }
 }

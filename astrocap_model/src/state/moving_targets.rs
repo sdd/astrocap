@@ -40,7 +40,7 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub(crate) fn update_moving_targets(self: &mut Self) {
+    pub(crate) fn update_moving_targets(&mut self) {
         for _moving_target in &self.moving_targets {
             // predict position of target in this frame
 
@@ -48,7 +48,7 @@ where
         }
     }
 
-    pub(crate) fn detect_moving_targets(self: &mut Self) {
+    pub(crate) fn detect_moving_targets(&mut self) {
         // TODO
     }
 }

@@ -166,7 +166,7 @@ where
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
     pub fn process_frame<PD: PointDetector<F>, PF: PointFitter<F> + 'static>(
-        self: &mut Self,
+        &mut self,
         frame: Arc<dyn ImageLumaExtractor>,
         mask: Arc<dyn ImageLumaExtractor>,
     ) -> Result<(), Box<dyn Error>> {
@@ -179,14 +179,14 @@ where
 
         let matched_point_indexes = if self.recent_frame_states.len() > 1 {
             // try to fit existing star candidates
-            self.fit_existing_points::<PF>(point_fitter.clone())
+            self.fit_existing_points(point_fitter.clone())
         } else {
             HashSet::<usize>::new()
         };
 
         // fit high_quality candidates from the current frame that didn't
         // already get fitted against existing candidates
-        self.fit_strong_unmatched_new_points::<PF>(
+        self.fit_strong_unmatched_new_points(
             point_fitter.clone(),
             frame.width(),
             frame.height(),
@@ -222,7 +222,7 @@ where
         Ok(())
     }
 
-    fn update_state(self: &mut Self) {
+    fn update_state(&mut self) {
         let Some(curr_frame_state) = self.recent_frame_states.last() else {
             return;
         };
@@ -261,7 +261,7 @@ where
         );
     }
 
-    fn clean_up_state(self: &mut Self) {
+    fn clean_up_state(&mut self) {
         let pre_discard_count = self.star_candidates.len();
         self.star_candidates = self
             .star_candidates

@@ -90,8 +90,8 @@ where
         ];
 
         let perturbations: Vec<F> = vec![
-            -4.0.az::<F>(),
-            -4.0.az::<F>(),
+            -(4.0).az::<F>(),
+            (-4.0).az::<F>(),
             1.0.az::<F>(),
             1.0.az::<F>(),
             1.0.az::<F>(),
