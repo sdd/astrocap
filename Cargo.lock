@@ -1260,6 +1260,7 @@ dependencies = [
  "argmin",
  "argmin-math",
  "astrocap_model",
+ "az",
  "clap",
  "clap-verbosity-flag",
  "cocoa 0.25.0",

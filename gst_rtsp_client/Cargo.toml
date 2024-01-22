@@ -34,6 +34,7 @@ serde = { version = "1.0.193", features = ["derive"] }
 itertools = "0.12.0"
 ndarray = "0.15.6"
 num-traits = "0.2.16"
+az = "1.2.1"
 
 [build-dependencies]
 system-deps = "2.0"
