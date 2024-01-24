@@ -89,7 +89,7 @@ where
 {
     pub fn from_frame<PD: PointDetector<F>>(
         frame: Arc<dyn ImageLumaExtractor>,
-        mask: Arc<dyn ImageLumaExtractor>,
+        mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Self {
         let mut detected_points_list = PD::detect(frame, mask);
         let mut detected_points_tree: KdTree<F, 2> =
@@ -168,7 +168,7 @@ where
     pub fn process_frame<PD: PointDetector<F>, PF: PointFitter<F> + 'static>(
         &mut self,
         frame: Arc<dyn ImageLumaExtractor>,
-        mask: Arc<dyn ImageLumaExtractor>,
+        mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Result<(), Box<dyn Error>> {
         // Create a new frame state and run the point
         // detector against the incoming frame
@@ -230,7 +230,11 @@ where
         let mut max_score = <F as FloatCore>::min_value();
         let mut min_score = <F as FloatCore>::max_value();
 
-        for cand in self.star_candidates.iter_mut() {
+        // reset the star candidate tree so that positions are updated
+        // before the next frame
+        self.star_candidates_tree = KdTree::with_capacity(self.star_candidates.len());
+
+        for (cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
             cand.age += 1;
 
             if let Some(last) = cand.detected_point_match_history.last() {
@@ -253,11 +257,14 @@ where
                         cand.log_likelihood - self.model_config.star_candidate_unmatched_penalty;
                 }
             }
+
+            self.star_candidates_tree
+                .add(&[cand.x, cand.y], cand_idx as u64);
         }
 
         info!(
-            max_score = max_score.az::<i32>(),
-            min_score = min_score.az::<i32>()
+            min_score = min_score.az::<i32>(),
+            max_score = max_score.az::<i32>()
         );
     }
 

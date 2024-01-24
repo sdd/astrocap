@@ -19,6 +19,7 @@ use astrocap_model::config::ModelConfig;
 use astrocap_model::point_detect_peak::PointDetectPeak;
 use astrocap_model::point_fitter_nelder_mead::PointFitterGaussianNelderMead;
 use astrocap_model::state::ModelState;
+use astrocap_model::traits::ImageLumaExtractor;
 
 use crate::image_luma_extractor::Img;
 use crate::map_colors_2::map_colors2;
@@ -30,22 +31,13 @@ use crate::window_renderer::WindowRenderer;
 
 pub struct PointExtractorConsumer {
     state: Arc<Mutex<ModelState<f32>>>,
-    mask: Option<Arc<Img>>,
+    mask: Option<Arc<dyn ImageLumaExtractor>>,
     tx: Sender<ImageBuffer<Luma<u8>, Arc<[u8]>>>,
 }
 
 impl PointExtractorConsumer {
     pub fn new(args: Arc<Args>) -> Self {
-        let mask = args.mask.clone().map(|mask_file_path| {
-            let image = ImageReader::open(mask_file_path).unwrap();
-            info!("loaded mask image");
-            let decoded_image = image.decode().unwrap();
-            info!("decoded mask image");
-            let luma8_image = decoded_image.to_luma8();
-            info!("converted mask image to luma8");
-
-            Arc::new(Img(luma8_image))
-        });
+        let mask = Self::create_mask(&args);
 
         let state = ModelState::new(ModelConfig::default());
         let state = Arc::new(Mutex::new(state));
@@ -62,6 +54,23 @@ impl PointExtractorConsumer {
             mask,
             tx,
         }
+    }
+
+    fn create_mask(args: &Arc<Args>) -> Option<Arc<dyn ImageLumaExtractor>> {
+        let mask = args.mask.clone().map(|mask_file_path| {
+            let image = ImageReader::open(mask_file_path).unwrap();
+            info!("loaded mask image");
+            let decoded_image = image.decode().unwrap();
+            info!("decoded mask image");
+            let luma8_image = decoded_image.to_luma8();
+            info!("converted mask image to luma8");
+
+            // See: https://stackoverflow.com/a/67470122/642703
+            let arc = Arc::new(Img(luma8_image));
+            let arc_cast: Arc<dyn ImageLumaExtractor> = Arc::<Img>::clone(&arc);
+            arc_cast
+        });
+        mask
     }
 
     pub fn preprocess_frame(
@@ -101,7 +110,7 @@ impl PointExtractorConsumer {
         let subtracted = self.preprocess_frame(img.clone())?;
 
         let arc_img_subtracted = Arc::new(Img(subtracted));
-        let arc_mask = self.mask.clone().unwrap();
+        let arc_mask: Option<Arc<dyn ImageLumaExtractor>> = self.mask.clone();
 
         {
             self.state

@@ -7,7 +7,6 @@ use kiddo::float::kdtree::Axis;
 use kiddo::SquaredEuclidean;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use nonmax::NonMaxUsize;
-use num_traits::float::FloatCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::iter::Sum;
@@ -67,9 +66,21 @@ where
             return match_indexes;
         };
 
-        'outer: for cand in self.star_candidates.iter_mut() {
+        let mut unmatched_cand_count = 0;
+        let mut matched_detected_points: HashSet<usize> = HashSet::new();
+        'outer: for (_cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
             let x = cand.x;
             let y = cand.y;
+
+            // if cand.age > 5 {
+            //     info!(
+            //         "cand #{}: pos ({}, {}), dp index: {:?}",
+            //         cand_idx,
+            //         cand.x,
+            //         cand.y,
+            //         cand.detected_point_match_history.last()
+            //     );
+            // }
 
             // get close detected points within radius from current frame
             let nearby_detected_points = curr_frame_state
@@ -108,26 +119,46 @@ where
                     continue;
                 }
 
+                if matched_detected_points.contains(&detected_point_idx) {
+                    cand.detected_point_match_history.push(None);
+                    unmatched_cand_count += 1;
+                    continue 'outer;
+                }
+
                 cand.detected_point_match_history
                     .push(Some(NonMaxUsize::try_from(detected_point_idx).unwrap()));
+                matched_detected_points.insert(detected_point_idx);
 
                 let delta_x = fitted_point.x - cand.x;
                 let delta_y = fitted_point.y - cand.y;
+                // info!(
+                //     "cand #{} delta: {:.2}, {:.2}, DMH: {:?}",
+                //     cand_idx, delta_x, delta_y, &cand.detected_point_match_history
+                // );
 
-                let update_scale =
-                    FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
+                let update_scale = 1.0.az::<F>();
+                // FIXME: the below stops updating cand positions after a few frames
+                // FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
 
                 cand.x += delta_x * update_scale;
                 cand.y += delta_y * update_scale;
+
+                if fitted_point.score > self.model_config.star_candidate_strong_match_threshold {
+                    cand.log_likelihood += self.model_config.star_candidate_strong_match_bonus;
+                }
 
                 match_indexes.insert(detected_point_idx);
 
                 continue 'outer;
             }
 
+            unmatched_cand_count += 1;
             cand.detected_point_match_history.push(None);
         }
-        info!(existing_fitted_qty = match_indexes.len());
+        info!(
+            existing_fitted_qty = match_indexes.len(),
+            unmatched_cand_count
+        );
 
         match_indexes
     }
@@ -149,15 +180,31 @@ where
         for (detected_point_index, detected_point) in
             curr_frame_state.detected_points_list.iter_mut().enumerate()
         {
+            // skip detected points that have already been matched up to existing
+            // star candidates
             if matched_point_indices.contains(&detected_point_index) {
                 continue;
             }
 
+            // skip points that are too dim
             if detected_point.amplitude
                 < self
                     .model_config
                     .detected_point_candidate_amplitude_threshold
             {
+                continue;
+            }
+
+            // skip points that are too close to existing star candidates
+            let close_candidates = self
+                .star_candidates_tree
+                .nearest_n_within::<SquaredEuclidean>(
+                    &[detected_point.x.az::<F>(), detected_point.y.az::<F>()],
+                    self.model_config.max_existing_candidate_match_dist,
+                    1,
+                    false,
+                );
+            if !close_candidates.is_empty() {
                 continue;
             }
 

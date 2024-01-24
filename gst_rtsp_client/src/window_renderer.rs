@@ -23,6 +23,7 @@ pub struct WindowRenderer<'a, F: Axis + ArgminFloat + Sum> {
     rx: Receiver<ImageBuffer<Luma<u8>, Arc<[u8]>>>,
 }
 
+#[derive(Debug)]
 pub struct StarCandidateAnnotation<F: Axis + ArgminFloat + Sum> {
     x: F,
     y: F,
@@ -108,7 +109,7 @@ where
         state_ref
             .star_candidates
             .iter()
-            .filter(|cand| cand.log_likelihood >= 10.0f32.az::<F>() && cand.age >= 5)
+            // .filter(|cand| cand.log_likelihood >= 10.0f32.az::<F>() && cand.age >= 5)
             .for_each(|cand| {
                 let mut fitted_point: Option<&FittedPoint<F>> = None;
                 for (frame_idx, fitted_point_match) in
@@ -122,6 +123,7 @@ where
                                 &frame_state.detected_points_list[detected_point_idx.get()];
 
                             fitted_point = Some(detected_point.fitted_point.as_ref().unwrap());
+                            break;
                         }
                     }
                 }
@@ -133,6 +135,16 @@ where
                         radius: fitted_point.radius,
                         amplitude: fitted_point.amplitude,
                         score: fitted_point.score,
+                        log_likelihood: cand.log_likelihood,
+                        age: cand.age,
+                    });
+                } else {
+                    annotations.push(StarCandidateAnnotation {
+                        x: cand.x,
+                        y: cand.y,
+                        radius: F::zero(),
+                        amplitude: F::zero(),
+                        score: F::zero(),
                         log_likelihood: cand.log_likelihood,
                         age: cand.age,
                     });
@@ -158,7 +170,7 @@ where
 
         let mut new_img: DynamicImage = DynamicImage::ImageRgb8(new_img);
 
-        for annotation in annotations {
+        for (idx, annotation) in annotations.iter().enumerate() {
             if annotation.log_likelihood < 10.0f64.az::<F>() || annotation.age < 5 {
                 continue;
             }
@@ -181,7 +193,8 @@ where
 
             let num = NumberFormat::new();
             let label = format!(
-                "${} LL{} R{} A{}",
+                "#{} ${} LL{} R{} A{}",
+                idx,
                 num.format(".2s", annotation.score.az::<f32>()),
                 num.format(".2s", annotation.log_likelihood.az::<f32>()),
                 num.format(".2s", annotation.radius.az::<f32>()),

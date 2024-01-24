@@ -26,7 +26,7 @@ where
     #[inline]
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
-        mask: Arc<dyn ImageLumaExtractor>,
+        mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Vec<DetectedPoint<F>> {
         let mut points: Vec<DetectedPoint<F>> = vec![];
 
@@ -38,12 +38,12 @@ where
 
         while y < img_h {
             while x < img_w {
-                // if let Some(ref mask) = mask {
-                if mask.get_luma8_for_pixel(x, y) == 0 {
-                    x += STEP_X;
-                    continue;
+                if let Some(ref mask) = mask {
+                    if mask.get_luma8_for_pixel(x, y) == 0 {
+                        x += STEP_X;
+                        continue;
+                    }
                 }
-                // }
 
                 let val: u8 = img.get_luma8_for_pixel(x, y);
 
