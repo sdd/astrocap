@@ -32,7 +32,7 @@ use crate::window_renderer::WindowRenderer;
 pub struct PointExtractorConsumer {
     state: Arc<Mutex<ModelState<f32>>>,
     mask: Option<Arc<dyn ImageLumaExtractor>>,
-    tx: Sender<ImageBuffer<Luma<u8>, Arc<[u8]>>>,
+    tx: Sender<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>,
 }
 
 impl PointExtractorConsumer {
@@ -106,11 +106,11 @@ impl PointExtractorConsumer {
     pub fn process_frame(
         &mut self,
         img: ImageBuffer<Luma<u8>, Arc<[u8]>>,
+        frame_index: usize,
     ) -> Result<(), Box<dyn Error>> {
         let subtracted = self.preprocess_frame(img.clone())?;
 
         let arc_img_subtracted = Arc::new(Img(subtracted));
-        let arc_mask: Option<Arc<dyn ImageLumaExtractor>> = self.mask.clone();
 
         {
             self.state
@@ -118,11 +118,11 @@ impl PointExtractorConsumer {
                 .unwrap()
                 .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(
                     arc_img_subtracted,
-                    arc_mask,
+                    self.mask.clone(),
                 )?;
         }
 
-        self.tx.send(img.clone())?;
+        self.tx.send((frame_index, img.clone()))?;
 
         Ok(())
     }
@@ -145,7 +145,7 @@ impl PointExtractorConsumer {
 
                     let img_buf = VideoFrameExt(&idx_and_frame.1).as_img_buf_arc();
 
-                    self.process_frame(img_buf).unwrap();
+                    self.process_frame(img_buf, idx).unwrap();
 
                     debug!(?idx, "processed frame");
                     idx += 1;

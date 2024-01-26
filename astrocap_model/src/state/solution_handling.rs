@@ -7,6 +7,8 @@ use ndarray::{ArrayBase, Dim, OwnedRepr};
 use serde::{Deserialize, Serialize};
 use std::iter::Sum;
 
+use solvastro::k4::star_index::StarIndex;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StarMatch<F: Axis + Sum> {
     star_candidate_index: usize,
@@ -16,6 +18,10 @@ pub struct StarMatch<F: Axis + Sum> {
 
 #[derive(Debug)]
 pub struct Wcs {}
+
+pub struct Solver {
+    star_index: StarIndex,
+}
 
 impl<F: Axis + ArgminFloat + Sum> ModelState<F>
 where

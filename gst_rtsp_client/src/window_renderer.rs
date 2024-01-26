@@ -20,7 +20,7 @@ pub struct WindowRenderer<'a, F: Axis + ArgminFloat + Sum> {
     green: Rgba<u8>,
     scale: Scale,
     window: WindowProxy,
-    rx: Receiver<ImageBuffer<Luma<u8>, Arc<[u8]>>>,
+    rx: Receiver<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>,
 }
 
 #[derive(Debug)]
@@ -41,7 +41,7 @@ where
 {
     pub fn new(
         state: Arc<Mutex<ModelState<F>>>,
-        rx: Receiver<ImageBuffer<Luma<u8>, Arc<[u8]>>>,
+        rx: Receiver<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>,
     ) -> Self {
         let window = show_image::create_window(
             "Annotated Frames",
@@ -82,20 +82,24 @@ where
     }
 
     pub fn run(&mut self) {
-        while let Ok(img) = self.rx.recv() {
-            let _ = self.process_frame(img);
+        while let Ok((frame_index, img)) = self.rx.recv() {
+            let _ = self.process_frame(frame_index, img);
         }
     }
 
     pub fn process_frame(
         &mut self,
+        frame_index: usize,
         img: ImageBuffer<Luma<u8>, Arc<[u8]>>,
     ) -> Result<(), Box<dyn Error>> {
         let annotations = self.get_annotation_data();
 
         let img_query_annotated = self.annotate_image_query(&img, annotations);
 
-        self.window.set_image("Frame", img_query_annotated)?;
+        self.window.set_image(
+            format!("query-annotated-frame-{}.png", frame_index),
+            img_query_annotated,
+        )?;
         // img_query_annotated.save("query-annotated.png")?;
 
         Ok(())

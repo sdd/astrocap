@@ -7,6 +7,7 @@ use kiddo::float::kdtree::Axis;
 use kiddo::SquaredEuclidean;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use nonmax::NonMaxUsize;
+use num_traits::float::FloatCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::iter::Sum;
@@ -136,9 +137,8 @@ where
                 //     cand_idx, delta_x, delta_y, &cand.detected_point_match_history
                 // );
 
-                let update_scale = 1.0.az::<F>();
-                // FIXME: the below stops updating cand positions after a few frames
-                // FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
+                let update_scale =
+                    FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
 
                 cand.x += delta_x * update_scale;
                 cand.y += delta_y * update_scale;

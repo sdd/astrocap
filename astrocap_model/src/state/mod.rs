@@ -154,6 +154,7 @@ where
     f64: Cast<F>,
     F: Cast<u32>,
     F: Cast<i32>,
+    F: Cast<f32>,
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>: ArgminAdd<
         ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>,
         ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>,
