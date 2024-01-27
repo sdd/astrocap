@@ -43,12 +43,13 @@ pub struct ModelState<F: Axis + ArgminFloat + Sum> {
     pub star_candidates: Vec<StarCandidate<F>>,
     #[allow(dead_code)]
     star_candidates_tree: KdTree<F, 2>,
+    matched_point_indices: HashSet<usize>,
 
     wcs: Option<Wcs>,
     #[allow(dead_code)]
     star_matches: Option<Vec<StarMatch<F>>>,
 
-    moving_targets: Vec<MovingTarget<F>>,
+    pub moving_targets: Vec<MovingTarget<F>>,
 
     #[allow(dead_code)]
     moving_streaks: Vec<MovingStreak>,
@@ -61,6 +62,7 @@ impl<F: Axis + ArgminFloat + Sum> ModelState<F> {
             recent_frame_states: vec![],
             star_candidates: vec![],
             star_candidates_tree: KdTree::new(),
+            matched_point_indices: HashSet::new(),
             wcs: None,
             star_matches: None,
             moving_targets: vec![],
@@ -178,7 +180,7 @@ where
 
         let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
 
-        let matched_point_indexes = if self.recent_frame_states.len() > 1 {
+        self.matched_point_indices = if self.recent_frame_states.len() > 1 {
             // try to fit existing star candidates
             self.fit_existing_points(point_fitter.clone())
         } else {
@@ -187,12 +189,7 @@ where
 
         // fit high_quality candidates from the current frame that didn't
         // already get fitted against existing candidates
-        self.fit_strong_unmatched_new_points(
-            point_fitter.clone(),
-            frame.width(),
-            frame.height(),
-            matched_point_indexes,
-        );
+        self.fit_strong_unmatched_new_points(point_fitter.clone(), frame.width(), frame.height());
 
         if self.wcs.is_some() {
             // state is currently solved.

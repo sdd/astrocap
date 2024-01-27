@@ -168,7 +168,6 @@ where
         point_fitter: Arc<dyn PointFitter<F>>,
         img_w: u32,
         img_h: u32,
-        matched_point_indices: HashSet<usize>,
     ) {
         let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
             warn!("Not enough previous frame states found when trying to fit existing points");
@@ -182,7 +181,7 @@ where
         {
             // skip detected points that have already been matched up to existing
             // star candidates
-            if matched_point_indices.contains(&detected_point_index) {
+            if self.matched_point_indices.contains(&detected_point_index) {
                 continue;
             }
 

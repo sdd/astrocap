@@ -3,7 +3,8 @@ use astrocap_model::state::{FittedPoint, ModelState};
 use az::{Az, Cast};
 use format_num::NumberFormat;
 use image::{DynamicImage, ImageBuffer, Luma, Pixel, RgbImage, Rgba};
-use imageproc::drawing::{draw_hollow_circle_mut, draw_text_mut};
+use imageproc::drawing::{draw_hollow_circle_mut, draw_hollow_rect_mut, draw_text_mut};
+use imageproc::rect::Rect;
 use kiddo::float::kdtree::Axis;
 use rusttype::{Font, Scale};
 use show_image::{WindowOptions, WindowProxy};
@@ -18,7 +19,10 @@ pub struct WindowRenderer<'a, F: Axis + ArgminFloat + Sum> {
     cyan: Rgba<u8>,
     red: Rgba<u8>,
     green: Rgba<u8>,
+    yellow: Rgba<u8>,
+    orange: Rgba<u8>,
     scale: Scale,
+    big_scale: Scale,
     window: WindowProxy,
     rx: Receiver<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>,
 }
@@ -32,6 +36,22 @@ pub struct StarCandidateAnnotation<F: Axis + ArgminFloat + Sum> {
     score: F,
     log_likelihood: F,
     age: usize,
+}
+
+#[derive(Debug)]
+pub struct MovingTargetAnnotation<F: Axis + ArgminFloat + Sum> {
+    x: F,
+    y: F,
+    score: F,
+    log_likelihood: F,
+    age: usize,
+    dx: F,
+    dy: F,
+}
+
+pub struct FrameAnnotations<F: Axis + ArgminFloat + Sum> {
+    star_candidates: Vec<StarCandidateAnnotation<F>>,
+    moving_targets: Vec<MovingTargetAnnotation<F>>,
 }
 
 impl<'a, F: Axis + ArgminFloat + Sum + Cast<u32> + Cast<f32> + Cast<i32>> WindowRenderer<'a, F>
@@ -62,6 +82,8 @@ where
         let cyan = Rgba([0u8, 255u8, 255u8, 255u8]);
         let green = Rgba([0u8, 255u8, 0u8, 255u8]);
         let red = Rgba([255u8, 0u8, 0u8, 255u8]);
+        let yellow = Rgba([255u8, 255u8, 0u8, 255u8]);
+        let orange = Rgba([255u8, 127u8, 0u8, 255u8]);
 
         let height = 18f32;
         let scale = Scale {
@@ -69,13 +91,21 @@ where
             y: height,
         };
 
+        let big_scale = Scale {
+            x: height * 2.0,
+            y: height * 2.0,
+        };
+
         WindowRenderer {
             state,
             font,
             scale,
+            big_scale,
             cyan,
             green,
             red,
+            yellow,
+            orange,
             window,
             rx,
         }
@@ -105,10 +135,10 @@ where
         Ok(())
     }
 
-    pub fn get_annotation_data(&self) -> Vec<StarCandidateAnnotation<F>> {
+    pub fn get_annotation_data(&self) -> FrameAnnotations<F> {
         let state_ref = &self.state.lock().unwrap();
 
-        let mut annotations = vec![];
+        let mut sc_annotations = vec![];
 
         state_ref
             .star_candidates
@@ -133,7 +163,7 @@ where
                 }
 
                 if let Some(fitted_point) = fitted_point {
-                    annotations.push(StarCandidateAnnotation {
+                    sc_annotations.push(StarCandidateAnnotation {
                         x: fitted_point.x,
                         y: fitted_point.y,
                         radius: fitted_point.radius,
@@ -143,7 +173,7 @@ where
                         age: cand.age,
                     });
                 } else {
-                    annotations.push(StarCandidateAnnotation {
+                    sc_annotations.push(StarCandidateAnnotation {
                         x: cand.x,
                         y: cand.y,
                         radius: F::zero(),
@@ -155,13 +185,30 @@ where
                 }
             });
 
-        annotations
+        let mt_annotations = state_ref
+            .moving_targets
+            .iter()
+            .map(|mt| MovingTargetAnnotation {
+                x: mt.x,
+                y: mt.y,
+                score: mt.latest_score,
+                log_likelihood: mt.log_odds,
+                age: mt.age,
+                dx: mt.last_frame_delta_x,
+                dy: mt.last_frame_delta_y,
+            })
+            .collect();
+
+        FrameAnnotations {
+            star_candidates: sc_annotations,
+            moving_targets: mt_annotations,
+        }
     }
 
     pub fn annotate_image_query(
         &self,
         img: &ImageBuffer<Luma<u8>, Arc<[u8]>>,
-        annotations: Vec<StarCandidateAnnotation<F>>,
+        annotations: FrameAnnotations<F>,
     ) -> DynamicImage {
         let mut new_img = RgbImage::new(img.width(), img.height());
         img.pixels()
@@ -174,7 +221,7 @@ where
 
         let mut new_img: DynamicImage = DynamicImage::ImageRgb8(new_img);
 
-        for (idx, annotation) in annotations.iter().enumerate() {
+        for (idx, annotation) in annotations.star_candidates.iter().enumerate() {
             if annotation.log_likelihood < 10.0f64.az::<F>() || annotation.age < 5 {
                 continue;
             }
@@ -211,6 +258,41 @@ where
                 (annotation.x.az::<u32>()).saturating_sub(5u32) as i32,
                 (annotation.y.az::<u32>()).saturating_sub(30u32) as i32,
                 self.scale,
+                &self.font,
+                label.as_str(),
+            );
+        }
+
+        for (idx, annotation) in annotations.moving_targets.iter().enumerate() {
+            let draw_color = if annotation.log_likelihood < 30.0f32.az::<F>() {
+                &self.orange
+            } else {
+                &self.yellow
+            };
+
+            let centre = (annotation.x.az::<i32>(), annotation.y.az::<i32>());
+            draw_hollow_rect_mut(
+                &mut new_img,
+                Rect::at(centre.0 - 5, centre.1 - 5).of_size(10, 10),
+                *draw_color,
+            );
+
+            let num = NumberFormat::new();
+            let label = format!(
+                "#{} ${} LL{} D{},{}",
+                idx,
+                num.format(".2s", annotation.score.az::<f32>()),
+                num.format(".2s", annotation.log_likelihood.az::<f32>()),
+                num.format(".2s", annotation.dx.az::<f32>()),
+                num.format(".2s", annotation.dy.az::<f32>()),
+            );
+
+            draw_text_mut(
+                &mut new_img,
+                *draw_color,
+                (annotation.x.az::<u32>()).saturating_sub(5u32) as i32,
+                (annotation.y.az::<u32>()).saturating_sub(30u32) as i32,
+                self.big_scale,
                 &self.font,
                 label.as_str(),
             );
