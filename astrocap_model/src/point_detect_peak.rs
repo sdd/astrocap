@@ -10,10 +10,10 @@ use crate::traits::{ImageLumaExtractor, PointDetector};
 
 // const POINT_SKIP_STEP: u32 = 3;
 const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
-const POINT_THRESHOLD: u8 = 43;
+const POINT_THRESHOLD: u8 = 30;
 const STEP_X: u32 = 1;
 const STEP_Y: u32 = 1;
-pub const PATCH_SIZE: u32 = 20;
+pub const PATCH_SIZE: u32 = 4;
 
 pub struct PointDetectPeak {}
 
