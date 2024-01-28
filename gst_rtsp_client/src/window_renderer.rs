@@ -36,6 +36,7 @@ pub struct StarCandidateAnnotation<F: Axis + ArgminFloat + Sum> {
     score: F,
     log_likelihood: F,
     age: usize,
+    name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -171,6 +172,7 @@ where
                         score: fitted_point.score,
                         log_likelihood: cand.log_likelihood,
                         age: cand.age,
+                        name: cand.match_name.clone(),
                     });
                 } else {
                     sc_annotations.push(StarCandidateAnnotation {
@@ -181,6 +183,7 @@ where
                         score: F::zero(),
                         log_likelihood: cand.log_likelihood,
                         age: cand.age,
+                        name: cand.match_name.clone(),
                     });
                 }
             });
@@ -243,8 +246,12 @@ where
             );
 
             let num = NumberFormat::new();
+
+            let name = annotation.name.clone().unwrap_or("".to_string());
+
             let label = format!(
-                "#{} ${} LL{} R{} A{}",
+                "{} #{} ${} LL{} R{} A{}",
+                name,
                 idx,
                 num.format(".2s", annotation.score.az::<f32>()),
                 num.format(".2s", annotation.log_likelihood.az::<f32>()),

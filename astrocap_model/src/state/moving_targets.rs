@@ -9,7 +9,9 @@ use nonmax::NonMaxUsize;
 use num_traits::float::FloatCore;
 use serde::{Deserialize, Serialize};
 use std::iter::Sum;
+use std::sync::Arc;
 use tracing::*;
+use crate::traits::{ImageLumaExtractor, PointFitter};
 
 const MAX_FRAME_DELTA: f64 = 100.0;
 const MAX_MOVING_ITEM_JITTER: f64 = 20.0;
@@ -61,8 +63,13 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub(crate) fn update_moving_targets(&mut self) {
-        let Some(curr_frame_state) = self.recent_frame_states.last() else {
+    pub(crate) fn update_moving_targets(
+        &mut self,
+        point_fitter: Arc<dyn PointFitter<F>>,
+        img_w: u32,
+        img_h: u32,
+    ) {
+        let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
             warn!("no frame state to update moving targets");
             return;
         };
@@ -71,11 +78,15 @@ where
         for (idx, moving_target) in self.moving_targets.iter_mut().enumerate() {
             moving_target.age += 1;
 
-            // predict position of target in this frame
-            moving_target.x += moving_target.last_frame_delta_x;
-            moving_target.y += moving_target.last_frame_delta_y;
+            // clean up MTIs that stop moving
+            if num_traits::Float::abs(moving_target.last_frame_delta_x) + num_traits::Float::abs(moving_target.last_frame_delta_y) < 0.5f64.az::<F>() {
+                warn!(idx, "discarded due to stopping");
+                discards.push(idx);
+                continue;
+            }
 
-            let predicted_pos = [moving_target.x, moving_target.y];
+            // predict position of target in this frame
+            let predicted_pos = [moving_target.x + moving_target.last_frame_delta_x, moving_target.y + moving_target.last_frame_delta_y];
 
             // fit against predicted position
             let best_match = curr_frame_state
@@ -86,12 +97,37 @@ where
             moving_target.latest_score = score;
 
             if score > F::zero() {
+                let mut best_match_point = &mut curr_frame_state.detected_points_list[best_match.item as usize];
+
+                let fitted_point = if best_match_point.fitted_point.is_none() {
+                    let fp = point_fitter.fit(best_match_point);
+                    best_match_point.fitted_point = Some(fp.clone());
+                    fp
+                } else {
+                    best_match_point.fitted_point.clone().unwrap()
+                };
+
+                let current_dx = fitted_point.x - moving_target.x;
+                let current_dy = fitted_point.y - moving_target.y;
+
+                moving_target.last_frame_delta_x = moving_target.last_frame_delta_x + (current_dx - moving_target.last_frame_delta_x) / 5.0.az::<F>();
+                moving_target.last_frame_delta_y = moving_target.last_frame_delta_y + (current_dy - moving_target.last_frame_delta_y) / 5.0.az::<F>();
+
+                // moving_target.last_frame_delta_x = fitted_point.x - moving_target.x;
+                // moving_target.last_frame_delta_y = fitted_point.y - moving_target.y;
+
+                moving_target.x = fitted_point.x;
+                moving_target.y = fitted_point.y;
+
                 warn!(idx, score = score.az::<f32>(), "moving point matched");
                 moving_target.log_odds += score;
             } else {
                 warn!(idx, "mover penalized");
                 moving_target.log_odds =
                     moving_target.log_odds - UNMATCHED_MOVING_TARGET_PENALTY.az::<F>();
+
+                moving_target.x += moving_target.last_frame_delta_x;
+                moving_target.y += moving_target.last_frame_delta_y;
 
                 if moving_target.log_odds < MOVING_TARGET_DISCARD_THRESHOLD.az::<F>() {
                     warn!(idx, "discarded");
@@ -120,6 +156,14 @@ where
                 continue;
             }
 
+            let nearest_star_cand_match = self.star_candidates_tree
+                .nearest_one::<SquaredEuclidean>(
+                    &[detected_point.x.az::<F>(), detected_point.y.az::<F>()]
+                );
+            if nearest_star_cand_match.distance < self.model_config.max_existing_candidate_match_dist {
+                continue;
+            }
+
             let curr_pos = [detected_point.x.az::<F>(), detected_point.y.az::<F>()];
 
             let prev_frame_matches = prev_frame_state
@@ -144,7 +188,7 @@ where
                 let prev_pos_candidate: &DetectedPoint<F> =
                     &prev_frame_state.detected_points_list[prev_pos_candidate_res.item as usize];
 
-                let frame_delta = [
+                let mut frame_delta = [
                     prev_pos_candidate.x.az::<F>() - curr_frame_pos[0],
                     prev_pos_candidate.y.az::<F>() - curr_frame_pos[1],
                 ];
@@ -175,13 +219,16 @@ where
 
                     if frame_match.distance <= MAX_MOVING_ITEM_JITTER.az::<F>() {
                         score += MAX_MOVING_ITEM_JITTER.az::<F>() - frame_match.distance;
-                        warn!(
-                            "score: {:.2}, best_score: {:.2}",
-                            score.az::<f32>(),
-                            best_score.az::<f32>()
-                        );
+                        // warn!(
+                        //     "score: {:.2}, best_score: {:.2}",
+                        //     score.az::<f32>(),
+                        //     best_score.az::<f32>()
+                        // );
 
                         // TODO: update delta to delta from first to last frame
+                        frame_delta[0] = (query_pos[0] - curr_pos[0]) / (lookback_frame_index as u32).az::<F>();
+                        frame_delta[1] = (query_pos[1] - curr_pos[1]) / (lookback_frame_index as u32).az::<F>();
+
                     } else {
                         // info!("no match in frame {}", lookback_frame_index);
                     }

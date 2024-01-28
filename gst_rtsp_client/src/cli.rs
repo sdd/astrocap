@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use clap::Parser;
 use derive_more::{Display, Error};
 use gst::glib;
@@ -25,6 +26,10 @@ pub struct Args {
     /// mask image
     #[arg(short, long)]
     pub(crate) mask: Option<String>,
+
+    /// star index path to enable solver
+    #[arg(short, long)]
+    pub(crate) star_index_path: Option<PathBuf>,
 
     #[clap(flatten)]
     verbose: clap_verbosity_flag::Verbosity,

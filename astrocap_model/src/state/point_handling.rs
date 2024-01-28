@@ -35,8 +35,12 @@ pub struct FittedPoint<F: Axis> {
 pub struct StarCandidate<F: Axis> {
     pub x: F,
     pub y: F,
+    pub amplitude: F,
+    pub radius: F,
     pub age: usize,
     pub log_likelihood: F,
+
+    pub match_name: Option<String>,
 
     pub detected_point_match_history: Vec<Option<NonMaxUsize>>,
 }
@@ -223,8 +227,11 @@ where
                 let new_cand = StarCandidate {
                     x: fitted_point.x,
                     y: fitted_point.y,
+                    amplitude: fitted_point.amplitude,
+                    radius: fitted_point.radius,
                     age: 0,
                     log_likelihood: fitted_point.score,
+                    match_name: None,
                     detected_point_match_history: vec![NonMaxUsize::new(detected_point_index)],
                 };
 

@@ -39,7 +39,7 @@ impl PointExtractorConsumer {
     pub fn new(args: Arc<Args>) -> Self {
         let mask = Self::create_mask(&args);
 
-        let state = ModelState::new(ModelConfig::default());
+        let state = ModelState::new(ModelConfig::default(), args.star_index_path.clone());
         let state = Arc::new(Mutex::new(state));
         let state_cloned = state.clone();
 

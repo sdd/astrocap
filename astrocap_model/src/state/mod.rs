@@ -13,6 +13,7 @@ use argmin::core::ArgminFloat;
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use std::error::Error;
 use std::iter::Sum;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tracing::info;
@@ -25,6 +26,7 @@ use kiddo::{KdTree, SquaredEuclidean};
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use num_traits::float::FloatCore;
 use ordered_float::OrderedFloat;
+use crate::state::solution_handling::Solver;
 
 const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
@@ -53,10 +55,12 @@ pub struct ModelState<F: Axis + ArgminFloat + Sum> {
 
     #[allow(dead_code)]
     moving_streaks: Vec<MovingStreak>,
+
+    solver: Option<Solver>,
 }
 
 impl<F: Axis + ArgminFloat + Sum> ModelState<F> {
-    pub fn new(model_config: ModelConfig<F>) -> Self {
+    pub fn new(model_config: ModelConfig<F>, star_index_path: Option<PathBuf>) -> Self {
         ModelState {
             model_config,
             recent_frame_states: vec![],
@@ -67,6 +71,7 @@ impl<F: Axis + ArgminFloat + Sum> ModelState<F> {
             star_matches: None,
             moving_targets: vec![],
             moving_streaks: vec![],
+            solver: star_index_path.map(|path|Solver::new(&path)),
         }
     }
 }
@@ -157,6 +162,7 @@ where
     F: Cast<u32>,
     F: Cast<i32>,
     F: Cast<f32>,
+    F: Cast<f64>,
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>: ArgminAdd<
         ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>,
         ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>,
@@ -204,12 +210,10 @@ where
         } else {
             // state is currently unsolved.
             // Determine if there is sufficient grounds to attempt a solution
-            if self.star_candidates.len() >= self.model_config.min_reqd_qty_to_attempt_solve {
-                self.solve();
-            }
+            // self.solve();
         }
 
-        self.update_moving_targets();
+        self.update_moving_targets(point_fitter.clone(), frame.width(), frame.height());
 
         self.detect_moving_targets();
 
