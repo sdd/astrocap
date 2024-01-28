@@ -1,0 +1,13 @@
+[package]
+name = "read_mkv_metadata"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+clap-verbosity-flag = "2"
+matroska = "0.26"
+
+[[bin]]
+name = "read-mkv-metadata"
+path = "src/main.rs"

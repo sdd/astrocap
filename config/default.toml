@@ -1,0 +1,72 @@
+[query_generator]
+
+# options: Peak
+point_detector = "Peak"
+
+# options: Basic, GaussianNelderMead
+point_fitter = "GaussianNelderMead"
+
+[solver]
+
+# options: CentreAbcd, CentreAb, CentreA
+# default: CentreA
+# description: should not need to change. Determines whether crval and crpix are set
+# to the centroid of the quad (CentreAbcd), the midpoint of AB (CentreAb), or the
+# position of A (CentreA). Astrometry.net uses the centroid, but we get better solutions
+# when using CentreA.
+quad_centre_mode = "CentreA"
+
+[tuner]
+
+# options:
+# HagerZhang: Run SteepestDescent HagerZhang optimizer across all params (crpix, crval, and cd)
+# NelderMead: Run NelderMead optimiser against crpix and cd params
+wcs_mode = "NelderMead"
+
+# options:
+# Off: don't fit SIP params
+# Once: fit SIP params once, after WCS optimization is finished. Discard if worse
+# Every: fit SIP params after every round of WCS optimization
+sip_mode = "Off"
+
+
+[starindex_builder]
+
+# whether or not to enable the second phase of the quad generator on each round.
+# This phase attempts to build quads in CABD order. This may help to build indices
+# that are more resilient when solving queries whose stars whose brightness order
+# may not be canonical due to noise, vingetting, seeing, and simplified flux estimation functions.
+enable_cabd_phase = 1
+
+# max number of quads that can be built with same two stars as AB. Resets each scale shrink.
+# default: 10
+max_ab_use = 10
+
+# max number of times that a star can be used for a quad. Resets each scaling round.
+# Default: 40
+max_total_reuse = 40
+
+# the round shrink factor. MAX_AB gets multiplied by this each round until we get to the
+# smallet desired quad scale.
+# Default 1 / root 2 (0.70710678)
+max_ab_shrink_factor = 0.70710678
+
+# The size of MIN_AB, as a factor of MAX_AB.
+# Default 1 / root 2 (0.70710678)
+max_ab2_min_ab2_ratio = 0.70710678
+
+# initial MAX_AB distance in degrees.
+# Default: 45
+initial_max_ab_degrees = 45.0
+
+# the MIN_AB size below which we terminate quad generation. Images that span
+# a smaller radius of the sky cannot be recognized. Decreasing this has a large
+# effect on the size of the final starIndex.
+# Default: 3
+terminal_min_ab_degrees = 3.0
+
+# the minimum acceptable distance between any two stars in a quad, as a fraction of ab.
+# this prevents creation of less useful quads that use the second star of a binary, for example.
+# Default: 0.01
+min_ac_max_ab_ratio = 0.01
+

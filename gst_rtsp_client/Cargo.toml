@@ -1,0 +1,51 @@
+[package]
+name = "gst_rtsp_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+astrocap_model = { path = "../astrocap_model" }
+clap = { version = "4", features = ["derive"] }
+clap-verbosity-flag = "2"
+derive_more = "0.99.17"
+futures-core = "0.3"
+gst = { package = "gstreamer", version = "0.21" }
+gst-app = { package = "gstreamer-app", version = "0.21.2" }
+gst-video = { package = "gstreamer-video", version = "0.21.2" }
+http = "1.0.0"
+imageproc = "0.23.0"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+kiddo = { version = "4.0.0" }
+rtrb = "0.3.0"
+#solvastro = { path = "../solvastro-2", package = "solvastro" }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+rusttype = "0.9.3"
+show-image = { version = "0.13.1", features = ["image"] }
+argmin = "0.8"
+argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
+
+lazy_static = "1.4.0"
+format_num = "0.1.0"
+ordered-float = "4.2.0"
+serde_json = "1.0.108"
+serde = { version = "1.0.193", features = ["derive"] }
+itertools = "0.12.0"
+ndarray = "0.15.6"
+num-traits = "0.2.16"
+az = "1.2.1"
+
+[build-dependencies]
+system-deps = "2.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+
+[package.metadata.system-deps.gstreamer_1_0]
+name = "gstreamer-1.0"
+version = "1.0"
+
+[[bin]]
+name = "gst-rtsp-client"
+path = "src/main.rs"
