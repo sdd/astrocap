@@ -13,9 +13,7 @@ use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use std::error::Error;
 use std::iter::Sum;
 use std::path::{Path, PathBuf};
-
 use std::sync::Arc;
-
 use tracing::info;
 
 use crate::config::ModelConfig;

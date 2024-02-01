@@ -16,14 +16,15 @@ use std::ops::{DivAssign, MulAssign, SubAssign};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
+const RED: Rgba<u8> = Rgba([255u8, 0u8, 0u8, 255u8]);
+const ORANGE: Rgba<u8> = Rgba([255u8, 127u8, 0u8, 255u8]);
+const YELLOW: Rgba<u8> = Rgba([255u8, 255u8, 0u8, 255u8]);
+const GREEN: Rgba<u8> = Rgba([0u8, 255u8, 0u8, 255u8]);
+const CYAN: Rgba<u8> = Rgba([0u8, 255u8, 255u8, 255u8]);
+
 pub struct WindowRenderer<'a, F: AstroFloat> {
     state: Arc<Mutex<ModelState<F>>>,
     font: Font<'a>,
-    cyan: Rgba<u8>,
-    red: Rgba<u8>,
-    green: Rgba<u8>,
-    yellow: Rgba<u8>,
-    orange: Rgba<u8>,
     scale: Scale,
     big_scale: Scale,
     window: WindowProxy,
@@ -85,12 +86,6 @@ where
 
         let font = Font::try_from_vec(font).unwrap();
 
-        let cyan = Rgba([0u8, 255u8, 255u8, 255u8]);
-        let green = Rgba([0u8, 255u8, 0u8, 255u8]);
-        let red = Rgba([255u8, 0u8, 0u8, 255u8]);
-        let yellow = Rgba([255u8, 255u8, 0u8, 255u8]);
-        let orange = Rgba([255u8, 127u8, 0u8, 255u8]);
-
         let height = 18f32;
         let scale = Scale {
             x: height,
@@ -107,11 +102,6 @@ where
             font,
             scale,
             big_scale,
-            cyan,
-            green,
-            red,
-            yellow,
-            orange,
             window,
             rx,
         }
@@ -234,11 +224,11 @@ where
             }
 
             let draw_color = if annotation.log_likelihood < 30.0f32.az::<F>() {
-                &self.red
+                &RED
             } else if annotation.age < 30 {
-                &self.cyan
+                &CYAN
             } else {
-                &self.green
+                &GREEN
             };
 
             let centre = (annotation.x.az::<i32>(), annotation.y.az::<i32>());
@@ -276,9 +266,9 @@ where
 
         for (idx, annotation) in annotations.moving_targets.iter().enumerate() {
             let draw_color = if annotation.log_likelihood < 30.0f32.az::<F>() {
-                &self.orange
+                &ORANGE
             } else {
-                &self.yellow
+                &YELLOW
             };
 
             let centre = (
