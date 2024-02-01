@@ -1,19 +1,22 @@
 use argmin::core::ArgminFloat;
 use astrocap_model::state::{FittedPoint, ModelState};
+use astrocap_model::traits::AstroFloat;
 use az::{Az, Cast};
 use format_num::NumberFormat;
 use image::{DynamicImage, ImageBuffer, Luma, Pixel, RgbImage, Rgba};
 use imageproc::drawing::{draw_hollow_circle_mut, draw_hollow_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
 use kiddo::float::kdtree::Axis;
+use nalgebra::Vector2;
 use rusttype::{Font, Scale};
 use show_image::{WindowOptions, WindowProxy};
 use std::error::Error;
 use std::iter::Sum;
+use std::ops::{DivAssign, MulAssign, SubAssign};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
-pub struct WindowRenderer<'a, F: Axis + ArgminFloat + Sum> {
+pub struct WindowRenderer<'a, F: AstroFloat> {
     state: Arc<Mutex<ModelState<F>>>,
     font: Font<'a>,
     cyan: Rgba<u8>,
@@ -28,7 +31,7 @@ pub struct WindowRenderer<'a, F: Axis + ArgminFloat + Sum> {
 }
 
 #[derive(Debug)]
-pub struct StarCandidateAnnotation<F: Axis + ArgminFloat + Sum> {
+pub struct StarCandidateAnnotation<F: AstroFloat> {
     x: F,
     y: F,
     radius: F,
@@ -40,25 +43,27 @@ pub struct StarCandidateAnnotation<F: Axis + ArgminFloat + Sum> {
 }
 
 #[derive(Debug)]
-pub struct MovingTargetAnnotation<F: Axis + ArgminFloat + Sum> {
-    x: F,
-    y: F,
+pub struct MovingTargetAnnotation<F: AstroFloat> {
     score: F,
     log_likelihood: F,
     age: usize,
-    dx: F,
-    dy: F,
+    position: Vector2<F>,
+    velocity: Vector2<F>,
+    pos_history: Vec<Vector2<F>>,
 }
 
-pub struct FrameAnnotations<F: Axis + ArgminFloat + Sum> {
+pub struct FrameAnnotations<F: AstroFloat> {
     star_candidates: Vec<StarCandidateAnnotation<F>>,
     moving_targets: Vec<MovingTargetAnnotation<F>>,
 }
 
-impl<'a, F: Axis + ArgminFloat + Sum + Cast<u32> + Cast<f32> + Cast<i32>> WindowRenderer<'a, F>
+impl<'a, F: AstroFloat> WindowRenderer<'a, F>
 where
     f64: Cast<F>,
     f32: Cast<F>,
+    F: Cast<u32>,
+    F: Cast<f32>,
+    F: Cast<i32>,
 {
     pub fn new(
         state: Arc<Mutex<ModelState<F>>>,
@@ -93,8 +98,8 @@ where
         };
 
         let big_scale = Scale {
-            x: height * 2.0,
-            y: height * 2.0,
+            x: height * 1.5,
+            y: height * 1.5,
         };
 
         WindowRenderer {
@@ -192,13 +197,12 @@ where
             .moving_targets
             .iter()
             .map(|mt| MovingTargetAnnotation {
-                x: mt.x,
-                y: mt.y,
+                position: mt.position,
+                velocity: mt.velocity,
                 score: mt.latest_score,
                 log_likelihood: mt.log_odds,
                 age: mt.age,
-                dx: mt.last_frame_delta_x,
-                dy: mt.last_frame_delta_y,
+                pos_history: mt.pos_history.clone(),
             })
             .collect();
 
@@ -277,10 +281,13 @@ where
                 &self.yellow
             };
 
-            let centre = (annotation.x.az::<i32>(), annotation.y.az::<i32>());
+            let centre = (
+                annotation.position[0].az::<i32>(),
+                annotation.position[1].az::<i32>(),
+            );
             draw_hollow_rect_mut(
                 &mut new_img,
-                Rect::at(centre.0 - 5, centre.1 - 5).of_size(10, 10),
+                Rect::at(centre.0 - 10, centre.1 - 10).of_size(20, 20),
                 *draw_color,
             );
 
@@ -290,15 +297,17 @@ where
                 idx,
                 num.format(".2s", annotation.score.az::<f32>()),
                 num.format(".2s", annotation.log_likelihood.az::<f32>()),
-                num.format(".2s", annotation.dx.az::<f32>()),
-                num.format(".2s", annotation.dy.az::<f32>()),
+                num.format(".2s", annotation.velocity[0].az::<f32>()),
+                num.format(".2s", annotation.velocity[1].az::<f32>()),
             );
+
+            // TODO: draw pos history
 
             draw_text_mut(
                 &mut new_img,
                 *draw_color,
-                (annotation.x.az::<u32>()).saturating_sub(5u32) as i32,
-                (annotation.y.az::<u32>()).saturating_sub(30u32) as i32,
+                (annotation.position[0].az::<u32>()).saturating_sub(5u32) as i32,
+                (annotation.position[1].az::<u32>()).saturating_sub(30u32) as i32,
                 self.big_scale,
                 &self.font,
                 label.as_str(),

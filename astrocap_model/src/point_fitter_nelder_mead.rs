@@ -1,13 +1,13 @@
 use crate::state::{DetectedPoint, FittedPoint};
-use crate::traits::{ImageLumaExtractor, PointFitter};
-use argmin::core::{ArgminFloat, CostFunction, State, TerminationReason};
+use crate::traits::{AstroFloat, ImageLumaExtractor, PointFitter};
+use argmin::core::{CostFunction, State, TerminationReason};
 use argmin::solver::neldermead::NelderMead;
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
-use kiddo::float::kdtree::Axis;
+
 use ndarray::{Array1, ArrayBase, Dim, OwnedRepr};
 use num_traits::float::{Float, FloatCore};
-use std::iter::Sum;
+
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -27,7 +27,7 @@ const COST_OFFSET: f64 = 10.0;
 
 const SCORE_FLOOR: f64 = -10.0;
 
-pub fn transform_cost<F: Axis + Float>(cost: F, radius_x: F, radius_y: F, amplitude: F) -> F
+pub fn transform_cost<F: AstroFloat>(cost: F, radius_x: F, radius_y: F, amplitude: F) -> F
 where
     f64: Cast<F>,
 {
@@ -48,7 +48,7 @@ pub struct PointFitterGaussianNelderMead {
     pub frame: Arc<dyn ImageLumaExtractor>,
 }
 
-impl<F: ArgminFloat + Axis + Sum> PointFitter<F> for PointFitterGaussianNelderMead
+impl<F: AstroFloat> PointFitter<F> for PointFitterGaussianNelderMead
 where
     u32: Cast<F>,
     u8: Cast<F>,
@@ -137,7 +137,7 @@ where
     }
 }
 
-fn create_simplex<F: Axis + Float>(point: &[F], perturbations: &[F]) -> Vec<Array1<F>> {
+fn create_simplex<F: AstroFloat>(point: &[F], perturbations: &[F]) -> Vec<Array1<F>> {
     let simplex = perturbations
         .iter()
         .enumerate()
@@ -161,13 +161,13 @@ fn create_simplex<F: Axis + Float>(point: &[F], perturbations: &[F]) -> Vec<Arra
     simplex
 }
 
-struct Gaussian2DFitProblem<'a, F: Axis + Float> {
+struct Gaussian2DFitProblem<'a, F: AstroFloat> {
     img: &'a dyn ImageLumaExtractor,
     centre_x: F,
     centre_y: F,
 }
 
-impl<F: Axis + Float> CostFunction for Gaussian2DFitProblem<'_, F>
+impl<F: AstroFloat> CostFunction for Gaussian2DFitProblem<'_, F>
 where
     u8: Cast<F>,
     u32: Cast<F>,
@@ -216,7 +216,7 @@ where
     }
 }
 
-pub fn gaussian_2d<F: Axis + Float>(
+pub fn gaussian_2d<F: AstroFloat>(
     x: F,
     y: F,
     x0: F,

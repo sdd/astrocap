@@ -9,35 +9,35 @@ pub use solution_handling::{StarMatch, Wcs};
 use std::collections::HashSet;
 pub use streaks::MovingStreak;
 
-use argmin::core::ArgminFloat;
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use std::error::Error;
 use std::iter::Sum;
 use std::path::{Path, PathBuf};
+
 use std::sync::Arc;
 
 use tracing::info;
 
 use crate::config::ModelConfig;
-use crate::traits::{ImageLumaExtractor, PointDetector, PointFitter};
+use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector, PointFitter};
 use az::{Az, Cast};
-use kiddo::float::kdtree::Axis;
+
+use crate::state::solution_handling::Solver;
 use kiddo::{KdTree, SquaredEuclidean};
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use num_traits::float::FloatCore;
 use ordered_float::OrderedFloat;
-use crate::state::solution_handling::Solver;
 
 const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
 #[derive(Debug)]
-pub struct FrameState<F: Axis + ArgminFloat + Sum> {
+pub struct FrameState<F: AstroFloat> {
     pub detected_points_list: Vec<DetectedPoint<F>>,
     pub detected_points_tree: KdTree<F, 2>,
 }
 
 #[derive(Debug)]
-pub struct ModelState<F: Axis + ArgminFloat + Sum> {
+pub struct ModelState<F: AstroFloat> {
     model_config: ModelConfig<F>,
 
     pub recent_frame_states: Vec<FrameState<F>>,
@@ -52,6 +52,7 @@ pub struct ModelState<F: Axis + ArgminFloat + Sum> {
     star_matches: Option<Vec<StarMatch<F>>>,
 
     pub moving_targets: Vec<MovingTarget<F>>,
+    pub moving_targets_tree: KdTree<F, 2>,
 
     #[allow(dead_code)]
     moving_streaks: Vec<MovingStreak>,
@@ -59,7 +60,7 @@ pub struct ModelState<F: Axis + ArgminFloat + Sum> {
     solver: Option<Solver>,
 }
 
-impl<F: Axis + ArgminFloat + Sum> ModelState<F> {
+impl<F: AstroFloat> ModelState<F> {
     pub fn new(model_config: ModelConfig<F>, star_index_path: Option<PathBuf>) -> Self {
         ModelState {
             model_config,
@@ -70,13 +71,14 @@ impl<F: Axis + ArgminFloat + Sum> ModelState<F> {
             wcs: None,
             star_matches: None,
             moving_targets: vec![],
+            moving_targets_tree: KdTree::new(),
             moving_streaks: vec![],
-            solver: star_index_path.map(|path|Solver::new(&path)),
+            solver: star_index_path.map(|path| Solver::new(&path)),
         }
     }
 }
 
-impl<F: Axis + ArgminFloat + Sum> FrameState<F>
+impl<F: AstroFloat> FrameState<F>
 where
     u32: Cast<F>,
     u8: Cast<F>,
@@ -154,7 +156,7 @@ where
     }
 }
 
-impl<F: Axis + ArgminFloat + Sum> ModelState<F>
+impl<F: AstroFloat> ModelState<F>
 where
     u32: Cast<F>,
     u8: Cast<F>,
@@ -213,11 +215,11 @@ where
             // self.solve();
         }
 
-        self.update_moving_targets(point_fitter.clone(), frame.width(), frame.height());
+        self.update_state();
+
+        self.update_moving_targets();
 
         self.detect_moving_targets();
-
-        self.update_state();
 
         self.clean_up_state();
 
@@ -250,13 +252,11 @@ where
                     cand.log_likelihood += score;
 
                     if point.amplitude < self.model_config.amplitude_penalty_threshold {
-                        cand.log_likelihood =
-                            cand.log_likelihood - self.model_config.amplitude_penalty;
+                        cand.log_likelihood -= self.model_config.amplitude_penalty;
                     }
                 } else {
                     // no match this frame
-                    cand.log_likelihood =
-                        cand.log_likelihood - self.model_config.star_candidate_unmatched_penalty;
+                    cand.log_likelihood -= self.model_config.star_candidate_unmatched_penalty;
                 }
             }
 
@@ -324,10 +324,10 @@ mod tests {
 
         let arc_img = Arc::new(img);
 
-        let mut model_state: ModelState<f64> = ModelState::new(ModelConfig::default());
+        let mut model_state: ModelState<f64> = ModelState::new(ModelConfig::default(), None);
 
         model_state
-            .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(arc_img)
+            .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(arc_img, None)
             .unwrap();
     }
 }

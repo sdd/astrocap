@@ -7,23 +7,24 @@ edition = "2021"
 anyhow = "1"
 argmin = "0.8"
 argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
-az = "1.2.1"
+az = "1.2"
 derive_more = "0.99.17"
-itertools = "0.12.0"
-kiddo = { version = "4.0.0" }
-lazy_static = "1.4.0"
-ndarray = "0.15.6"
-nonmax = {  version = "0.5.5", features = ["serde"] }
-num-traits = "0.2.16"
-ordered-float = "4.2.0"
-rusttype = "0.9.3"
-serde = { version = "1.0.193", features = ["derive"] }
-serde_json = "1.0.108"
+itertools = "0.12"
+kiddo = { version = "4" }
+lazy_static = "1"
+nalgebra = "0.32.3"
+ndarray = "0.15"
+nonmax = {  version = "0.5", features = ["serde"] }
+num-traits = "0.2"
+ordered-float = "4"
+rusttype = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 solvastro = { path = "../../solvastro" }
-tracing = "0.1.40"
+tracing = "0.1"
 
 [dev-dependencies]
-imageproc = "0.23.0"
+imageproc = "0.23"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 
 [lib]

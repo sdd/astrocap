@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use argmin::core::ArgminFloat;
 use az::{Az, Cast};
-use kiddo::float::kdtree::Axis;
+
 use ordered_float::OrderedFloat;
 
 use crate::state::DetectedPoint;
-use crate::traits::{ImageLumaExtractor, PointDetector};
+use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector};
 
 // const POINT_SKIP_STEP: u32 = 3;
 const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
@@ -17,7 +16,7 @@ pub const PATCH_SIZE: u32 = 4;
 
 pub struct PointDetectPeak {}
 
-impl<F: Axis + ArgminFloat> PointDetector<F> for PointDetectPeak
+impl<F: AstroFloat> PointDetector<F> for PointDetectPeak
 where
     u32: Cast<F>,
     u8: Cast<F>,
@@ -116,11 +115,7 @@ where
     }
 }
 
-pub fn inside_existing_point<F: Axis + ArgminFloat>(
-    x: u32,
-    y: u32,
-    points: &[DetectedPoint<F>],
-) -> bool {
+pub fn inside_existing_point<F: AstroFloat>(x: u32, y: u32, points: &[DetectedPoint<F>]) -> bool {
     points.iter().any(|point| {
         let xd = point.x.az::<f64>() - (x as f64).abs();
         let yd = (point.y.az::<f64>() - (y as f64)).abs();

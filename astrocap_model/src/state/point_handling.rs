@@ -1,29 +1,29 @@
 use crate::state::ModelState;
-use crate::traits::PointFitter;
-use argmin::core::ArgminFloat;
+use crate::traits::{AstroFloat, PointFitter};
+
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
-use kiddo::float::kdtree::Axis;
+
 use kiddo::SquaredEuclidean;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use nonmax::NonMaxUsize;
 use num_traits::float::FloatCore;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashSet;
-use std::iter::Sum;
+
 use std::sync::Arc;
 use tracing::*;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct DetectedPoint<F: Axis> {
+#[derive(Clone, Debug, Serialize)]
+pub struct DetectedPoint<F: AstroFloat> {
     pub x: u32,
     pub y: u32,
     pub amplitude: F,
     pub fitted_point: Option<FittedPoint<F>>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct FittedPoint<F: Axis> {
+#[derive(Clone, Debug, Serialize)]
+pub struct FittedPoint<F: AstroFloat> {
     pub x: F,
     pub y: F,
     pub amplitude: F,
@@ -31,8 +31,8 @@ pub struct FittedPoint<F: Axis> {
     pub score: F,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct StarCandidate<F: Axis> {
+#[derive(Clone, Debug, Serialize)]
+pub struct StarCandidate<F: AstroFloat> {
     pub x: F,
     pub y: F,
     pub amplitude: F,
@@ -45,7 +45,7 @@ pub struct StarCandidate<F: Axis> {
     pub detected_point_match_history: Vec<Option<NonMaxUsize>>,
 }
 
-impl<F: Axis + ArgminFloat + Sum> ModelState<F>
+impl<F: AstroFloat> ModelState<F>
 where
     u32: Cast<F>,
     u8: Cast<F>,
