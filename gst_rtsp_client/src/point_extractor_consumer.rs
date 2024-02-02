@@ -27,8 +27,6 @@ use crate::median_filter::median_filter;
 use crate::video_frame_to_image_buffer::VideoFrameExt;
 use crate::window_renderer::WindowRenderer;
 
-// const ANNOTATED_IMG_MARKER_SRC_RADIUS: i32 = 10;
-
 pub struct PointExtractorConsumer {
     state: Arc<Mutex<ModelState<f32>>>,
     mask: Option<Arc<dyn ImageLumaExtractor>>,
@@ -49,11 +47,7 @@ impl PointExtractorConsumer {
             WindowRenderer::<f32>::new(state_cloned, rx).run();
         });
 
-        PointExtractorConsumer {
-            state: state.clone(),
-            mask,
-            tx,
-        }
+        PointExtractorConsumer { state, mask, tx }
     }
 
     fn create_mask(args: &Arc<Args>) -> Option<Arc<dyn ImageLumaExtractor>> {

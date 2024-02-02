@@ -4,17 +4,63 @@ use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::Cast;
 use kiddo::float::kdtree::Axis;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
+use num_traits::float::FloatCore;
+use serde::Serialize;
+use std::fmt::Debug;
 use std::iter::Sum;
+use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
 use std::sync::Arc;
 
-pub trait PointDetector<F: ArgminFloat + Axis> {
+pub trait AstroFloat:
+    ArgminFloat
+    + Axis
+    + Sum
+    + AddAssign
+    + SubAssign
+    + MulAssign
+    + DivAssign
+    + FloatCore
+    + Sync
+    + Send
+    + Copy
+    + Default
+    + Debug
+    + Serialize
+    + Cast<f64>
+{
+}
+
+impl<
+        T: ArgminFloat
+            + Axis
+            + Sum
+            + AddAssign
+            + SubAssign
+            + MulAssign
+            + DivAssign
+            + FloatCore
+            + Sync
+            + Send
+            + Copy
+            + Default
+            + Debug
+            + Serialize
+            + Cast<f64>
+            + Cast<f32>
+            + Cast<u32>
+            + Cast<i32>,
+    > AstroFloat for T
+{
+}
+
+pub trait PointDetector<F: AstroFloat> {
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
         mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Vec<DetectedPoint<F>>;
 }
 
-pub trait PointFitter<F: ArgminFloat + Axis + Sum>
+pub trait PointFitter<F: AstroFloat>
 where
     u32: Cast<F>,
     u8: Cast<F>,

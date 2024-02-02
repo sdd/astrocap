@@ -579,6 +579,7 @@ dependencies = [
  "itertools 0.12.0",
  "kiddo 4.0.0",
  "lazy_static",
+ "nalgebra 0.32.3",
  "ndarray",
  "nonmax",
  "num-traits 0.2.17",
@@ -2176,19 +2177,6 @@ dependencies = [
 
 [[package]]
 name = "generator"
-version = "0.6.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061d3be1afec479d56fa3bd182bf966c7999ec175fcfdb87ac14d417241366c6"
-dependencies = [
- "cc",
- "libc",
- "log",
- "rustversion",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "generator"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5cc16584ff22b460a382b7feec54b23d2908d858152e5739a120b949293bd74e"
@@ -2408,6 +2396,7 @@ dependencies = [
  "itertools 0.12.0",
  "kiddo 4.0.0",
  "lazy_static",
+ "nalgebra 0.32.3",
  "ndarray",
  "num-traits 0.2.17",
  "ordered-float",
@@ -3043,7 +3032,7 @@ dependencies = [
  "doc-comment",
  "elapsed",
  "fixed",
- "generator 0.7.5",
+ "generator",
  "init_with",
  "itertools 0.12.0",
  "log",
@@ -5068,7 +5057,7 @@ dependencies = [
  "fixed",
  "fixed-sqrt",
  "flate2",
- "generator 0.6.25",
+ "generator",
  "glob",
  "image",
  "imageproc",
