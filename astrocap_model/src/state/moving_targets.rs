@@ -1,5 +1,6 @@
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
+use std::num::NonZero;
 
 use kiddo::{KdTree, SquaredEuclidean};
 use nalgebra::Vector2;
@@ -171,7 +172,7 @@ where
                 .nearest_n_within::<SquaredEuclidean>(
                     latest_position.as_ref(),
                     MAX_FRAME_DELTA.az::<F>(),
-                    usize::MAX,
+                    NonZero::new(usize::MAX).unwrap(),
                     false,
                 );
 

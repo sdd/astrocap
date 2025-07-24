@@ -1,13 +1,22 @@
 [workspace]
-
 members = [
     "astrocap_model",
     "gst_rtsp_client",
-    "opencv_load_from_file",
-    "read_mkv_metadata"
+    #    "opencv_load_from_file",
+    "read_mkv_metadata",
+    "astrocap_core",
 ]
-
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Scott Donnelly"]
+description = "Astronomical video processing suite"
+documentation = "https://astrocap.dev/docs"
 
 [profile.release]
 debug = true
+
+
+[workspace.dependencies]
+rerun = { version = "0.23", features = ["run", "server"], default-features = false }

@@ -21,7 +21,7 @@ mod point_extractor_consumer;
 mod run;
 mod snapshot_consumer;
 mod video_frame_to_image_buffer;
-pub(crate) mod window_renderer;
+// pub(crate) mod window_renderer;
 
 fn app_main() -> Result<()> {
     // Set up logging
@@ -49,6 +49,8 @@ fn app_main() -> Result<()> {
     // Initialize GStreamer
     gst::init()?;
 
+    let rec = rerun::RecordingStreamBuilder::new("astrocap").connect_grpc()?;
+
     let (prod, cons) = RingBuffer::<Arc<(isize, VideoFrame<Readable>)>>::new(5);
 
     let prod_thread_args = shared_args.clone();
@@ -56,7 +58,7 @@ fn app_main() -> Result<()> {
 
     let cons_thread_args = shared_args.clone();
     let cons_thread = thread::spawn(move || {
-        let mut consumer = PointExtractorConsumer::new(cons_thread_args);
+        let mut consumer = PointExtractorConsumer::new(cons_thread_args, rec);
         consumer.consume_frames_to_extracted_point_stream(cons)
     });
 
@@ -66,7 +68,7 @@ fn app_main() -> Result<()> {
     Ok(())
 }
 
-#[show_image::main]
+// #[show_image::main]
 fn main() {
     match run::run(app_main) {
         Ok(r) => r,

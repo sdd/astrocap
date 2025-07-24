@@ -1,17 +1,18 @@
 pub mod moving_targets;
 pub mod point_handling;
-pub mod solution_handling;
+// pub mod solution_handling;
 pub mod streaks;
 
 pub use moving_targets::MovingTarget;
 pub use point_handling::{DetectedPoint, FittedPoint, StarCandidate};
-pub use solution_handling::{StarMatch, Wcs};
+// pub use solution_handling::{StarMatch, Wcs};
 use std::collections::HashSet;
 pub use streaks::MovingStreak;
 
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use std::error::Error;
 use std::iter::Sum;
+use std::num::NonZero;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
@@ -20,11 +21,12 @@ use crate::config::ModelConfig;
 use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector, PointFitter};
 use az::{Az, Cast};
 
-use crate::state::solution_handling::Solver;
+// use crate::state::solution_handling::Solver;
 use kiddo::{KdTree, SquaredEuclidean};
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use num_traits::float::FloatCore;
 use ordered_float::OrderedFloat;
+use rerun::RecordingStream;
 
 const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
@@ -37,6 +39,7 @@ pub struct FrameState<F: AstroFloat> {
 #[derive(Debug)]
 pub struct ModelState<F: AstroFloat> {
     model_config: ModelConfig<F>,
+    rec: RecordingStream,
 
     pub recent_frame_states: Vec<FrameState<F>>,
 
@@ -45,33 +48,36 @@ pub struct ModelState<F: AstroFloat> {
     star_candidates_tree: KdTree<F, 2>,
     matched_point_indices: HashSet<usize>,
 
-    wcs: Option<Wcs>,
+    // wcs: Option<Wcs>,
     #[allow(dead_code)]
-    star_matches: Option<Vec<StarMatch<F>>>,
-
+    // star_matches: Option<Vec<StarMatch<F>>>,
     pub moving_targets: Vec<MovingTarget<F>>,
     pub moving_targets_tree: KdTree<F, 2>,
 
     #[allow(dead_code)]
     moving_streaks: Vec<MovingStreak>,
-
-    solver: Option<Solver>,
+    // solver: Option<Solver>,
 }
 
 impl<F: AstroFloat> ModelState<F> {
-    pub fn new(model_config: ModelConfig<F>, star_index_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        model_config: ModelConfig<F>,
+        star_index_path: Option<PathBuf>,
+        rec: RecordingStream,
+    ) -> Self {
         ModelState {
             model_config,
+            rec,
             recent_frame_states: vec![],
             star_candidates: vec![],
             star_candidates_tree: KdTree::new(),
             matched_point_indices: HashSet::new(),
-            wcs: None,
-            star_matches: None,
+            // wcs: None,
+            // star_matches: None,
             moving_targets: vec![],
             moving_targets_tree: KdTree::new(),
             moving_streaks: vec![],
-            solver: star_index_path.map(|path| Solver::new(&path)),
+            // solver: star_index_path.map(|path| Solver::new(&path)),
         }
     }
 }
@@ -110,7 +116,7 @@ where
             let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
                 &query,
                 POINT_EXCLUSION_DIST.az::<F>(),
-                usize::MAX,
+                NonZero::new(usize::MAX).unwrap(),
                 false,
             );
 
@@ -197,21 +203,21 @@ where
         // already get fitted against existing candidates
         self.fit_strong_unmatched_new_points(point_fitter.clone(), frame.width(), frame.height());
 
-        if self.wcs.is_some() {
-            // state is currently solved.
-            // Verify against the current solution
-            let solution_is_valid = self.verify_solution();
-
-            // if we're still solved after verification,
-            // tune up the match
-            if solution_is_valid {
-                self.tune_solution();
-            }
-        } else {
-            // state is currently unsolved.
-            // Determine if there is sufficient grounds to attempt a solution
-            // self.solve();
-        }
+        // if self.wcs.is_some() {
+        //     // state is currently solved.
+        //     // Verify against the current solution
+        //     let solution_is_valid = self.verify_solution();
+        //
+        //     // if we're still solved after verification,
+        //     // tune up the match
+        //     if solution_is_valid {
+        //         self.tune_solution();
+        //     }
+        // } else {
+        //     // state is currently unsolved.
+        //     // Determine if there is sufficient grounds to attempt a solution
+        //     self.solve();
+        // }
 
         self.update_state();
 
@@ -220,6 +226,8 @@ where
         self.detect_moving_targets();
 
         self.clean_up_state();
+
+        self.log_to_rerun();
 
         Ok(())
     }
@@ -281,6 +289,40 @@ where
             state_len = self.star_candidates.len(),
             discarded = pre_discard_count - self.star_candidates.len(),
         );
+    }
+
+    fn log_to_rerun(&mut self) {
+        self.rec
+            .log(
+                format!("model/star_candidates"),
+                &rerun::Points2D::new(
+                    self.star_candidates
+                        .iter()
+                        .filter(|cand| {
+                            cand.log_likelihood
+                                > self.model_config.star_candidate_strong_match_threshold
+                        })
+                        .map(|cand| (cand.x.az::<f32>(), cand.y.az::<f32>())),
+                )
+                .with_colors(
+                    self.star_candidates
+                        .iter()
+                        .filter(|cand| {
+                            cand.log_likelihood
+                                > self.model_config.star_candidate_strong_match_threshold
+                        })
+                        .map(|cand| {
+                            if cand.log_likelihood.az::<f32>() < 30.0f32 {
+                                rerun::Color::from_rgb(255u8, 0u8, 0u8)
+                            } else if cand.age < 30 {
+                                rerun::Color::from_rgb(0u8, 255u8, 255u8)
+                            } else {
+                                rerun::Color::from_rgb(0u8, 255u8, 0u8)
+                            }
+                        }),
+                ),
+            )
+            .unwrap();
     }
 }
 

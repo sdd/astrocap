@@ -10,7 +10,7 @@ use nonmax::NonMaxUsize;
 use num_traits::float::FloatCore;
 use serde::Serialize;
 use std::collections::HashSet;
-
+use std::num::NonZero;
 use std::sync::Arc;
 use tracing::*;
 
@@ -90,11 +90,9 @@ where
             // get close detected points within radius from current frame
             let nearby_detected_points = curr_frame_state
                 .detected_points_tree
-                .nearest_n_within::<SquaredEuclidean>(
+                .within::<SquaredEuclidean>(
                     &[x, y],
                     self.model_config.max_existing_candidate_match_dist,
-                    usize::MAX,
-                    true,
                 );
 
             // fit those points
@@ -204,7 +202,7 @@ where
                 .nearest_n_within::<SquaredEuclidean>(
                     &[detected_point.x.az::<F>(), detected_point.y.az::<F>()],
                     self.model_config.max_existing_candidate_match_dist,
-                    1,
+                    NonZero::new(1).unwrap(),
                     false,
                 );
             if !close_candidates.is_empty() {

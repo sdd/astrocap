@@ -5,6 +5,7 @@ use image::{GrayImage, ImageBuffer, Luma};
 
 use rtrb::Consumer;
 
+use rerun::RecordingStream;
 use std::error::Error;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
@@ -25,29 +26,49 @@ use crate::image_luma_extractor::Img;
 use crate::map_colors_2::map_colors2;
 use crate::median_filter::median_filter;
 use crate::video_frame_to_image_buffer::VideoFrameExt;
-use crate::window_renderer::WindowRenderer;
 
 pub struct PointExtractorConsumer {
     state: Arc<Mutex<ModelState<f32>>>,
     mask: Option<Arc<dyn ImageLumaExtractor>>,
     tx: Sender<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>,
+    rec: RecordingStream,
 }
 
 impl PointExtractorConsumer {
-    pub fn new(args: Arc<Args>) -> Self {
+    pub fn new(args: Arc<Args>, rec: RecordingStream) -> Self {
         let mask = Self::create_mask(&args);
 
-        let state = ModelState::new(ModelConfig::default(), args.star_index_path.clone());
+        let state = ModelState::new(
+            ModelConfig::default(),
+            args.star_index_path.clone(),
+            rec.clone(),
+        );
         let state = Arc::new(Mutex::new(state));
-        let state_cloned = state.clone();
 
-        let (tx, rx) = channel();
+        let (tx, rx) = channel::<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>();
 
+        let rec_cloned = rec.clone();
         thread::spawn(move || {
-            WindowRenderer::<f32>::new(state_cloned, rx).run();
+            while let Ok((idx, frame)) = rx.recv() {
+                rec_cloned
+                    .log(
+                        "video/original",
+                        &rerun::Image::from_pixel_format(
+                            [1920, 1080],
+                            rerun::PixelFormat::Y8_FullRange,
+                            frame.as_ref(),
+                        ),
+                    )
+                    .unwrap();
+            }
         });
 
-        PointExtractorConsumer { state, mask, tx }
+        PointExtractorConsumer {
+            state,
+            mask,
+            tx,
+            rec,
+        }
     }
 
     fn create_mask(args: &Arc<Args>) -> Option<Arc<dyn ImageLumaExtractor>> {
@@ -72,7 +93,7 @@ impl PointExtractorConsumer {
         img: ImageBuffer<Luma<u8>, Arc<[u8]>>,
     ) -> Result<GrayImage, Box<dyn Error>> {
         // TODO: consider reusing the buffer for median
-        //       (and poss subtacted)
+        //       (and poss subtracted)
         //       to save from re-allocating each time
 
         // TODO: potentially eliminate this step by monte-carlo method
@@ -81,6 +102,16 @@ impl PointExtractorConsumer {
         let img_median: GrayImage = median_filter(&img, 30, 30);
         debug!("created median");
         // img_median.save("../../img_median.png")?;
+        self.rec
+            .log(
+                "video/median",
+                &rerun::Image::from_pixel_format(
+                    [1920, 1080],
+                    rerun::PixelFormat::Y8_FullRange,
+                    img_median.as_ref(),
+                ),
+            )
+            .unwrap();
 
         // TODO: consider refactoring to subbing median from
         //       original in same step as creating median
@@ -93,6 +124,16 @@ impl PointExtractorConsumer {
 
         // subtracted.save("../../preprocessed.png")?;
         //debug!("saved");
+        self.rec
+            .log(
+                "video/subbed",
+                &rerun::Image::from_pixel_format(
+                    [1920, 1080],
+                    rerun::PixelFormat::Y8_FullRange,
+                    subtracted.as_ref(),
+                ),
+            )
+            .unwrap();
 
         Ok(subtracted)
     }

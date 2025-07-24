@@ -7,7 +7,7 @@ use kiddo::float::kdtree::Axis;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use solvastro::k4::process_query::process_query;
+use solvastro::k4::process_query::{process_query, undistort_query};
 use std::iter::Sum;
 use std::path::Path;
 
@@ -17,6 +17,9 @@ use solvastro::k4::verified_solution::{ItemMatchResult, VerifiedSolution};
 use solvastro::settings::Settings;
 use solvastro::structs_f64::query::{Query, QueryPoint};
 use tracing::info;
+
+const K1: f64 = 0.00001;
+const K2: f64 = 0.0;
 
 #[derive(Debug, Serialize)]
 pub struct StarMatch<F: AstroFloat> {
@@ -70,6 +73,8 @@ impl Solver {
             .collect();
 
         let query = Query::new("video", 1920, 1080, source_points);
+
+        let undistorted_query = undistort_query(&query, (K1, K2));
 
         let result = process_query(&self.star_index, &query, &self.settings).0;
 
