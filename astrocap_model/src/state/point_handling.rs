@@ -27,8 +27,18 @@ pub struct FittedPoint<F: AstroFloat> {
     pub x: F,
     pub y: F,
     pub amplitude: F,
-    pub radius: F,
-    pub score: F,
+    pub radius_x: F,
+    pub radius_y: F,
+    pub score: F, // Keep this for backward compatibility during transition
+    pub fit_quality: FittedPointQuality<F>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FittedPointQuality<F: AstroFloat> {
+    pub reduced_chi_squared: F,
+    pub snr: F,
+    pub r_squared: F,
+    pub rms_residual: F,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -36,7 +46,8 @@ pub struct StarCandidate<F: AstroFloat> {
     pub x: F,
     pub y: F,
     pub amplitude: F,
-    pub radius: F,
+    pub radius_x: F,
+    pub radius_y: F,
     pub age: usize,
     pub log_likelihood: F,
 
@@ -87,13 +98,28 @@ where
             //     );
             // }
 
+            // In fit_existing_points, when searching for matches:
+            let search_radius = if cand.detected_point_match_history.last() == Some(&None) {
+                // Count consecutive unmatched frames
+                let unmatched_frames = cand
+                    .detected_point_match_history
+                    .iter()
+                    .rev()
+                    .take_while(|&m| m.is_none())
+                    .count();
+
+                // Expand search radius based on age
+                let base_radius = self.model_config.max_existing_candidate_match_dist;
+                let expansion_factor = (unmatched_frames as f64 * 0.1).min(2.0); // Cap expansion
+                base_radius * (1.0 + expansion_factor).az::<F>()
+            } else {
+                self.model_config.max_existing_candidate_match_dist
+            };
+
             // get close detected points within radius from current frame
             let nearby_detected_points = curr_frame_state
                 .detected_points_tree
-                .within::<SquaredEuclidean>(
-                    &[x, y],
-                    self.model_config.max_existing_candidate_match_dist,
-                );
+                .within::<SquaredEuclidean>(&[x, y], search_radius * search_radius);
 
             // fit those points
             let nearby_fitted_points = nearby_detected_points
@@ -118,7 +144,11 @@ where
                     panic!("no fitted point, should not happen");
                 };
 
-                if fitted_point.radius > self.model_config.max_star_candidate_radius {
+                if fitted_point.radius_x > self.model_config.max_star_candidate_radius {
+                    continue;
+                }
+
+                if fitted_point.radius_y > self.model_config.max_star_candidate_radius {
                     continue;
                 }
 
@@ -201,7 +231,8 @@ where
                 .star_candidates_tree
                 .nearest_n_within::<SquaredEuclidean>(
                     &[detected_point.x.az::<F>(), detected_point.y.az::<F>()],
-                    self.model_config.max_existing_candidate_match_dist,
+                    self.model_config.max_existing_candidate_match_dist
+                        * self.model_config.max_existing_candidate_match_dist,
                     NonZero::new(1).unwrap(),
                     false,
                 );
@@ -220,13 +251,15 @@ where
                 && fitted_point.x < img_w.az::<F>()
                 && fitted_point.y < img_h.az::<F>()
                 && fitted_point.score > self.model_config.min_new_star_candidate_score
-                && fitted_point.radius < self.model_config.max_star_candidate_radius
+                && fitted_point.radius_x < self.model_config.max_star_candidate_radius
+                && fitted_point.radius_y < self.model_config.max_star_candidate_radius
             {
                 let new_cand = StarCandidate {
                     x: fitted_point.x,
                     y: fitted_point.y,
                     amplitude: fitted_point.amplitude,
-                    radius: fitted_point.radius,
+                    radius_x: fitted_point.radius_x,
+                    radius_y: fitted_point.radius_y,
                     age: 0,
                     log_likelihood: fitted_point.score,
                     match_name: None,

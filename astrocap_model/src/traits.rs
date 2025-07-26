@@ -56,6 +56,7 @@ impl<
 pub trait PointDetector<F: AstroFloat> {
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
+        median: Option<Arc<dyn ImageLumaExtractor>>,
         mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Vec<DetectedPoint<F>>;
 }

@@ -87,8 +87,10 @@ where
     u32: Cast<F>,
     u8: Cast<F>,
     f64: Cast<F>,
+    f32: Cast<F>,
     F: Cast<u32>,
     F: Cast<i32>,
+    F: Cast<f32>,
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>: ArgminAdd<
         ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>,
         ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>,
@@ -100,11 +102,42 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub fn from_frame<PD: PointDetector<F>>(
+    pub fn from_frame<PD: PointDetector<F>, PF: PointFitter<F>>(
         frame: Arc<dyn ImageLumaExtractor>,
+        median: Option<Arc<dyn ImageLumaExtractor>>,
         mask: Option<Arc<dyn ImageLumaExtractor>>,
+        rec: RecordingStream,
     ) -> Self {
-        let mut detected_points_list = PD::detect(frame, mask);
+        let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
+
+        let mut detected_points_list = PD::detect(frame, median, mask);
+
+        rec.log(
+            format!("model/detected_peaks"),
+            &rerun::Points2D::new(
+                detected_points_list
+                    .iter()
+                    .map(|cand| (cand.x.az::<f32>(), cand.y.az::<f32>())),
+            ),
+        )
+        .unwrap();
+
+        let mut fitted_points_list: Vec<_> = detected_points_list
+            .iter()
+            .map(|cand| point_fitter.fit(cand))
+            .collect();
+
+        rec.log(
+            format!("model/fitted_points"),
+            &rerun::Points2D::new(
+                fitted_points_list
+                    .iter()
+                    .map(|cand| (cand.x.az::<f32>(), cand.y.az::<f32>())),
+            )
+            .with_labels(fitted_points_list.iter().map(|cand| format!("{:?}", &cand))),
+        )
+        .unwrap();
+
         let mut detected_points_tree: KdTree<F, 2> =
             KdTree::with_capacity(detected_points_list.len());
 
@@ -165,6 +198,7 @@ where
     u32: Cast<F>,
     u8: Cast<F>,
     f64: Cast<F>,
+    f32: Cast<F>,
     F: Cast<u32>,
     F: Cast<i32>,
     F: Cast<f32>,
@@ -183,12 +217,19 @@ where
     pub fn process_frame<PD: PointDetector<F>, PF: PointFitter<F> + 'static>(
         &mut self,
         frame: Arc<dyn ImageLumaExtractor>,
+        median: Option<Arc<dyn ImageLumaExtractor>>,
         mask: Option<Arc<dyn ImageLumaExtractor>>,
+        rec: RecordingStream,
     ) -> Result<(), Box<dyn Error>> {
         // Create a new frame state and run the point
         // detector against the incoming frame
         self.recent_frame_states
-            .push(FrameState::from_frame::<PD>(frame.clone(), mask));
+            .push(FrameState::from_frame::<PD, PF>(
+                frame.clone(),
+                median.clone(),
+                mask,
+                rec.clone(),
+            ));
 
         let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
 
@@ -198,6 +239,8 @@ where
         } else {
             HashSet::<usize>::new()
         };
+
+        self.update_state();
 
         // fit high_quality candidates from the current frame that didn't
         // already get fitted against existing candidates
@@ -218,8 +261,6 @@ where
         //     // Determine if there is sufficient grounds to attempt a solution
         //     self.solve();
         // }
-
-        self.update_state();
 
         self.update_moving_targets();
 
@@ -298,19 +339,19 @@ where
                 &rerun::Points2D::new(
                     self.star_candidates
                         .iter()
-                        .filter(|cand| {
-                            cand.log_likelihood
-                                > self.model_config.star_candidate_strong_match_threshold
-                        })
+                        // .filter(|cand| {
+                        //     cand.log_likelihood
+                        //         > self.model_config.star_candidate_strong_match_threshold
+                        // })
                         .map(|cand| (cand.x.az::<f32>(), cand.y.az::<f32>())),
                 )
                 .with_colors(
                     self.star_candidates
                         .iter()
-                        .filter(|cand| {
-                            cand.log_likelihood
-                                > self.model_config.star_candidate_strong_match_threshold
-                        })
+                        // .filter(|cand| {
+                        //     cand.log_likelihood
+                        //         > self.model_config.star_candidate_strong_match_threshold
+                        // })
                         .map(|cand| {
                             if cand.log_likelihood.az::<f32>() < 30.0f32 {
                                 rerun::Color::from_rgb(255u8, 0u8, 0u8)

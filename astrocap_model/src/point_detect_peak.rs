@@ -1,7 +1,7 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use az::{Az, Cast};
-
 use ordered_float::OrderedFloat;
 
 use crate::state::DetectedPoint;
@@ -9,7 +9,7 @@ use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector};
 
 // const POINT_SKIP_STEP: u32 = 3;
 const POINT_EXCLUSION_RADIUS_2: f64 = 400.0;
-const POINT_THRESHOLD: u8 = 30;
+const POINT_THRESHOLD: u8 = 50;
 const STEP_X: u32 = 1;
 const STEP_Y: u32 = 1;
 pub const PATCH_SIZE: u32 = 4;
@@ -21,10 +21,11 @@ where
     u32: Cast<F>,
     u8: Cast<F>,
     F: Cast<u32>,
+    f64: Cast<F>,
 {
-    #[inline]
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
+        median: Option<Arc<dyn ImageLumaExtractor>>, // Must be Option<Arc<...>>
         mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Vec<DetectedPoint<F>> {
         let mut points: Vec<DetectedPoint<F>> = vec![];
@@ -176,8 +177,8 @@ mod tests {
         let arc_sub = Arc::new(subtracted);
 
         // perform the extract
-        // let detector = PointDetectPeak {};
-        let results: Vec<DetectedPoint<f64>> = PointDetectPeak::detect(arc_sub, None);
+        let results: Vec<DetectedPoint<f64>> =
+            PointDetectPeak::detect(arc_sub, Some(img_median), None);
 
         serde_json::to_writer(
             File::create("../test-images/astrocap_model/test-image-1-detected.json").unwrap(),
