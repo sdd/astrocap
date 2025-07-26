@@ -233,6 +233,8 @@ where
 
         let point_fitter: Arc<dyn PointFitter<F>> = Arc::new(PF::new(frame.clone()));
 
+        self.update_state_positions();
+
         self.matched_point_indices = if self.recent_frame_states.len() > 1 {
             // try to fit existing star candidates
             self.fit_existing_points(point_fitter.clone())
@@ -271,6 +273,19 @@ where
         self.log_to_rerun();
 
         Ok(())
+    }
+
+    fn update_state_positions(&mut self) {
+        for candidate in self.star_candidates.iter_mut() {
+            candidate.kalman_predict();
+        }
+
+        self.star_candidates_tree = KdTree::with_capacity(self.star_candidates.len());
+
+        for (cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
+            self.star_candidates_tree
+                .add(&[cand.x, cand.y], cand_idx as u64);
+        }
     }
 
     fn update_state(&mut self) {

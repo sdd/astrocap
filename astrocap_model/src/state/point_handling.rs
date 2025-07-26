@@ -54,6 +54,11 @@ pub struct StarCandidate<F: AstroFloat> {
     pub match_name: Option<String>,
 
     pub detected_point_match_history: Vec<Option<NonMaxUsize>>,
+
+    // Kalman filter state: [x, y, vx, vy]
+    pub kalman_state: [F; 4], // [position_x, position_y, velocity_x, velocity_y]
+    pub kalman_covariance: [[F; 4]; 4], // State covariance matrix
+    pub kalman_initialized: bool,
 }
 
 impl<F: AstroFloat> ModelState<F>
@@ -84,31 +89,17 @@ where
 
         let mut unmatched_cand_count = 0;
         let mut matched_detected_points: HashSet<usize> = HashSet::new();
-        'outer: for (_cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
-            let x = cand.x;
-            let y = cand.y;
 
-            // if cand.age > 5 {
-            //     info!(
-            //         "cand #{}: pos ({}, {}), dp index: {:?}",
-            //         cand_idx,
-            //         cand.x,
-            //         cand.y,
-            //         cand.detected_point_match_history.last()
-            //     );
-            // }
+        for (_cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
+            // Calculate adaptive search radius based on unmatched frame count
+            let unmatched_frames = cand
+                .detected_point_match_history
+                .iter()
+                .rev()
+                .take_while(|&m| m.is_none())
+                .count();
 
-            // In fit_existing_points, when searching for matches:
-            let search_radius = if cand.detected_point_match_history.last() == Some(&None) {
-                // Count consecutive unmatched frames
-                let unmatched_frames = cand
-                    .detected_point_match_history
-                    .iter()
-                    .rev()
-                    .take_while(|&m| m.is_none())
-                    .count();
-
-                // Expand search radius based on age
+            let search_radius = if unmatched_frames > 5 {
                 let base_radius = self.model_config.max_existing_candidate_match_dist;
                 let expansion_factor = (unmatched_frames as f64 * 0.1).min(2.0); // Cap expansion
                 base_radius * (1.0 + expansion_factor).az::<F>()
@@ -116,77 +107,87 @@ where
                 self.model_config.max_existing_candidate_match_dist
             };
 
-            // get close detected points within radius from current frame
+            // Get up to 5 nearby detected points
             let nearby_detected_points = curr_frame_state
                 .detected_points_tree
-                .within::<SquaredEuclidean>(&[x, y], search_radius * search_radius);
+                .nearest_n_within::<SquaredEuclidean>(
+                    &[cand.x, cand.y], // Using Kalman-predicted position
+                    search_radius * search_radius,
+                    NonZero::new(5).unwrap(),
+                    false,
+                );
 
-            // fit those points
-            let nearby_fitted_points = nearby_detected_points
-                .iter()
-                .map(|nn| {
-                    let detected_point: &mut DetectedPoint<F> = curr_frame_state
-                        .detected_points_list
-                        .get_mut(nn.item as usize)
-                        .unwrap();
+            if nearby_detected_points.is_empty() {
+                // No matches found within search radius
+                unmatched_cand_count += 1;
+                cand.detected_point_match_history.push(None);
+                continue;
+            }
+
+            // Fit all nearby points and find the best one
+            let mut best_match: Option<(usize, F)> = None; // (detected_point_idx, score)
+
+            for nearby_point in nearby_detected_points {
+                let detected_point_idx = nearby_point.item as usize;
+
+                // Skip if this detected point was already matched to another candidate
+                if matched_detected_points.contains(&detected_point_idx) {
+                    continue;
+                }
+
+                // Fit the detected point if not already fitted
+                let detected_point = &mut curr_frame_state.detected_points_list[detected_point_idx];
+                if detected_point.fitted_point.is_none() {
                     let fitted_point = frame.fit(detected_point);
                     detected_point.fitted_point = Some(fitted_point);
+                }
 
-                    nn.item as usize
-                })
-                .collect::<Vec<_>>();
+                let fitted_point = detected_point.fitted_point.as_ref().unwrap();
 
-            let rev_points = nearby_fitted_points.iter().rev();
-            for &detected_point_idx in rev_points {
-                let detected_point = &curr_frame_state.detected_points_list[detected_point_idx];
-
-                let Some(fitted_point) = &detected_point.fitted_point else {
-                    panic!("no fitted point, should not happen");
-                };
-
-                if fitted_point.radius_x > self.model_config.max_star_candidate_radius {
+                // Reject if the fitted radii are too large (not stellar)
+                if fitted_point.radius_x > self.model_config.max_star_candidate_radius
+                    || fitted_point.radius_y > self.model_config.max_star_candidate_radius
+                {
                     continue;
                 }
 
-                if fitted_point.radius_y > self.model_config.max_star_candidate_radius {
-                    continue;
+                // Check if this is the best match so far (highest score)
+                if best_match.is_none() || fitted_point.score > best_match.as_ref().unwrap().1 {
+                    best_match = Some((detected_point_idx, fitted_point.score));
                 }
+            }
 
-                if matched_detected_points.contains(&detected_point_idx) {
-                    cand.detected_point_match_history.push(None);
-                    unmatched_cand_count += 1;
-                    continue 'outer;
-                }
+            if let Some((best_detected_point_idx, _)) = best_match {
+                let detected_point =
+                    &curr_frame_state.detected_points_list[best_detected_point_idx];
+                let fitted_point = detected_point.fitted_point.as_ref().unwrap();
 
-                cand.detected_point_match_history
-                    .push(Some(NonMaxUsize::try_from(detected_point_idx).unwrap()));
-                matched_detected_points.insert(detected_point_idx);
+                // Update Kalman filter with the fitted position (more accurate than detected position)
+                let measurement_noise = 1.0f64.az::<F>(); // Adjust based on your detector accuracy
+                cand.kalman_update(fitted_point.x, fitted_point.y, measurement_noise);
 
-                let delta_x = fitted_point.x - cand.x;
-                let delta_y = fitted_point.y - cand.y;
-                // info!(
-                //     "cand #{} delta: {:.2}, {:.2}, DMH: {:?}",
-                //     cand_idx, delta_x, delta_y, &cand.detected_point_match_history
-                // );
+                // Update candidate properties with fitted values
+                cand.amplitude = fitted_point.amplitude;
+                cand.radius_x = fitted_point.radius_x;
+                cand.radius_y = fitted_point.radius_y;
 
-                let update_scale =
-                    FloatCore::max(2.0.az::<F>(), fitted_point.score) / 20.0f64.az::<F>();
-
-                cand.x += delta_x * update_scale;
-                cand.y += delta_y * update_scale;
-
+                // Add strong match bonus if score indicates high quality
                 if fitted_point.score > self.model_config.star_candidate_strong_match_threshold {
                     cand.log_likelihood += self.model_config.star_candidate_strong_match_bonus;
                 }
 
-                match_indexes.insert(detected_point_idx);
-
-                continue 'outer;
+                // Record the match
+                match_indexes.insert(best_detected_point_idx);
+                matched_detected_points.insert(best_detected_point_idx);
+                cand.detected_point_match_history
+                    .push(Some(NonMaxUsize::new(best_detected_point_idx).unwrap()));
+            } else {
+                // No valid matches found (all were either taken or failed stellar criteria)
+                unmatched_cand_count += 1;
+                cand.detected_point_match_history.push(None);
             }
-
-            unmatched_cand_count += 1;
-            cand.detected_point_match_history.push(None);
         }
+
         info!(
             existing_fitted_qty = match_indexes.len(),
             unmatched_cand_count
@@ -254,22 +255,240 @@ where
                 && fitted_point.radius_x < self.model_config.max_star_candidate_radius
                 && fitted_point.radius_y < self.model_config.max_star_candidate_radius
             {
-                let new_cand = StarCandidate {
-                    x: fitted_point.x,
-                    y: fitted_point.y,
-                    amplitude: fitted_point.amplitude,
-                    radius_x: fitted_point.radius_x,
-                    radius_y: fitted_point.radius_y,
-                    age: 0,
-                    log_likelihood: fitted_point.score,
-                    match_name: None,
-                    detected_point_match_history: vec![NonMaxUsize::new(detected_point_index)],
-                };
+                let mut new_cand = StarCandidate::new_with_kalman(
+                    fitted_point.x,
+                    fitted_point.y,
+                    fitted_point.amplitude,
+                    fitted_point.radius_x,
+                    fitted_point.radius_y,
+                    fitted_point.score,
+                );
+
+                new_cand.kalman_update(fitted_point.x, fitted_point.y, 1.0f64.az::<F>());
 
                 self.star_candidates.push(new_cand);
             }
         }
 
         info!(new_candidate_qty = self.star_candidates.len() - initial_len);
+    }
+}
+
+impl<F: AstroFloat> StarCandidate<F>
+where
+    f64: Cast<F>,
+{
+    fn new_with_kalman(x: F, y: F, amplitude: F, radius_x: F, radius_y: F, score: F) -> Self {
+        let mut candidate = Self {
+            x,
+            y,
+            amplitude,
+            radius_x,
+            radius_y,
+            age: 0,
+            log_likelihood: score,
+            match_name: None,
+            detected_point_match_history: Vec::new(),
+            kalman_state: [x, y, F::default(), F::default()], // Initial velocity = 0
+            kalman_covariance: Self::initial_covariance(),
+            kalman_initialized: false,
+        };
+        candidate
+    }
+
+    fn initial_covariance() -> [[F; 4]; 4] {
+        let position_variance = 2.0f64.az::<F>(); // 2 pixel uncertainty
+        let velocity_variance = 0.5f64.az::<F>(); // 0.5 pixel/frame uncertainty
+
+        [
+            [position_variance, F::default(), F::default(), F::default()],
+            [F::default(), position_variance, F::default(), F::default()],
+            [F::default(), F::default(), velocity_variance, F::default()],
+            [F::default(), F::default(), F::default(), velocity_variance],
+        ]
+    }
+
+    // Predict step: advance state by one time step
+    pub fn kalman_predict(&mut self) {
+        // State transition: x(k+1) = x(k) + vx(k), y(k+1) = y(k) + vy(k)
+        // Velocity assumed constant: vx(k+1) = vx(k), vy(k+1) = vy(k)
+        let dt = 1.0f64.az::<F>(); // 1 frame
+
+        // Predicted state
+        let predicted_state = [
+            self.kalman_state[0] + self.kalman_state[2] * dt, // x + vx*dt
+            self.kalman_state[1] + self.kalman_state[3] * dt, // y + vy*dt
+            self.kalman_state[2],                             // vx unchanged
+            self.kalman_state[3],                             // vy unchanged
+        ];
+
+        // State transition matrix F
+        let f = [
+            [1.0f64.az::<F>(), F::default(), dt, F::default()],
+            [F::default(), 1.0f64.az::<F>(), F::default(), dt],
+            [F::default(), F::default(), 1.0f64.az::<F>(), F::default()],
+            [F::default(), F::default(), F::default(), 1.0f64.az::<F>()],
+        ];
+
+        // Process noise covariance Q (small amount of random acceleration)
+        let process_noise = 0.1f64.az::<F>();
+        let q = [
+            [process_noise, F::default(), F::default(), F::default()],
+            [F::default(), process_noise, F::default(), F::default()],
+            [
+                F::default(),
+                F::default(),
+                process_noise * 0.1f64.az::<F>(),
+                F::default(),
+            ],
+            [
+                F::default(),
+                F::default(),
+                F::default(),
+                process_noise * 0.1f64.az::<F>(),
+            ],
+        ];
+
+        // Predict covariance: P = F*P*F^T + Q
+        let predicted_covariance = self.matrix_multiply_4x4(&f, &self.kalman_covariance);
+        let f_transpose = self.matrix_transpose_4x4(&f);
+        let temp = self.matrix_multiply_4x4(&predicted_covariance, &f_transpose);
+        self.kalman_covariance = self.matrix_add_4x4(&temp, &q);
+
+        self.kalman_state = predicted_state;
+
+        // Update position estimates
+        self.x = self.kalman_state[0];
+        self.y = self.kalman_state[1];
+    }
+
+    // Update step: incorporate new measurement
+    pub fn kalman_update(&mut self, measured_x: F, measured_y: F, measurement_noise: F) {
+        if !self.kalman_initialized {
+            // First measurement - just initialize
+            self.kalman_state[0] = measured_x;
+            self.kalman_state[1] = measured_y;
+            self.kalman_initialized = true;
+            return;
+        }
+
+        // Measurement matrix H (we observe position only)
+        let h = [
+            [1.0f64.az::<F>(), F::default(), F::default(), F::default()],
+            [F::default(), 1.0f64.az::<F>(), F::default(), F::default()],
+        ];
+
+        // Measurement noise covariance R
+        let r = [
+            [measurement_noise, F::default()],
+            [F::default(), measurement_noise],
+        ];
+
+        // Innovation: z - H*x
+        let predicted_measurement = [self.kalman_state[0], self.kalman_state[1]];
+        let innovation = [
+            measured_x - predicted_measurement[0],
+            measured_y - predicted_measurement[1],
+        ];
+
+        // Innovation covariance: S = H*P*H^T + R
+        // Simplified for position-only measurement
+        let s = [
+            [
+                self.kalman_covariance[0][0] + measurement_noise,
+                self.kalman_covariance[0][1],
+            ],
+            [
+                self.kalman_covariance[1][0],
+                self.kalman_covariance[1][1] + measurement_noise,
+            ],
+        ];
+
+        // Kalman gain: K = P*H^T*S^(-1)
+        let s_inv = self.matrix_inverse_2x2(&s);
+        let k = self.compute_kalman_gain(&s_inv);
+
+        // Update state: x = x + K*innovation
+        for i in 0..4 {
+            self.kalman_state[i] += k[i][0] * innovation[0] + k[i][1] * innovation[1];
+        }
+
+        // Update covariance: P = (I - K*H)*P
+        let i_kh = self.compute_covariance_update(&k);
+        self.kalman_covariance = self.matrix_multiply_4x4(&i_kh, &self.kalman_covariance);
+
+        // Update position estimates
+        self.x = self.kalman_state[0];
+        self.y = self.kalman_state[1];
+    }
+
+    // Helper methods for matrix operations (simplified for this use case)
+    fn matrix_multiply_4x4(&self, a: &[[F; 4]; 4], b: &[[F; 4]; 4]) -> [[F; 4]; 4] {
+        let mut result = [[F::default(); 4]; 4];
+        for i in 0..4 {
+            for j in 0..4 {
+                for k in 0..4 {
+                    result[i][j] += a[i][k] * b[k][j];
+                }
+            }
+        }
+        result
+    }
+
+    fn matrix_transpose_4x4(&self, a: &[[F; 4]; 4]) -> [[F; 4]; 4] {
+        let mut result = [[F::default(); 4]; 4];
+        for i in 0..4 {
+            for j in 0..4 {
+                result[i][j] = a[j][i];
+            }
+        }
+        result
+    }
+
+    fn matrix_add_4x4(&self, a: &[[F; 4]; 4], b: &[[F; 4]; 4]) -> [[F; 4]; 4] {
+        let mut result = [[F::default(); 4]; 4];
+        for i in 0..4 {
+            for j in 0..4 {
+                result[i][j] = a[i][j] + b[i][j];
+            }
+        }
+        result
+    }
+
+    fn matrix_inverse_2x2(&self, a: &[[F; 2]; 2]) -> [[F; 2]; 2] {
+        let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
+        let inv_det = F::one() / det;
+        [
+            [a[1][1] * inv_det, -a[0][1] * inv_det],
+            [-a[1][0] * inv_det, a[0][0] * inv_det],
+        ]
+    }
+
+    // Simplified Kalman gain computation for position measurements
+    fn compute_kalman_gain(&self, s_inv: &[[F; 2]; 2]) -> [[F; 2]; 4] {
+        let mut k = [[F::default(); 2]; 4];
+        for i in 0..4 {
+            for j in 0..2 {
+                k[i][j] = self.kalman_covariance[i][j] * s_inv[j][0]
+                    + self.kalman_covariance[i][j] * s_inv[j][1];
+            }
+        }
+        k
+    }
+
+    fn compute_covariance_update(&self, k: &[[F; 2]; 4]) -> [[F; 4]; 4] {
+        let mut i_kh = [[F::default(); 4]; 4];
+        // I - K*H where H = [I 0; 0 I] for position measurements
+        for i in 0..4 {
+            for j in 0..4 {
+                if i == j {
+                    i_kh[i][j] = F::one();
+                }
+                if j < 2 {
+                    i_kh[i][j] -= k[i][j];
+                }
+            }
+        }
+        i_kh
     }
 }
