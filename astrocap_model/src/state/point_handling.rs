@@ -163,7 +163,10 @@ where
                 let fitted_point = detected_point.fitted_point.as_ref().unwrap();
 
                 // Update Kalman filter with the fitted position (more accurate than detected position)
+                // if this is the first match then we start the kalman filter updating too now that
+                // we have a good initial estimate for velocity
                 let measurement_noise = 1.0f64.az::<F>(); // Adjust based on your detector accuracy
+                cand.kalman_initialized = true;
                 cand.kalman_update(fitted_point.x, fitted_point.y, measurement_noise);
 
                 // Update candidate properties with fitted values
@@ -289,7 +292,7 @@ where
             log_likelihood: score,
             match_name: None,
             detected_point_match_history: Vec::new(),
-            kalman_state: [x, y, F::default(), F::default()], // Initial velocity = 0
+            kalman_state: [x, y, F::zero(), F::zero()], // Initial velocity = 0
             kalman_covariance: Self::initial_covariance(),
             kalman_initialized: false,
         };
@@ -298,7 +301,7 @@ where
 
     fn initial_covariance() -> [[F; 4]; 4] {
         let position_variance = 2.0f64.az::<F>(); // 2 pixel uncertainty
-        let velocity_variance = 0.5f64.az::<F>(); // 0.5 pixel/frame uncertainty
+        let velocity_variance = 50f64.az::<F>(); // 50 pixel/frame uncertainty
 
         [
             [position_variance, F::default(), F::default(), F::default()],
@@ -368,7 +371,6 @@ where
             // First measurement - just initialize
             self.kalman_state[0] = measured_x;
             self.kalman_state[1] = measured_y;
-            self.kalman_initialized = true;
             return;
         }
 

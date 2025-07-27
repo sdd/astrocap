@@ -80,75 +80,132 @@ where
     }
 }
 
-// Simplified star scoring focused on the most reliable metrics
+// Smooth, continuous star scoring using linear/polynomial relationships
 pub fn calculate_star_score<F: AstroFloat>(fitted_point: &FittedPoint<F>) -> F
 where
     f64: Cast<F>,
 {
-    let mut score = F::zero();
-
-    // Primary score: amplitude-based with logarithmic scaling
-    // Amplitude of 100+ should give ~6-8 points, amplitude of 50 should give ~4-5 points
-    let amplitude_score = if fitted_point.amplitude > 10.0f64.az::<F>() {
-        fitted_point.amplitude.ln() * 1.8f64.az::<F>()
+    // 1. AMPLITUDE COMPONENT - Most discriminative (your key insight)
+    // Real stars ≥34, spurious <34, with strong preference for higher amplitudes
+    let amplitude_score = if fitted_point.amplitude >= 100.0f64.az::<F>() {
+        // Very bright stars - asymptotic approach to max score
+        30.0f64.az::<F>()
+            + 10.0f64.az::<F>()
+                * (1.0f64.az::<F>()
+                    - (-0.02f64.az::<F>() * (fitted_point.amplitude - 100.0f64.az::<F>())).exp())
+    } else if fitted_point.amplitude >= 34.0f64.az::<F>() {
+        // Above threshold - linear increase from 15 to 30
+        linear_score(
+            fitted_point.amplitude,
+            34.0f64.az::<F>(),
+            100.0f64.az::<F>(),
+            15.0f64.az::<F>(),
+            30.0f64.az::<F>(),
+        )
     } else {
-        // Very low amplitude gets negative score
-        -3.0f64.az::<F>()
-    };
-    score += amplitude_score;
-
-    // Strong radius penalties for unrealistic star shapes
-    let avg_radius = (fitted_point.radius_x + fitted_point.radius_y) / 2.0f64.az::<F>();
-
-    let radius_penalty = if avg_radius < 0.7f64.az::<F>() {
-        // Too small - probably noise or hot pixels - heavy penalty
-        -8.0f64.az::<F>()
-    } else if avg_radius > 3.0f64.az::<F>() {
-        // Too large - probably not a star - heavy penalty
-        -6.0f64.az::<F>()
-    } else if avg_radius < 1.0f64.az::<F>() || avg_radius > 2.5f64.az::<F>() {
-        // Somewhat suspicious radius - moderate penalty
-        -2.0f64.az::<F>()
-    } else {
-        // Good radius range (1.0 - 2.5) - small bonus
-        1.0f64.az::<F>()
-    };
-    score += radius_penalty;
-
-    // Strong penalty for extremely asymmetric shapes (elongated artifacts)
-    let radius_ratio = if fitted_point.radius_x > fitted_point.radius_y {
-        fitted_point.radius_x / fitted_point.radius_y
-    } else {
-        fitted_point.radius_y / fitted_point.radius_x
+        // Below threshold - exponential decay penalty
+        let penalty_factor = (fitted_point.amplitude - 34.0f64.az::<F>()) / 10.0f64.az::<F>();
+        15.0f64.az::<F>() * penalty_factor.exp() - 25.0f64.az::<F>()
     };
 
-    let asymmetry_penalty = if radius_ratio > 2.5f64.az::<F>() {
-        // Very elongated - definitely not a star
-        -5.0f64.az::<F>()
-    } else if radius_ratio > 1.8f64.az::<F>() {
-        // Quite elongated - probably not a star
-        -2.0f64.az::<F>()
-    } else if radius_ratio > 1.4f64.az::<F>() {
-        // Somewhat elongated - small penalty
-        -0.5f64.az::<F>()
-    } else {
-        // Round-ish - small bonus
-        0.5f64.az::<F>()
-    };
-    score += asymmetry_penalty;
+    // 2. R-SQUARED COMPONENT - Smooth transition based on fit quality
+    // Your data: real stars -16 to -49, spurious -50 to -148
+    let r_squared_score = sigmoid_score(
+        fitted_point.fit_quality.r_squared,
+        -50.0f64.az::<F>(), // Midpoint between good and bad
+        0.1f64.az::<F>(),   // Steepness
+        -15.0f64.az::<F>(), // Score for very poor fits
+        12.0f64.az::<F>(),  // Score for good fits
+    );
 
-    // Light SNR contribution (much less emphasis than before)
-    let snr_bonus = if fitted_point.fit_quality.snr > 3.0f64.az::<F>() {
-        fitted_point.fit_quality.snr.ln() * 0.5f64.az::<F>()
+    // 3. SNR COMPONENT - Logarithmic scaling for SNR
+    // Your data shows real stars tend to have higher SNR
+    let snr_score = if fitted_point.fit_quality.snr > 0.1f64.az::<F>() {
+        // Logarithmic scaling: log(SNR) gives smooth increase
+        let log_snr = fitted_point.fit_quality.snr.ln();
+        linear_score(
+            log_snr,
+            0.69f64.az::<F>(), // ln(2) - low SNR threshold
+            2.3f64.az::<F>(),  // ln(10) - high SNR threshold
+            -5.0f64.az::<F>(), // Penalty for low SNR
+            10.0f64.az::<F>(), // Bonus for high SNR
+        )
+    } else {
+        -10.0f64.az::<F>() // Very low SNR penalty
+    };
+
+    // 4. RADIUS COMPONENT - Quadratic penalty for deviations from ideal
+    let radius_x_abs = FloatCore::abs(fitted_point.radius_x);
+    let radius_y_abs = FloatCore::abs(fitted_point.radius_y);
+    let avg_radius = (radius_x_abs + radius_y_abs) / 2.0f64.az::<F>();
+
+    // Ideal radius around 1.2 pixels (from your data), quadratic penalty for deviations
+    let ideal_radius = 1.2f64.az::<F>();
+    let radius_deviation = FloatCore::abs(avg_radius - ideal_radius);
+    let radius_score = if avg_radius > 3.0f64.az::<F>() || avg_radius < 0.3f64.az::<F>() {
+        // Hard limits for unreasonable radii
+        -20.0f64.az::<F>()
+    } else {
+        // Quadratic penalty: score = max_score - k * deviation²
+        let max_radius_score = 8.0f64.az::<F>();
+        let penalty_factor = 3.0f64.az::<F>(); // Tunable steepness
+        max_radius_score - penalty_factor * radius_deviation * radius_deviation
+    };
+
+    /*// 5. SYMMETRY COMPONENT - Quadratic penalty for asymmetry
+    let radius_ratio = if radius_x_abs > radius_y_abs {
+        radius_x_abs / radius_y_abs.max(0.1f64.az::<F>())
+    } else {
+        radius_y_abs / radius_x_abs.max(0.1f64.az::<F>())
+    };
+
+    // Ideal ratio is 1.0 (perfect circle), quadratic penalty for deviations
+    let symmetry_deviation = radius_ratio - 1.0f64.az::<F>();
+
+    let symmetry_score = if radius_ratio > 4.0f64.az::<F>() {
+        // Hard limit for extreme asymmetry
+        -25.0f64.az::<F>()
+    } else {
+        // Quadratic penalty
+        let max_symmetry_score = 6.0f64.az::<F>();
+        let penalty_factor = 4.0f64.az::<F>();
+        max_symmetry_score - penalty_factor * symmetry_deviation * symmetry_deviation
+    };*/
+
+    /*// 6. NEGATIVE RADIUS PENALTY - Smooth penalty for fitting artifacts
+    let negative_radius_penalty = if fitted_point.radius_x < F::zero() || fitted_point.radius_y < F::zero() {
+        // Mild penalty - your data shows this can happen with real stars
+        let neg_x_penalty = if fitted_point.radius_x < F::zero() { fitted_point.radius_x.abs() } else { F::zero() };
+        let neg_y_penalty = if fitted_point.radius_y < F::zero() { fitted_point.radius_y.abs() } else { F::zero() };
+        -(neg_x_penalty + neg_y_penalty) * 2.0f64.az::<F>()
     } else {
         F::zero()
-    };
-    score += snr_bonus;
+    };*/
 
-    // Cap the score at our desired bounds
-    score = FloatCore::min(FloatCore::max(score, -10.0f64.az::<F>()), 10.0f64.az::<F>());
+    /*// 7. REDUCED CHI-SQUARED - Gentle sigmoid around ideal value of 1.0
+    let chi2_score = if fitted_point.fit_quality.reduced_chi_squared > 0.0f64.az::<F>() {
+        sigmoid_score(
+            fitted_point.fit_quality.reduced_chi_squared.ln(), // Log scale for wide range
+            0.0f64.az::<F>(),   // ln(1) = 0, ideal chi-squared
+            2.0f64.az::<F>(),   // Moderate steepness
+            -8.0f64.az::<F>(),  // Penalty for very poor fits
+            3.0f64.az::<F>()    // Small bonus for good fits
+        )
+    } else {
+        -5.0f64.az::<F>() // Invalid chi-squared
+    };*/
 
-    score
+    // Combine all components
+    let total_score = amplitude_score + r_squared_score + snr_score + radius_score;
+    //+ symmetry_score + negative_radius_penalty + chi2_score;
+
+    // Expected score ranges with this system:
+    // Excellent real stars (amp>50, good metrics): ~45-65
+    // Good real stars (amp 34-50, decent metrics): ~25-45
+    // Marginal candidates (amp ~30-34): ~0-20
+    // Spurious detections: negative to ~10
+
+    total_score
 }
 
 pub struct PointFitterGaussianNelderMead {
@@ -593,4 +650,28 @@ where
         // Amplitude should be positive
         FloatCore::max(params[4], F::zero()),
     ]
+}
+
+// Helper functions for smooth transitions
+fn linear_score<F: AstroFloat>(x: F, x_min: F, x_max: F, score_min: F, score_max: F) -> F
+where
+    f64: Cast<F>,
+{
+    if x <= x_min {
+        score_min
+    } else if x >= x_max {
+        score_max
+    } else {
+        let ratio = (x - x_min) / (x_max - x_min);
+        score_min + ratio * (score_max - score_min)
+    }
+}
+
+fn sigmoid_score<F: AstroFloat>(x: F, midpoint: F, steepness: F, min_score: F, max_score: F) -> F
+where
+    f64: Cast<F>,
+{
+    let exp_arg = -steepness * (x - midpoint);
+    let sigmoid = F::one() / (F::one() + exp_arg.exp());
+    min_score + sigmoid * (max_score - min_score)
 }

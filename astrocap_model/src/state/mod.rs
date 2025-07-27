@@ -277,7 +277,9 @@ where
 
     fn update_state_positions(&mut self) {
         for candidate in self.star_candidates.iter_mut() {
-            candidate.kalman_predict();
+            if candidate.kalman_initialized {
+                candidate.kalman_predict();
+            }
         }
 
         self.star_candidates_tree = KdTree::with_capacity(self.star_candidates.len());
