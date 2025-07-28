@@ -1,4 +1,4 @@
-use crate::state::ModelState;
+use crate::state::{FrameState, ModelState};
 use crate::traits::{AstroFloat, PointFitter};
 
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
@@ -79,63 +79,89 @@ where
     ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>:
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
-    pub(crate) fn fit_existing_points(&mut self, frame: Arc<dyn PointFitter<F>>) -> HashSet<usize> {
+    pub(crate) fn fit_existing_points(
+        &mut self,
+        frame: Arc<dyn PointFitter<F>>,
+    ) -> (HashSet<usize>, Vec<(usize, Option<usize>)>) {
         let mut match_indexes: HashSet<usize> = HashSet::new();
+        let mut candidate_matches: Vec<(usize, Option<usize>)> = Vec::new();
 
-        let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
+        let Some(ref mut curr_frame_state) = &mut self.current_frame_state else {
             warn!("Not enough previous frame states found when trying to fit existing points");
-            return match_indexes;
+            return (match_indexes, candidate_matches);
         };
 
         let mut unmatched_cand_count = 0;
         let mut matched_detected_points: HashSet<usize> = HashSet::new();
+        let mut candidates_with_matches = Vec::new();
 
-        for (_cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
-            // Calculate adaptive search radius based on unmatched frame count
-            let unmatched_frames = cand
+        for (cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
+            cand.age += 1;
+
+            // Calculate search radius based on track quality
+            let recent_matches = cand
                 .detected_point_match_history
                 .iter()
                 .rev()
-                .take_while(|&m| m.is_none())
-                .count();
+                .take(10) // Look at last 10 frames
+                .collect::<Vec<_>>();
 
-            let search_radius = if unmatched_frames > 5 {
-                let base_radius = self.model_config.max_existing_candidate_match_dist;
-                let expansion_factor = (unmatched_frames as f64 * 0.1).min(2.0); // Cap expansion
-                base_radius * (1.0 + expansion_factor).az::<F>()
+            let match_rate = recent_matches.iter().filter(|m| m.is_some()).count() as f64
+                / recent_matches.len() as f64;
+            let has_kalman = cand.kalman_initialized;
+            let track_confidence = cand.log_likelihood.az::<f64>();
+
+            let search_radius = if has_kalman && match_rate > 0.7 && track_confidence > 20.0 {
+                // Strong track - use tight radius
+                let tight_radius = 3.0f64.az::<F>(); // Much smaller for established tracks
+                tight_radius
+            } else if recent_matches.len() >= 5 && match_rate > 0.4 {
+                // Moderate track - use standard radius
+                let moderate_radius = 7.0f64.az::<F>();
+                moderate_radius
             } else {
-                self.model_config.max_existing_candidate_match_dist
+                // Weak/new track - use larger radius but not too large
+                let unmatched_frames = cand
+                    .detected_point_match_history
+                    .iter()
+                    .rev()
+                    .take_while(|&m| m.is_none())
+                    .count();
+
+                let base_radius = self.model_config.max_existing_candidate_match_dist;
+                if unmatched_frames > 5 {
+                    let expansion_factor = (unmatched_frames as f64 * 0.1).min(1.5); // Reduced cap
+                    base_radius * (1.0 + expansion_factor).az::<F>()
+                } else {
+                    base_radius
+                }
             };
 
-            // Get up to 5 nearby detected points
             let nearby_detected_points = curr_frame_state
                 .detected_points_tree
                 .nearest_n_within::<SquaredEuclidean>(
-                    &[cand.x, cand.y], // Using Kalman-predicted position
+                    &[cand.x, cand.y],
                     search_radius * search_radius,
                     NonZero::new(5).unwrap(),
                     false,
                 );
 
             if nearby_detected_points.is_empty() {
-                // No matches found within search radius
                 unmatched_cand_count += 1;
-                cand.detected_point_match_history.push(None);
+                cand.log_likelihood -= self.model_config.star_candidate_unmatched_penalty;
+                candidate_matches.push((cand_idx, None));
                 continue;
             }
 
-            // Fit all nearby points and find the best one
-            let mut best_match: Option<(usize, F)> = None; // (detected_point_idx, score)
+            let mut best_match: Option<(usize, F)> = None;
 
             for nearby_point in nearby_detected_points {
                 let detected_point_idx = nearby_point.item as usize;
 
-                // Skip if this detected point was already matched to another candidate
                 if matched_detected_points.contains(&detected_point_idx) {
                     continue;
                 }
 
-                // Fit the detected point if not already fitted
                 let detected_point = &mut curr_frame_state.detected_points_list[detected_point_idx];
                 if detected_point.fitted_point.is_none() {
                     let fitted_point = frame.fit(detected_point);
@@ -144,14 +170,12 @@ where
 
                 let fitted_point = detected_point.fitted_point.as_ref().unwrap();
 
-                // Reject if the fitted radii are too large (not stellar)
                 if fitted_point.radius_x > self.model_config.max_star_candidate_radius
                     || fitted_point.radius_y > self.model_config.max_star_candidate_radius
                 {
                     continue;
                 }
 
-                // Check if this is the best match so far (highest score)
                 if best_match.is_none() || fitted_point.score > best_match.as_ref().unwrap().1 {
                     best_match = Some((detected_point_idx, fitted_point.score));
                 }
@@ -161,33 +185,72 @@ where
                 let detected_point =
                     &curr_frame_state.detected_points_list[best_detected_point_idx];
                 let fitted_point = detected_point.fitted_point.as_ref().unwrap();
+                let measurement_valid = cand.validate_measurement(fitted_point.x, fitted_point.y);
 
-                // Update Kalman filter with the fitted position (more accurate than detected position)
-                // if this is the first match then we start the kalman filter updating too now that
-                // we have a good initial estimate for velocity
-                let measurement_noise = 1.0f64.az::<F>(); // Adjust based on your detector accuracy
-                cand.kalman_initialized = true;
-                cand.kalman_update(fitted_point.x, fitted_point.y, measurement_noise);
+                candidates_with_matches.push((
+                    cand_idx,
+                    fitted_point.x,
+                    fitted_point.y,
+                    measurement_valid,
+                ));
 
-                // Update candidate properties with fitted values
-                cand.amplitude = fitted_point.amplitude;
-                cand.radius_x = fitted_point.radius_x;
-                cand.radius_y = fitted_point.radius_y;
-
-                // Add strong match bonus if score indicates high quality
-                if fitted_point.score > self.model_config.star_candidate_strong_match_threshold {
-                    cand.log_likelihood += self.model_config.star_candidate_strong_match_bonus;
-                }
-
-                // Record the match
                 match_indexes.insert(best_detected_point_idx);
                 matched_detected_points.insert(best_detected_point_idx);
-                cand.detected_point_match_history
-                    .push(Some(NonMaxUsize::new(best_detected_point_idx).unwrap()));
+                candidate_matches.push((cand_idx, Some(best_detected_point_idx)));
             } else {
-                // No valid matches found (all were either taken or failed stellar criteria)
                 unmatched_cand_count += 1;
-                cand.detected_point_match_history.push(None);
+                cand.log_likelihood -= self.model_config.star_candidate_unmatched_penalty;
+                candidate_matches.push((cand_idx, None));
+            }
+        }
+
+        // Rest of the processing logic stays the same...
+        for (cand_idx, x, y, measurement_valid) in candidates_with_matches {
+            let history_confidence = self.star_candidates[cand_idx].validate_against_history(
+                x,
+                y,
+                &self.historical_frame_states,
+            );
+
+            let cand = &mut self.star_candidates[cand_idx];
+            let detected_point_idx = candidate_matches
+                .iter()
+                .find(|(idx, _)| *idx == cand_idx)
+                .and_then(|(_, opt_idx)| *opt_idx)
+                .unwrap();
+
+            let detected_point = &curr_frame_state.detected_points_list[detected_point_idx];
+            let fitted_point = detected_point.fitted_point.as_ref().unwrap();
+            let measurement_noise = 1.0f64.az::<F>();
+
+            if measurement_valid && history_confidence > 0.3f64.az::<F>() {
+                if cand.detected_point_match_history.len() >= 2 {
+                    cand.kalman_initialized = true;
+                }
+
+                cand.kalman_update_weighted(
+                    fitted_point.x,
+                    fitted_point.y,
+                    measurement_noise,
+                    history_confidence,
+                );
+
+                cand.log_likelihood += self.model_config.star_candidate_strong_match_bonus;
+            } else {
+                tracing::debug!("Rejecting spurious match for candidate due to poor validation");
+                cand.log_likelihood -= self.model_config.star_candidate_unmatched_penalty;
+            }
+
+            cand.amplitude = fitted_point.amplitude;
+            cand.radius_x = fitted_point.radius_x;
+            cand.radius_y = fitted_point.radius_y;
+
+            if fitted_point.score > self.model_config.star_candidate_strong_match_threshold {
+                cand.log_likelihood += self.model_config.star_candidate_strong_match_bonus;
+            }
+
+            if fitted_point.amplitude < self.model_config.amplitude_penalty_threshold {
+                cand.log_likelihood -= self.model_config.amplitude_penalty;
             }
         }
 
@@ -195,8 +258,7 @@ where
             existing_fitted_qty = match_indexes.len(),
             unmatched_cand_count
         );
-
-        match_indexes
+        (match_indexes, candidate_matches)
     }
 
     pub(crate) fn fit_strong_unmatched_new_points(
@@ -205,7 +267,7 @@ where
         img_w: u32,
         img_h: u32,
     ) {
-        let Some(curr_frame_state) = self.recent_frame_states.last_mut() else {
+        let Some(ref mut curr_frame_state) = self.current_frame_state else {
             warn!("Not enough previous frame states found when trying to fit existing points");
             return;
         };
@@ -258,7 +320,7 @@ where
                 && fitted_point.radius_x < self.model_config.max_star_candidate_radius
                 && fitted_point.radius_y < self.model_config.max_star_candidate_radius
             {
-                let mut new_cand = StarCandidate::new_with_kalman(
+                let new_cand = StarCandidate::new_with_kalman(
                     fitted_point.x,
                     fitted_point.y,
                     fitted_point.amplitude,
@@ -267,7 +329,7 @@ where
                     fitted_point.score,
                 );
 
-                new_cand.kalman_update(fitted_point.x, fitted_point.y, 1.0f64.az::<F>());
+                // new_cand.kalman_update(fitted_point.x, fitted_point.y, 1.0f64.az::<F>());
 
                 self.star_candidates.push(new_cand);
             }
@@ -282,7 +344,7 @@ where
     f64: Cast<F>,
 {
     fn new_with_kalman(x: F, y: F, amplitude: F, radius_x: F, radius_y: F, score: F) -> Self {
-        let mut candidate = Self {
+        Self {
             x,
             y,
             amplitude,
@@ -295,8 +357,7 @@ where
             kalman_state: [x, y, F::zero(), F::zero()], // Initial velocity = 0
             kalman_covariance: Self::initial_covariance(),
             kalman_initialized: false,
-        };
-        candidate
+        }
     }
 
     fn initial_covariance() -> [[F; 4]; 4] {
@@ -313,8 +374,6 @@ where
 
     // Predict step: advance state by one time step
     pub fn kalman_predict(&mut self) {
-        // State transition: x(k+1) = x(k) + vx(k), y(k+1) = y(k) + vy(k)
-        // Velocity assumed constant: vx(k+1) = vx(k), vy(k+1) = vy(k)
         let dt = 1.0f64.az::<F>(); // 1 frame
 
         // Predicted state
@@ -333,30 +392,107 @@ where
             [F::default(), F::default(), F::default(), 1.0f64.az::<F>()],
         ];
 
-        // Process noise covariance Q (small amount of random acceleration)
-        let process_noise = 0.1f64.az::<F>();
+        // Calculate track quality for adaptive process noise
+        let track_maturity = (self.age as f64).min(100.0) / 100.0;
+        let recent_matches = self
+            .detected_point_match_history
+            .iter()
+            .rev()
+            .take(50)
+            .filter(|m| m.is_some())
+            .count() as f64
+            / 50.0.min(self.detected_point_match_history.len() as f64);
+
+        let track_confidence = (self.log_likelihood.az::<f64>() / 100.0).min(1.0).max(0.0);
+        let track_quality =
+            (track_maturity * 0.3 + recent_matches * 0.5 + track_confidence * 0.2).min(1.0);
+
+        // Much more conservative process noise, especially for high-quality tracks
+        let (position_noise, velocity_noise) = if track_quality > 0.8 {
+            // Very established tracks: minimal process noise
+            (0.1f64, 0.02f64) // Even smaller than before
+        } else if track_quality > 0.5 {
+            // Medium-quality tracks: moderate process noise
+            (0.3f64, 0.05f64)
+        } else {
+            // New or poor tracks: higher process noise to allow for uncertainty
+            (0.8f64, 0.2f64)
+        };
+
+        let position_noise = position_noise.az::<F>();
+        let velocity_noise = velocity_noise.az::<F>();
+
+        // Process noise covariance Q
         let q = [
-            [process_noise, F::default(), F::default(), F::default()],
-            [F::default(), process_noise, F::default(), F::default()],
-            [
-                F::default(),
-                F::default(),
-                process_noise * 0.1f64.az::<F>(),
-                F::default(),
-            ],
-            [
-                F::default(),
-                F::default(),
-                F::default(),
-                process_noise * 0.1f64.az::<F>(),
-            ],
+            [position_noise, F::default(), F::default(), F::default()],
+            [F::default(), position_noise, F::default(), F::default()],
+            [F::default(), F::default(), velocity_noise, F::default()],
+            [F::default(), F::default(), F::default(), velocity_noise],
         ];
 
         // Predict covariance: P = F*P*F^T + Q
         let predicted_covariance = self.matrix_multiply_4x4(&f, &self.kalman_covariance);
         let f_transpose = self.matrix_transpose_4x4(&f);
         let temp = self.matrix_multiply_4x4(&predicted_covariance, &f_transpose);
-        self.kalman_covariance = self.matrix_add_4x4(&temp, &q);
+        let new_covariance = self.matrix_add_4x4(&temp, &q);
+
+        // **KEY FIX**: Cap the maximum uncertainty for established tracks
+        // This prevents uncertainty from growing unbounded during prediction-only periods
+        let max_position_variance = if track_quality > 0.8 {
+            2.0f64.az::<F>() // Very established tracks: max 2 pixel standard deviation
+        } else if track_quality > 0.5 {
+            4.0f64.az::<F>() // Medium tracks: max 4 pixel standard deviation
+        } else {
+            8.0f64.az::<F>() // New/poor tracks: max 8 pixel standard deviation
+        };
+
+        let max_velocity_variance = if track_quality > 0.8 {
+            0.5f64.az::<F>() // Very small velocity uncertainty
+        } else if track_quality > 0.5 {
+            1.0f64.az::<F>()
+        } else {
+            2.0f64.az::<F>()
+        };
+
+        // Clamp the diagonal elements (variances) to prevent excessive uncertainty growth
+        self.kalman_covariance = [
+            [
+                FloatCore::min(
+                    new_covariance[0][0],
+                    max_position_variance * max_position_variance,
+                ),
+                new_covariance[0][1],
+                new_covariance[0][2],
+                new_covariance[0][3],
+            ],
+            [
+                new_covariance[1][0],
+                FloatCore::min(
+                    new_covariance[1][1],
+                    max_position_variance * max_position_variance,
+                ),
+                new_covariance[1][2],
+                new_covariance[1][3],
+            ],
+            [
+                new_covariance[2][0],
+                new_covariance[2][1],
+                FloatCore::min(
+                    new_covariance[2][2],
+                    max_velocity_variance * max_velocity_variance,
+                ),
+                new_covariance[2][3],
+            ],
+            [
+                new_covariance[3][0],
+                new_covariance[3][1],
+                new_covariance[3][2],
+                FloatCore::min(
+                    new_covariance[3][3],
+                    max_velocity_variance * max_velocity_variance,
+                ),
+            ],
+        ];
 
         self.kalman_state = predicted_state;
 
@@ -366,13 +502,118 @@ where
     }
 
     // Update step: incorporate new measurement
-    pub fn kalman_update(&mut self, measured_x: F, measured_y: F, measurement_noise: F) {
+    pub fn kalman_update_weighted(
+        &mut self,
+        measured_x: F,
+        measured_y: F,
+        measurement_noise: F,
+        confidence: F,
+    ) {
         if !self.kalman_initialized {
             // First measurement - just initialize
             self.kalman_state[0] = measured_x;
             self.kalman_state[1] = measured_y;
             return;
         }
+
+        // Calculate track quality metrics
+        let track_maturity = (self.age as f64).min(100.0) / 100.0; // 0.0 to 1.0
+        let recent_matches = self
+            .detected_point_match_history
+            .iter()
+            .rev()
+            .take(50)
+            .filter(|m| m.is_some())
+            .count() as f64
+            / 50.0.min(self.detected_point_match_history.len() as f64);
+
+        let track_confidence = (self.log_likelihood.az::<f64>() / 100.0).min(1.0).max(0.0);
+
+        // Track quality affects how much we trust our prediction vs the measurement
+        let track_quality =
+            (track_maturity * 0.3 + recent_matches * 0.5 + track_confidence * 0.2).min(1.0);
+
+        // For high-quality tracks, we trust our prediction more and require measurements
+        // to be more consistent with our motion model
+        let measurement_trust_factor = if track_quality > 0.8 {
+            // High-quality track - be more skeptical of measurements that don't fit the motion model
+            0.2 + (1.0 - track_quality) * 0.3 // 0.2 to 0.5 range - much lower than before
+        } else if track_quality > 0.5 {
+            // Medium-quality track
+            0.4 + (1.0 - track_quality) * 0.4 // 0.4 to 0.8 range
+        } else {
+            // Low-quality/new track - trust measurements more
+            0.6 + (1.0 - track_quality) * 0.4 // 0.6 to 1.0 range
+        };
+
+        // Scale measurement noise based on track quality and measurement confidence
+        let base_noise = measurement_noise / FloatCore::max(confidence, 0.1f64.az::<F>());
+        let adjusted_noise = base_noise / (measurement_trust_factor.az::<F>());
+
+        // Innovation validation: check if measurement is consistent with motion model
+        let predicted_measurement = [self.kalman_state[0], self.kalman_state[1]];
+        let raw_innovation = [
+            measured_x - predicted_measurement[0],
+            measured_y - predicted_measurement[1],
+        ];
+
+        // Calculate innovation magnitude
+        let innovation_magnitude =
+            (raw_innovation[0] * raw_innovation[0] + raw_innovation[1] * raw_innovation[1]).sqrt();
+
+        // Current velocity magnitude
+        let current_velocity = (self.kalman_state[2] * self.kalman_state[2]
+            + self.kalman_state[3] * self.kalman_state[3])
+            .sqrt();
+        let position_uncertainty =
+            (self.kalman_covariance[0][0] + self.kalman_covariance[1][1]).sqrt();
+
+        // Reasonable movement thresholds based on track quality and current motion
+        let max_reasonable_movement = if track_quality > 0.8 {
+            // Very established track - allow current velocity + small acceleration + uncertainty
+            // Max acceleration of ~0.5 pixels/frame² seems reasonable for stars
+            FloatCore::max(
+                5.0f64.az::<F>(), // Minimum threshold - even stationary stars can have small motion
+                current_velocity * 1.2f64.az::<F>()
+                    + 0.5f64.az::<F>()
+                    + position_uncertainty * 2.0f64.az::<F>(),
+            )
+        } else if track_quality > 0.5 {
+            // Medium quality track - allow more variation
+            FloatCore::max(
+                8.0f64.az::<F>(),
+                current_velocity * 1.5f64.az::<F>()
+                    + 1.0f64.az::<F>()
+                    + position_uncertainty * 3.0f64.az::<F>(),
+            )
+        } else {
+            // Low quality or new track - be more permissive
+            FloatCore::max(
+                15.0f64.az::<F>(),
+                current_velocity * 2.0f64.az::<F>()
+                    + 3.0f64.az::<F>()
+                    + position_uncertainty * 4.0f64.az::<F>(),
+            )
+        };
+
+        // Only reject truly extreme outliers
+        let innovation = if innovation_magnitude > max_reasonable_movement {
+            tracing::warn!(
+            "Clamping large innovation: magnitude={:.2}, max_reasonable={:.2}, velocity={:.2}, quality={:.2}",
+            innovation_magnitude.az::<f64>(),
+            max_reasonable_movement.az::<f64>(),
+            current_velocity.az::<f64>(),
+            track_quality
+        );
+            // Scale down the innovation rather than rejecting completely
+            let scale_factor = max_reasonable_movement / innovation_magnitude;
+            [
+                raw_innovation[0] * scale_factor,
+                raw_innovation[1] * scale_factor,
+            ]
+        } else {
+            raw_innovation
+        };
 
         // Measurement matrix H (we observe position only)
         let h = [
@@ -382,27 +623,19 @@ where
 
         // Measurement noise covariance R
         let r = [
-            [measurement_noise, F::default()],
-            [F::default(), measurement_noise],
-        ];
-
-        // Innovation: z - H*x
-        let predicted_measurement = [self.kalman_state[0], self.kalman_state[1]];
-        let innovation = [
-            measured_x - predicted_measurement[0],
-            measured_y - predicted_measurement[1],
+            [adjusted_noise, F::default()],
+            [F::default(), adjusted_noise],
         ];
 
         // Innovation covariance: S = H*P*H^T + R
-        // Simplified for position-only measurement
         let s = [
             [
-                self.kalman_covariance[0][0] + measurement_noise,
+                self.kalman_covariance[0][0] + adjusted_noise,
                 self.kalman_covariance[0][1],
             ],
             [
                 self.kalman_covariance[1][0],
-                self.kalman_covariance[1][1] + measurement_noise,
+                self.kalman_covariance[1][1] + adjusted_noise,
             ],
         ];
 
@@ -492,5 +725,129 @@ where
             }
         }
         i_kh
+    }
+
+    pub fn validate_measurement(&self, measured_x: F, measured_y: F) -> bool {
+        if !self.kalman_initialized {
+            return true; // Accept all measurements for uninitialized filters
+        }
+
+        // Predicted measurement
+        let predicted = [self.kalman_state[0], self.kalman_state[1]];
+
+        // Innovation (difference between measurement and prediction)
+        let innovation = [measured_x - predicted[0], measured_y - predicted[1]];
+
+        // Innovation covariance (simplified for position-only measurement)
+        let measurement_noise = 1.0f64.az::<F>(); // Adjust as needed
+        let innovation_cov = [
+            [
+                self.kalman_covariance[0][0] + measurement_noise,
+                self.kalman_covariance[0][1],
+            ],
+            [
+                self.kalman_covariance[1][0],
+                self.kalman_covariance[1][1] + measurement_noise,
+            ],
+        ];
+
+        // Mahalanobis distance: innovation^T * S^(-1) * innovation
+        let inv_cov = self.matrix_inverse_2x2(&innovation_cov);
+        let mahal_dist_sq = innovation[0]
+            * (inv_cov[0][0] * innovation[0] + inv_cov[0][1] * innovation[1])
+            + innovation[1] * (inv_cov[1][0] * innovation[0] + inv_cov[1][1] * innovation[1]);
+
+        // Chi-squared test with 2 degrees of freedom
+        // 95% confidence: 5.99, 99% confidence: 9.21
+        let confidence_threshold = 9.21f64.az::<F>();
+        mahal_dist_sq < confidence_threshold
+    }
+
+    pub fn validate_against_history(
+        &self,
+        measured_x: F,
+        measured_y: F,
+        historical_frame_states: &[FrameState<F>],
+    ) -> F {
+        // Returns confidence weight [0.0, 1.0]
+
+        let min_history_for_validation = 3;
+
+        // Get the total number of frames we have (historical + current)
+        let total_frames = historical_frame_states.len() + 1; // +1 for current frame
+
+        // The candidate's history should map to the most recent frames
+        let history_len = self.detected_point_match_history.len();
+
+        let valid_matches: Vec<_> = self
+            .detected_point_match_history
+            .iter()
+            .enumerate()
+            .filter_map(|(history_idx, opt_match)| {
+                // Calculate the actual frame index in historical_frame_states
+                // The most recent history entry corresponds to the last historical frame
+                let frame_idx_in_history = if history_len > historical_frame_states.len() {
+                    // More history than we have historical frames - skip early entries
+                    let skip_count = history_len - historical_frame_states.len();
+                    if history_idx < skip_count {
+                        return None; // Skip entries that are too old
+                    }
+                    history_idx - skip_count
+                } else {
+                    // History fits within historical frames
+                    let start_offset = historical_frame_states.len() - history_len;
+                    start_offset + history_idx
+                };
+
+                // Skip if this would access the current frame (not in historical_frame_states)
+                if frame_idx_in_history >= historical_frame_states.len() {
+                    return None;
+                }
+
+                opt_match.map(|match_idx| {
+                    let frame_state = &historical_frame_states[frame_idx_in_history];
+                    let point = &frame_state.detected_points_list[match_idx.get()];
+                    let fitted = point.fitted_point.as_ref().unwrap();
+                    (history_idx, fitted.x, fitted.y)
+                })
+            })
+            .collect();
+
+        if valid_matches.len() < min_history_for_validation {
+            return 1.0f64.az::<F>(); // Full confidence for new tracks
+        }
+
+        // Calculate recent velocity trend
+        let recent_positions: Vec<_> = valid_matches
+            .iter()
+            .rev()
+            .take(3) // Last 3 positions
+            .collect();
+
+        if recent_positions.len() >= 2 {
+            // Estimate velocity from recent history
+            let (_, x1, y1) = recent_positions[0];
+            let (_, x2, y2) = recent_positions[1];
+            let estimated_vx = *x1 - *x2;
+            let estimated_vy = *y1 - *y2;
+
+            // Predict where we expect the next point
+            let predicted_x = *x1 + estimated_vx;
+            let predicted_y = *y1 + estimated_vy;
+
+            // Calculate deviation from prediction
+            let deviation = ((measured_x - predicted_x) * (measured_x - predicted_x)
+                + (measured_y - predicted_y) * (measured_y - predicted_y))
+                .sqrt();
+
+            // Convert to confidence weight (sigmoid function)
+            let max_allowed_deviation = 5.0f64.az::<F>();
+            let confidence = ((-deviation / max_allowed_deviation).exp())
+                / (1.0f64.az::<F>() + (-deviation / max_allowed_deviation).exp());
+
+            confidence
+        } else {
+            1.0f64.az::<F>() // Full confidence if insufficient history
+        }
     }
 }

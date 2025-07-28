@@ -32,7 +32,7 @@ pub struct PointExtractorConsumer {
     state: Arc<Mutex<ModelState<f32>>>,
     mask: Option<Arc<dyn ImageLumaExtractor>>,
     tx: Sender<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>,
-    rec: RecordingStream,
+    rec: Option<RecordingStream>,
     processed_frame_buffer: Vec<GrayImage>,
     median: Option<Arc<dyn ImageLumaExtractor>>,
     current_frame_index: usize,
@@ -43,7 +43,7 @@ pub struct PointExtractorConsumer {
 }
 
 impl PointExtractorConsumer {
-    pub fn new(args: Arc<Args>, rec: RecordingStream) -> Self {
+    pub fn new(args: Arc<Args>, rec: Option<RecordingStream>) -> Self {
         let mask = Self::create_mask(&args);
 
         let state = ModelState::new(
@@ -56,10 +56,10 @@ impl PointExtractorConsumer {
         let (tx, rx) = channel::<(usize, ImageBuffer<Luma<u8>, Arc<[u8]>>)>();
 
         let rec_cloned = rec.clone();
-        thread::spawn(move || {
-            while let Ok((idx, frame)) = rx.recv() {
-                rec_cloned
-                    .log(
+        if let Some(rec) = rec_cloned {
+            thread::spawn(move || {
+                while let Ok((idx, frame)) = rx.recv() {
+                    rec.log(
                         "video/original",
                         &rerun::Image::from_pixel_format(
                             [1920, 1080],
@@ -68,8 +68,9 @@ impl PointExtractorConsumer {
                         ),
                     )
                     .unwrap();
-            }
-        });
+                }
+            });
+        }
 
         // Get integration power from args, default to 2 (4 frames)
         let integration_power = 3u32; //args.integration_power.unwrap_or(2);
@@ -129,8 +130,8 @@ impl PointExtractorConsumer {
         //       using the median of the points as the block median
         let img_median: GrayImage = median_filter(&img, 30, 30);
         debug!("created median");
-        self.rec
-            .log(
+        if let Some(ref rec) = &self.rec {
+            rec.log(
                 "video/median",
                 &rerun::Image::from_pixel_format(
                     [1920, 1080],
@@ -139,6 +140,7 @@ impl PointExtractorConsumer {
                 ),
             )
             .unwrap();
+        }
 
         // TODO: consider refactoring to subbing median from
         //       original in same step as creating median
@@ -148,8 +150,8 @@ impl PointExtractorConsumer {
             Luma([(p[0]).saturating_sub(q[0])])
         });
         debug!("subtracted median");
-        self.rec
-            .log(
+        if let Some(ref rec) = &self.rec {
+            rec.log(
                 "video/subbed",
                 &rerun::Image::from_pixel_format(
                     [1920, 1080],
@@ -158,6 +160,7 @@ impl PointExtractorConsumer {
                 ),
             )
             .unwrap();
+        }
 
         self.median = Some(Arc::new(Img(img_median)));
 
@@ -196,8 +199,8 @@ impl PointExtractorConsumer {
         if self.frames_written >= self.integration_frames {
             let integrated_frame = self.get_integrated_frame();
 
-            self.rec
-                .log(
+            if let Some(ref rec) = &self.rec {
+                rec.log(
                     "video/integrated",
                     &rerun::Image::from_pixel_format(
                         [1920, 1080],
@@ -206,6 +209,7 @@ impl PointExtractorConsumer {
                     ),
                 )
                 .unwrap();
+            }
 
             let arc_img_integrated = Arc::new(Img(integrated_frame));
 

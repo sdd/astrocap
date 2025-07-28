@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use az::{Az, Cast};
@@ -25,7 +24,7 @@ where
 {
     fn detect(
         img: Arc<dyn ImageLumaExtractor>,
-        median: Option<Arc<dyn ImageLumaExtractor>>, // Must be Option<Arc<...>>
+        _median: Option<Arc<dyn ImageLumaExtractor>>, // Must be Option<Arc<...>>
         mask: Option<Arc<dyn ImageLumaExtractor>>,
     ) -> Vec<DetectedPoint<F>> {
         let mut points: Vec<DetectedPoint<F>> = vec![];

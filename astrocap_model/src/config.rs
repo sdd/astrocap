@@ -9,6 +9,7 @@ pub struct ModelConfig<F> {
 
     pub star_candidate_strong_match_bonus: F,
     pub star_candidate_strong_match_threshold: F,
+    pub star_candidate_long_term_match_threshold: F,
 
     pub star_candidate_unmatched_penalty: F,
     pub amplitude_penalty_threshold: F,
@@ -30,6 +31,7 @@ where
 
             star_candidate_strong_match_bonus: 20f64.az::<F>(),
             star_candidate_strong_match_threshold: 5.0f64.az::<F>(),
+            star_candidate_long_term_match_threshold: 1000.0f64.az::<F>(),
 
             // star_candidate_unmatched_penalty: 2.5f64.az::<F>(),
             star_candidate_unmatched_penalty: 5f64.az::<F>(),

@@ -1,5 +1,4 @@
 #![feature(slice_pattern)]
-#![feature(slice_take)]
 
 pub mod config;
 pub mod point_detect_adaptive_centroid;

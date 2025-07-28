@@ -58,7 +58,7 @@ fn app_main() -> Result<()> {
 
     let cons_thread_args = shared_args.clone();
     let cons_thread = thread::spawn(move || {
-        let mut consumer = PointExtractorConsumer::new(cons_thread_args, rec);
+        let mut consumer = PointExtractorConsumer::new(cons_thread_args, Some(rec));
         consumer.consume_frames_to_extracted_point_stream(cons)
     });
 

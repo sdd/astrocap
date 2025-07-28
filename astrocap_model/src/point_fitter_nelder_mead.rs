@@ -12,7 +12,6 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use crate::state::point_handling::FittedPointQuality;
-use serde::Serialize;
 
 const INITIAL_GAUSSIAN_ALPHA: f64 = 1.0; // was 2.5;
 const MAX_ITERATIONS: u64 = 100;

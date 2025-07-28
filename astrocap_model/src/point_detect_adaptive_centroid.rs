@@ -3,11 +3,11 @@ use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector};
 use az::{Az, Cast};
 use std::sync::Arc;
 
-const BASE_THRESHOLD: u8 = 40; // Base threshold for dark regions
+const BASE_THRESHOLD: u8 = 20; // Base threshold for dark regions
 const DARK_THRESHOLD: u8 = 90; // Median value that we consider "dark"
 const BRIGHT_THRESHOLD: u8 = 140; // Median value that we consider "bright"
-const DARK_AREA_THRESHOLD: u8 = 50; // Higher threshold in dark areas (more noise)
-const BRIGHT_AREA_THRESHOLD: u8 = 35; // Lower threshold in bright areas (better SNR)
+const DARK_AREA_THRESHOLD: u8 = 30; // Higher threshold in dark areas (more noise)
+const BRIGHT_AREA_THRESHOLD: u8 = 20; // Lower threshold in bright areas (better SNR)
 
 const MIN_SEPARATION: f64 = 20.0;
 const CENTROID_WINDOW: i32 = 5; // Window size for centroid calculation

@@ -67,7 +67,7 @@ where
         ArgminMul<F, ArrayBase<OwnedRepr<F>, Dim<[usize; 1]>>>,
 {
     pub(crate) fn update_moving_targets(&mut self) {
-        let Some(curr_frame_state) = self.recent_frame_states.last() else {
+        let Some(curr_frame_state) = self.historical_frame_states.last() else {
             warn!("no frame state to update moving targets");
             return;
         };
@@ -125,12 +125,12 @@ where
     }
 
     pub(crate) fn detect_moving_targets(&mut self) {
-        let Some(curr_frame_state) = self.recent_frame_states.last() else {
+        let Some(curr_frame_state) = self.historical_frame_states.last() else {
             warn!("not enough frame states to detect moving targets");
             return;
         };
 
-        let Some(prev_frame_state) = self.recent_frame_states.iter().rev().nth(1) else {
+        let Some(prev_frame_state) = self.historical_frame_states.iter().rev().nth(1) else {
             warn!("not enough prev frame states to detect moving targets");
             return;
         };
@@ -202,7 +202,7 @@ where
 
                 for lookback_frame_index in 2..MOVING_ITEM_LOOKBACK_WINDOW {
                     let Some(frame_state) = self
-                        .recent_frame_states
+                        .historical_frame_states
                         .iter()
                         .rev()
                         .nth(lookback_frame_index)
