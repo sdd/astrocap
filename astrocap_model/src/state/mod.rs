@@ -1,6 +1,7 @@
 pub mod moving_targets;
 pub mod point_handling;
 // pub mod solution_handling;
+mod rolling_quantile;
 pub mod streaks;
 
 pub use moving_targets::MovingTarget;

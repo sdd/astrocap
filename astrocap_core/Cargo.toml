@@ -6,19 +6,23 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 derive_more = "0.99.17"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+inventory = "0.3"
 itertools = "0.12"
 lazy_static = "1"
 nonmax = { version = "0.5", features = ["serde"] }
 num-traits = "0.2"
 ordered-float = "4"
+paste = "1"
 rusttype = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.9"
 tracing = "0.1"
+dashmap = "7.0.0-rc2"
 
 [dev-dependencies]
 imageproc = "0.23"
-image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 
 [lib]
 name = "astrocap_core"

@@ -5,6 +5,7 @@ members = [
     #    "opencv_load_from_file",
     "read_mkv_metadata",
     "astrocap_core",
+    "astrocap_source_gstreamer",
 ]
 resolver = "2"
 
