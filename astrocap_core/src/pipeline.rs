@@ -1,4 +1,4 @@
-use crate::{FrameProcessor, FrameSink, FrameSource, StageFactory};
+use crate::{Error, FrameProcessor, FrameSink, FrameSource, StageFactory};
 use dashmap::DashMap;
 use serde::Deserialize;
 use std::any::Any;
@@ -144,9 +144,9 @@ macro_rules! _register_astrocap_stage_impl {
             struct [<$stage_type Factory>];
 
             impl $crate::StageFactory for [<$stage_type Factory>] {
-                fn create(&self, params: Option<&toml::Value>) -> Box<dyn std::any::Any> {
-                    let instance = <$stage_type>::new(params);
-                    Box::new(Box::new(instance) as Box<dyn $crate::$trait_name>) as Box<dyn std::any::Any>
+                fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn std::any::Any>, $crate::Error> {
+                    let instance = <$stage_type>::new(params)?;
+                    Ok(Box::new(Box::new(instance) as Box<dyn $crate::$trait_name>) as Box<dyn std::any::Any>)
                 }
 
                 fn stage_type(&self) -> &'static str {
@@ -190,11 +190,14 @@ macro_rules! register_astrocap_frame_sink {
     };
 }
 
-pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
+pub fn build_pipeline(config: &PipelineConfig) -> Result<Pipeline, Error> {
     tracing::trace!(?config, "Building pipeline");
 
     // Create specific factory functions for each trait type
-    fn find_source_factory(type_name: &str, params: Option<&Value>) -> FrameSourceWrapper {
+    fn find_source_factory(
+        type_name: &str,
+        params: Option<&Value>,
+    ) -> Result<FrameSourceWrapper, Error> {
         for factory in inventory::iter::<&dyn StageFactory>() {
             tracing::trace!("checking factory: {:?}", factory.stage_type());
             if factory.stage_type() == type_name {
@@ -203,7 +206,7 @@ pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
                     type_name,
                     &params
                 );
-                let any_box = factory.create(params);
+                let any_box = factory.create(params)?;
 
                 // Try to downcast to Box<dyn FrameSource>
                 let inner = any_box.downcast::<Box<dyn FrameSource>>()
@@ -212,7 +215,7 @@ pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
                         panic!("Factory for '{}' returned incompatible type. Expected Box<dyn FrameSource> but got something else.", type_name);
                     });
 
-                return FrameSourceWrapper::new(inner, factory.stage_type());
+                return Ok(FrameSourceWrapper::new(inner, factory.stage_type()));
             }
         }
         panic!("Unknown source type: {}", type_name)
@@ -221,10 +224,10 @@ pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
     fn find_processor_factory(
         type_name: &str,
         params: Option<&toml::Value>,
-    ) -> FrameProcessorWrapper {
+    ) -> Result<FrameProcessorWrapper, Error> {
         for factory in inventory::iter::<&dyn StageFactory>() {
             if factory.stage_type() == type_name {
-                let any_box = factory.create(params);
+                let any_box = factory.create(params)?;
 
                 let inner = any_box.downcast::<Box<dyn FrameProcessor>>()
                     .map(|boxed| *boxed)
@@ -232,16 +235,19 @@ pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
                         panic!("Factory for '{}' returned incompatible type. Expected Box<dyn FrameProcessor> but got something else.", type_name);
                     });
 
-                return FrameProcessorWrapper::new(inner, factory.stage_type());
+                return Ok(FrameProcessorWrapper::new(inner, factory.stage_type()));
             }
         }
         panic!("Unknown processor type: {}", type_name)
     }
 
-    fn find_sink_factory(type_name: &str, params: Option<&toml::Value>) -> FrameSinkWrapper {
+    fn find_sink_factory(
+        type_name: &str,
+        params: Option<&toml::Value>,
+    ) -> Result<FrameSinkWrapper, Error> {
         for factory in inventory::iter::<&dyn StageFactory>() {
             if factory.stage_type() == type_name {
-                let any_box = factory.create(params);
+                let any_box = factory.create(params)?;
 
                 let inner = any_box.downcast::<Box<dyn FrameSink>>()
                     .map(|boxed| *boxed)
@@ -249,7 +255,7 @@ pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
                         panic!("Factory for '{}' returned incompatible type. Expected Box<dyn FrameSink> but got something else.", type_name);
                     });
 
-                return FrameSinkWrapper::new(inner, factory.stage_type());
+                return Ok(FrameSinkWrapper::new(inner, factory.stage_type()));
             }
         }
         panic!("Unknown sink type: {}", type_name)
@@ -259,22 +265,22 @@ pub fn build_pipeline(config: &PipelineConfig) -> Pipeline {
         stage_type = ?&config.source.stage_type,
         "trying to create source",
     );
-    let source = find_source_factory(&config.source.stage_type, config.source.params.as_ref());
-    let sink = find_sink_factory(&config.sink.stage_type, config.sink.params.as_ref());
+    let source = find_source_factory(&config.source.stage_type, config.source.params.as_ref())?;
+    let sink = find_sink_factory(&config.sink.stage_type, config.sink.params.as_ref())?;
 
     let mut stages: Vec<FrameProcessorWrapper> = Vec::new();
     for stage in &config.stages {
         stages.push(find_processor_factory(
             &stage.stage_type,
             stage.params.as_ref(),
-        ));
+        )?);
     }
 
-    Pipeline {
+    Ok(Pipeline {
         source,
         stages,
         sink,
-    }
+    })
 }
 
 pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -> PipelineContext {

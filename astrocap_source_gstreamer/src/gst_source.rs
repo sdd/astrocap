@@ -11,12 +11,34 @@ use gst::{Message, MessageView};
 use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext, FrameSource};
 use bytes::Bytes;
 use image::ImageBuffer;
+use thiserror::Error;
 
 use crate::config::*;
 use crate::frame_buffer::*;
 use crate::gst_pipeline::*;
 
 const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
+
+#[derive(Error, Debug)]
+pub enum GstSourceError {
+    #[error("Config error: {0}")]
+    ConfigError(String),
+
+    #[error("GStreamer init error: {0}")]
+    GstInitError(#[from] gst::glib::Error),
+
+    #[error("GStreamer state change error: {0}")]
+    GstStateChangeError(#[from] gst::StateChangeError),
+
+    #[error("Bus error")]
+    BusError,
+}
+
+impl From<GstSourceError> for astrocap_core::Error {
+    fn from(err: GstSourceError) -> Self {
+        astrocap_core::Error::PluginError(format!("{:?}", err))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -56,13 +78,16 @@ pub struct GstSource {
 }
 
 impl GstSource {
-    // TODO: return Result<Self>
-    pub fn new(params: Option<&toml::Value>) -> Self {
+    pub fn new(params: Option<&toml::Value>) -> Result<Self, GstSourceError> {
         let Some(params) = params else {
-            panic!("No parameters provided");
+            return Err(GstSourceError::ConfigError(
+                "No config provided".to_string(),
+            ));
         };
 
-        let config: Config = params.try_into().unwrap();
+        let config: Config = params
+            .try_into()
+            .map_err(|e| GstSourceError::ConfigError(format!("Failed to parse config: {}", e)))?;
 
         let frame_info = FrameInfo {
             width: 1920,
@@ -75,7 +100,7 @@ impl GstSource {
         let live_mode = config.input.is_live_mode();
         let ring_buffer = Arc::new(FrameBuffer::with_spill_mode(frame_info, 10, live_mode));
 
-        gst::init().unwrap();
+        gst::init()?;
 
         let pipeline = match &config.input {
             InputConfig::File { path, .. } => build_file_pipeline(path, ring_buffer.clone()),
@@ -95,13 +120,13 @@ impl GstSource {
             );
         }
 
-        Self {
+        Ok(Self {
             config,
             ring_buffer,
             pipeline,
             producer_handle: Arc::new(Mutex::new(None)),
             play_state,
-        }
+        })
     }
 
     fn start_flow_control_thread(
@@ -172,7 +197,7 @@ impl GstSource {
         PlayState::from(self.play_state.load(Ordering::SeqCst))
     }
 
-    fn start_producer_thread(&self) {
+    fn start_producer_thread(&self) -> Result<(), GstSourceError> {
         if self
             .play_state
             .compare_exchange(
@@ -186,28 +211,43 @@ impl GstSource {
             let play_state = self.play_state.clone();
             let pipeline = self.pipeline.clone();
             let handle = thread::spawn(move || {
-                Self::run_pipeline(pipeline.clone(), play_state);
+                if let Err(err) = Self::run_pipeline(pipeline.clone(), play_state) {
+                    tracing::error!(?err, "gst pipeline error");
+                }
             });
 
-            *self.producer_handle.lock().unwrap() = Some(handle);
-        }
+            *self
+                .producer_handle
+                .lock()
+                .expect("producer_handle lock failed") = Some(handle);
+        };
+
+        Ok(())
     }
 
-    fn run_pipeline(pipeline: Arc<gst::Pipeline>, play_state: Arc<AtomicU8>) {
-        pipeline.set_state(gst::State::Playing).unwrap();
+    fn run_pipeline(
+        pipeline: Arc<gst::Pipeline>,
+        play_state: Arc<AtomicU8>,
+    ) -> Result<(), GstSourceError> {
+        pipeline.set_state(gst::State::Playing)?;
 
-        Self::process_gst_messages(pipeline.as_ref(), play_state.clone());
+        let result = Self::process_gst_messages(pipeline.as_ref(), play_state.clone());
 
         play_state.store(PlayState::Stopped as u8, Ordering::SeqCst);
 
         // perform clean gst shutdown
-        let _ = pipeline.set_state(gst::State::Null);
+        pipeline.set_state(gst::State::Null)?;
+
+        result
     }
 
-    fn process_gst_messages(pipeline: &gst::Pipeline, play_state: Arc<AtomicU8>) {
+    fn process_gst_messages(
+        pipeline: &gst::Pipeline,
+        play_state: Arc<AtomicU8>,
+    ) -> Result<(), GstSourceError> {
         tracing::trace!("Starting gst msg processing loop");
 
-        let bus = pipeline.bus().unwrap();
+        let bus = pipeline.bus().ok_or(GstSourceError::BusError)?;
         loop {
             match bus.timed_pop(gst::ClockTime::from_mseconds(50)) {
                 Some(msg) => match msg.view() {
@@ -236,6 +276,8 @@ impl GstSource {
                 }
             }
         }
+
+        Ok(())
     }
 
     fn create_frame_ctx(

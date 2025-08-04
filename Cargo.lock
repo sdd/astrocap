@@ -581,6 +581,7 @@ dependencies = [
  "rusttype",
  "serde",
  "serde_json",
+ "thiserror 2.0.12",
  "toml 0.9.3",
  "tracing",
 ]
@@ -629,6 +630,7 @@ dependencies = [
  "rtrb",
  "serde",
  "test-log",
+ "thiserror 2.0.12",
  "toml 0.9.3",
  "tracing",
 ]

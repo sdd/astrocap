@@ -1,5 +1,5 @@
 use crate::pipeline::PipelineContext;
-use crate::{register_astrocap_frame_processor, FrameContext, FrameProcessor};
+use crate::{register_astrocap_frame_processor, Error, FrameContext, FrameProcessor};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use toml::Value;
@@ -9,15 +9,15 @@ pub struct DummyProcessor {
 }
 
 impl DummyProcessor {
-    pub fn new(config: Option<&Value>) -> Self {
+    pub fn new(config: Option<&Value>) -> Result<Self, Error> {
         let processing_delay_ms = config
             .and_then(|c| c.get("processing_delay_ms"))
             .and_then(|d| d.as_integer())
             .map(|d| d as u64);
 
-        Self {
+        Ok(Self {
             processing_delay_ms,
-        }
+        })
     }
 }
 

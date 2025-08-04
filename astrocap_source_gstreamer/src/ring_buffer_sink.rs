@@ -12,7 +12,7 @@ glib::wrapper! {
     ///
     /// Registers within GStreamer under the name "ringbuffersink".
     /// Used as the last element in the gstreamer pipeline. Transfers frames coming
-    /// from GStreamer into the Astrocap pipeline via tha Astrocap GstSource plugin.
+    /// from GStreamer into the Astrocap pipeline via the Astrocap GstSource plugin.
     pub(crate) struct RingBufferSink(ObjectSubclass<imp::RingBufferSink>) @extends gst_base::BaseSink, gst::Element, gst::Object;
 }
 

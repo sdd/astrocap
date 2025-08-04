@@ -48,7 +48,7 @@ stage_type = "astrocap_core::DummySink"
     let config: PipelineConfig =
         toml::from_str(toml_config).expect("Failed to parse TOML configuration");
 
-    let pipeline = build_pipeline(&config);
+    let pipeline = build_pipeline(&config).unwrap();
 
     assert_eq!(
         format!("{:?}", pipeline),
@@ -75,7 +75,7 @@ stage_type = "astrocap_core::DummySink"
         toml::from_str(toml_config).expect("Failed to parse TOML configuration");
 
     // Build the pipeline
-    let pipeline = build_pipeline(&config);
+    let pipeline = build_pipeline(&config).unwrap();
 
     // Create pipeline context
     let pipeline_context = PipelineContext::new();
@@ -144,7 +144,7 @@ stage_type = "astrocap_core::DummySink"
     let config: PipelineConfig =
         toml::from_str(toml_config).expect("Failed to parse TOML configuration");
 
-    let pipeline = build_pipeline(&config);
+    let pipeline = build_pipeline(&config).unwrap();
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline

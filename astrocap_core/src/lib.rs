@@ -4,8 +4,11 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod error;
 pub mod pipeline;
 pub mod stages;
+
+pub use error::Error;
 
 // needed for the exported macros to work without the consuming crate having to import them
 pub use inventory;
@@ -48,6 +51,6 @@ pub trait FrameSink: Send + Sync {
 }
 
 pub trait StageFactory: Send + Sync {
-    fn create(&self, params: Option<&toml::Value>) -> Box<dyn Any>;
+    fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn Any>, Error>;
     fn stage_type(&self) -> &'static str;
 }
