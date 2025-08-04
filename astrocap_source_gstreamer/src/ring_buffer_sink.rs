@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use gst::glib;
-use gst::prelude::*;
 use gst::subclass::prelude::*;
 use gst_base::subclass::prelude::*;
 use once_cell::sync::Lazy;
@@ -107,13 +106,4 @@ mod imp {
             self.render(buffer)
         }
     }
-}
-
-pub fn register() -> Result<(), glib::BoolError> {
-    gst::Element::register(
-        None,
-        "ringbuffersink",
-        gst::Rank::None,
-        RingBufferSink::static_type(),
-    )
 }
