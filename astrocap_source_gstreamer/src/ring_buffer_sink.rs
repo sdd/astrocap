@@ -7,17 +7,21 @@ use once_cell::sync::Lazy;
 
 use crate::frame_buffer::FrameBuffer;
 
-// Custom GObject wrapper
 glib::wrapper! {
-    pub struct RingBufferSink(ObjectSubclass<imp::RingBufferSink>) @extends gst_base::BaseSink, gst::Element, gst::Object;
+    /// Astrocap custom GStreamer sink element.
+    ///
+    /// Registers within GStreamer under the name "ringbuffersink".
+    /// Used as the last element in the gstreamer pipeline. Transfers frames coming
+    /// from GStreamer into the Astrocap pipeline via tha Astrocap GstSource plugin.
+    pub(crate) struct RingBufferSink(ObjectSubclass<imp::RingBufferSink>) @extends gst_base::BaseSink, gst::Element, gst::Object;
 }
 
 impl RingBufferSink {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         glib::Object::builder().build()
     }
 
-    pub fn set_buffer(&self, frame_buffer: Arc<FrameBuffer>) {
+    pub(crate) fn set_buffer(&self, frame_buffer: Arc<FrameBuffer>) {
         let imp = self.imp();
         *imp.buffer.lock().unwrap() = Some(frame_buffer);
     }
@@ -27,8 +31,8 @@ mod imp {
     use super::*;
 
     #[derive(Default)]
-    pub struct RingBufferSink {
-        pub buffer: Mutex<Option<Arc<FrameBuffer>>>,
+    pub(crate) struct RingBufferSink {
+        pub(crate) buffer: Mutex<Option<Arc<FrameBuffer>>>,
     }
 
     impl RingBufferSink {
@@ -42,14 +46,12 @@ mod imp {
             let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
             let data = map.as_slice();
 
-            tracing::debug!("FrameBuffer: write_frame called");
-
-            // Try to write frame to ring buffer
+            tracing::debug!("calling write_frame");
             match ring_buffer.write_frame(data) {
                 Ok(()) => Ok(gst::FlowSuccess::Ok),
                 Err("Buffer full") => {
-                    // Pipeline should already be paused by threshold, but just in case
-                    tracing::warn!("RingBufferSink: Frame rejected due to full buffer");
+                    // Pipeline should already be paused but just in case
+                    tracing::warn!("frame rejected due to full buffer");
                     Err(gst::FlowError::Flushing) // Tell GStreamer to retry later
                 }
                 Err(_) => Err(gst::FlowError::Error),

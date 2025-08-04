@@ -93,11 +93,11 @@ stage_type = "astrocap_core::DummySink"
     println!("Pipeline execution completed successfully!");
 
     // Assert on the statistics recorded in the pipeline context
-    let frames_generated = final_context
-        .get("frames_generated")
-        .expect("frames_generated counter should exist")
+    let frames_sourced = final_context
+        .get("frames_sourced")
+        .expect("frames_sourced counter should exist")
         .downcast_ref::<AtomicUsize>()
-        .expect("frames_generated should be AtomicUsize")
+        .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
@@ -115,12 +115,12 @@ stage_type = "astrocap_core::DummySink"
         .load(Ordering::SeqCst);
 
     // Verify expected counts - dummy source generates 5 frames
-    assert_eq!(frames_generated, 5, "Expected 5 frames to be generated");
+    assert_eq!(frames_sourced, 5, "Expected 5 frames to be generated");
     assert_eq!(frames_processed, 5, "Expected 5 frames to be processed");
     assert_eq!(frames_sunk, 5, "Expected 5 frames to be sunk");
 
     println!("Statistics verification passed:");
-    println!("  Frames generated: {}", frames_generated);
+    println!("  Frames sourced: {}", frames_sourced);
     println!("  Frames processed: {}", frames_processed);
     println!("  Frames sunk: {}", frames_sunk);
 }
@@ -151,8 +151,8 @@ stage_type = "astrocap_core::DummySink"
     let final_context = run_pipeline(pipeline_context, pipeline);
 
     // With 2 processors, frames_processed should be 10 (5 frames × 2 processors)
-    let frames_generated = final_context
-        .get("frames_generated")
+    let frames_sourced = final_context
+        .get("frames_sourced")
         .unwrap()
         .downcast_ref::<AtomicUsize>()
         .unwrap()
@@ -172,7 +172,7 @@ stage_type = "astrocap_core::DummySink"
         .unwrap()
         .load(Ordering::SeqCst);
 
-    assert_eq!(frames_generated, 5, "Expected 5 frames to be generated");
+    assert_eq!(frames_sourced, 5, "Expected 5 frames to be generated");
     assert_eq!(
         frames_processed, 10,
         "Expected 10 total processing operations (5 frames × 2 processors)"
@@ -180,7 +180,7 @@ stage_type = "astrocap_core::DummySink"
     assert_eq!(frames_sunk, 5, "Expected 5 frames to be consumed");
 
     println!("Multi-processor pipeline statistics:");
-    println!("  Frames generated: {}", frames_generated);
+    println!("  Frames sourced: {}", frames_sourced);
     println!("  Frames processed: {}", frames_processed);
     println!("  Frames sunk: {}", frames_sunk);
 }

@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use std::collections::VecDeque;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -25,36 +26,36 @@ pub struct FrameBuffer {
     not_empty: Condvar,
     frame_info: FrameInfo,
     capacity: usize,
-    drop_frames: bool,
-    // Callback for when buffer state changes (full/not full)
-    state_callback: Mutex<Option<BufferStateCallback>>,
+    should_spill: bool,
+    // Channel sender for buffer occupancy level changes
+    state_sender: Mutex<Option<Sender<bool>>>,
     pause_threshold: usize,
     resume_threshold: usize,
 }
 
 impl FrameBuffer {
     pub fn new(frame_info: FrameInfo, capacity: usize) -> Self {
-        Self::with_drop_mode(frame_info, capacity, true)
+        Self::with_spill_mode(frame_info, capacity, true)
     }
 
-    pub fn with_drop_mode(frame_info: FrameInfo, capacity: usize, drop_frames: bool) -> Self {
-        let pause_threshold = (capacity as f32 * 0.6).max(1.0) as usize;
+    pub fn with_spill_mode(frame_info: FrameInfo, capacity: usize, should_spill: bool) -> Self {
+        let pause_threshold = (capacity - 3).max(1);
 
         Self {
             buffer: Mutex::new(VecDeque::with_capacity(capacity)),
             not_empty: Condvar::new(),
             frame_info,
             capacity,
-            drop_frames,
-            state_callback: Mutex::new(None),
+            should_spill,
+            state_sender: Mutex::new(None),
             pause_threshold,
             resume_threshold: 1,
         }
     }
 
-    pub fn set_state_callback(&self, callback: BufferStateCallback) {
-        let mut state_callback = self.state_callback.lock().unwrap();
-        *state_callback = Some(callback);
+    pub fn set_state_sender(&self, sender: Sender<bool>) {
+        let mut state_sender = self.state_sender.lock().unwrap();
+        *state_sender = Some(sender);
     }
 
     pub fn write_frame(&self, frame_data: &[u8]) -> Result<(), &'static str> {
@@ -65,7 +66,7 @@ impl FrameBuffer {
         let mut buffer = self.buffer.lock().unwrap();
         let buffer_len = buffer.len();
 
-        if self.drop_frames {
+        if self.should_spill {
             // drop frame if full.
             // TODO: re-use frame to avoid allocation
             if buffer_len == self.capacity {
@@ -74,25 +75,24 @@ impl FrameBuffer {
         } else {
             // reject frame if buffer is completely full
             if buffer_len == self.capacity {
-                tracing::warn!("FrameBuffer: Buffer completely full, rejecting frame");
+                tracing::warn!("buffer completely full, dropping a frame");
                 return Err("Buffer full");
             }
 
             // Pause pipeline when we hit the threshold (before full)
             if buffer_len == self.pause_threshold {
-                // Clone the callback before dropping locks
-                let callback_clone = {
-                    let state_callback = self.state_callback.lock().unwrap();
-                    state_callback.clone()
+                // Clone the sender before dropping locks
+                let sender_clone = {
+                    let state_sender = self.state_sender.lock().unwrap();
+                    state_sender.clone()
                 };
 
-                if let Some(callback) = callback_clone {
-                    tracing::info!(
-                        "FrameBuffer: Buffer reached pause threshold ({}), pausing pipeline",
-                        buffer_len
-                    );
+                if let Some(sender) = sender_clone {
+                    tracing::info!(%buffer_len, "buffer reached upper capacity threshold");
                     drop(buffer); // Release buffer lock
-                    callback(true); // true = pause pipeline
+                    if let Err(_) = sender.send(true) {
+                        tracing::warn!("Failed to send message");
+                    }
                     buffer = self.buffer.lock().unwrap(); // Re-acquire buffer lock
                 }
             }
@@ -108,7 +108,7 @@ impl FrameBuffer {
         Ok(())
     }
 
-    pub fn read_frame_blocking(&self, timeout: Duration) -> Option<Bytes> {
+    pub fn read_frame(&self, timeout: Duration) -> Option<Bytes> {
         let mut buffer = self.buffer.lock().unwrap();
 
         while buffer.is_empty() {
@@ -125,26 +125,26 @@ impl FrameBuffer {
         let frame = buffer.pop_front();
         let new_buffer_len = buffer_len - 1;
 
-        // Release buffer lock before callback
         drop(buffer);
 
-        // Resume pipeline when buffer drops to resume threshold
-        if !self.drop_frames
+        if !self.should_spill
             && frame.is_some()
             && buffer_len > self.resume_threshold
             && new_buffer_len <= self.resume_threshold
         {
-            let callback_clone = {
-                let state_callback = self.state_callback.lock().unwrap();
-                state_callback.clone()
+            let sender_clone = {
+                let state_sender = self.state_sender.lock().unwrap();
+                state_sender.clone()
             };
 
-            if let Some(callback) = callback_clone {
+            if let Some(sender) = sender_clone {
                 tracing::info!(
-                    "FrameBuffer: Buffer reached resume threshold ({}), resuming pipeline",
-                    new_buffer_len
+                    buffer_len = %new_buffer_len,
+                    "buffer reached lower occupancy threshold",
                 );
-                callback(false); // false = resume pipeline
+                if let Err(_) = sender.send(false) {
+                    tracing::warn!("failed to send message");
+                }
             }
         }
 
@@ -159,25 +159,26 @@ impl FrameBuffer {
         if let Some(_) = frame {
             let new_buffer_len = buffer_len - 1;
 
-            // Release buffer lock before callback
+            // Release buffer lock before sending message
             drop(buffer);
 
-            // Resume pipeline when buffer drops to resume threshold
-            if !self.drop_frames
+            if !self.should_spill
                 && buffer_len > self.resume_threshold
                 && new_buffer_len <= self.resume_threshold
             {
-                let callback_clone = {
-                    let state_callback = self.state_callback.lock().unwrap();
-                    state_callback.clone()
+                let sender_clone = {
+                    let state_sender = self.state_sender.lock().unwrap();
+                    state_sender.clone()
                 };
 
-                if let Some(callback) = callback_clone {
+                if let Some(sender) = sender_clone {
                     tracing::info!(
-                        "FrameBuffer: Buffer reached resume threshold ({}), resuming pipeline",
-                        new_buffer_len
+                        buffer_len = %new_buffer_len,
+                        "buffer reached lower capacity threshold",
                     );
-                    callback(false); // false = resume pipeline
+                    if let Err(_) = sender.send(false) {
+                        tracing::warn!("failed to send message");
+                    }
                 }
             }
         } else {

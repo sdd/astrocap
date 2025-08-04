@@ -1,13 +1,22 @@
-use crate::config::{Config, InputConfig};
-use crate::frame_buffer::{BufferStateCallback, FrameBuffer, FrameInfo};
-use crate::gst_pipeline::{build_file_pipeline, build_rtsp_client_pipeline};
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::{Frame, FrameContext, FrameSource};
-use gst::prelude::{ElementExt, ElementExtManual};
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU8, AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 use std::thread;
 use std::time::Duration;
+
+use gst::prelude::{ElementExt, ElementExtManual};
+use gst::{Message, MessageView};
+
+use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext, FrameSource};
+use bytes::Bytes;
+use image::ImageBuffer;
+
+use crate::config::*;
+use crate::frame_buffer::*;
+use crate::gst_pipeline::*;
+
+const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -15,6 +24,7 @@ enum PlayState {
     Initializing = 0,
     Playing = 1,
     Stopped = 2,
+    Eos = 3,
 }
 
 impl From<u8> for PlayState {
@@ -23,21 +33,30 @@ impl From<u8> for PlayState {
             0 => PlayState::Initializing,
             1 => PlayState::Playing,
             2 => PlayState::Stopped,
+            3 => PlayState::Eos,
             _ => PlayState::Initializing, // Default fallback
         }
     }
 }
 
+/// Astrocap GstSource pipeline plugin.
+///
+/// Acts as a source of frames rendered via GStreamer.
+/// Ultimately provides frames from either an RTSP stream
+/// or from a file. When sourcing frames from a file,
+/// pseudo_live flag can be set to mimic the frame dropping
+/// that happens when using RTSP to process a live feed.
 pub struct GstSource {
     #[allow(unused)]
     config: Config,
     ring_buffer: Arc<FrameBuffer>,
-    pipeline: Arc<Mutex<Option<gst::Pipeline>>>,
+    pipeline: Arc<gst::Pipeline>,
     producer_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     play_state: Arc<AtomicU8>, // Store as u8 for atomic operations
 }
 
 impl GstSource {
+    // TODO: return Result<Self>
     pub fn new(params: Option<&toml::Value>) -> Self {
         let Some(params) = params else {
             panic!("No parameters provided");
@@ -45,7 +64,6 @@ impl GstSource {
 
         let config: Config = params.try_into().unwrap();
 
-        // Create the ring buffer with appropriate mode
         let frame_info = FrameInfo {
             width: 1920,
             height: 1080,
@@ -54,114 +72,99 @@ impl GstSource {
             frame_size: 1920 * 1080,
         };
 
-        // Use drop_frames=false for non-live mode to enable back-pressure
-        let drop_frames = config.input.is_live_mode();
-        let ring_buffer = Arc::new(FrameBuffer::with_drop_mode(frame_info, 10, drop_frames));
+        let live_mode = config.input.is_live_mode();
+        let ring_buffer = Arc::new(FrameBuffer::with_spill_mode(frame_info, 10, live_mode));
 
         gst::init().unwrap();
 
-        // Build the pipeline but don't start it yet
         let pipeline = match &config.input {
             InputConfig::File { path, .. } => build_file_pipeline(path, ring_buffer.clone()),
             InputConfig::Rtsp { uri } => build_rtsp_client_pipeline(uri, ring_buffer.clone()),
         }
         .expect("Failed to build pipeline");
 
-        // Store pipeline in Arc so both the main struct and callback can access it
-        let pipeline_for_callback = Arc::new(pipeline.clone());
-        let pipeline_arc = Arc::new(Mutex::new(Some(pipeline)));
+        let play_state = Arc::new(AtomicU8::new(PlayState::Initializing as u8));
 
-        // Set up pipeline state callback for non-live mode AFTER we have the pipeline
-        if !drop_frames {
-            let callback: BufferStateCallback = Arc::new(move |is_full| {
-                tracing::info!("Pipeline callback triggered: is_full={}", is_full);
+        let pipeline = Arc::new(pipeline);
 
-                let pipeline_clone = pipeline_for_callback.clone();
-
-                // Spawn state change in a separate thread to avoid blocking
-                thread::spawn(move || {
-                    if is_full {
-                        tracing::info!("About to pause pipeline due to full buffer");
-                        match pipeline_clone.set_state(gst::State::Paused) {
-                            Ok(gst::StateChangeSuccess::Success) => {
-                                tracing::info!("Pipeline paused successfully (synchronous)");
-                            }
-                            Ok(gst::StateChangeSuccess::Async) => {
-                                tracing::info!("Pipeline pause in progress (asynchronous)");
-                                // For async state changes, wait for completion
-                                let (result, current, pending) =
-                                    pipeline_clone.state(Some(gst::ClockTime::from_seconds(1)));
-                                match result {
-                                    Ok(_) => {
-                                        if current == gst::State::Paused {
-                                            tracing::info!("Pipeline pause completed");
-                                        } else {
-                                            tracing::warn!("Pipeline pause incomplete, current state: {:?}, pending: {:?}", current, pending);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Error waiting for pipeline pause: {:?}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                            Ok(gst::StateChangeSuccess::NoPreroll) => {
-                                tracing::info!("Pipeline paused (no preroll)");
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to pause pipeline: {:?}", e);
-                            }
-                        }
-                    } else {
-                        tracing::info!("About to resume pipeline, buffer has space");
-                        match pipeline_clone.set_state(gst::State::Playing) {
-                            Ok(gst::StateChangeSuccess::Success) => {
-                                tracing::info!("Pipeline resumed successfully (synchronous)");
-                            }
-                            Ok(gst::StateChangeSuccess::Async) => {
-                                tracing::info!("Pipeline resume in progress (asynchronous)");
-                                // For async state changes, wait for completion
-                                let (result, current, pending) =
-                                    pipeline_clone.state(Some(gst::ClockTime::from_seconds(1)));
-                                match result {
-                                    Ok(_) => {
-                                        if current == gst::State::Playing {
-                                            tracing::info!("Pipeline resume completed");
-                                        } else {
-                                            tracing::warn!("Pipeline resume incomplete, current state: {:?}, pending: {:?}", current, pending);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Error waiting for pipeline resume: {:?}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                            Ok(gst::StateChangeSuccess::NoPreroll) => {
-                                tracing::info!("Pipeline resumed (no preroll)");
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to resume pipeline: {:?}", e);
-                            }
-                        }
-                    }
-                });
-            });
-
-            tracing::info!("Setting state callback on ring buffer");
-            ring_buffer.set_state_callback(callback);
+        if !live_mode {
+            Self::start_flow_control_thread(
+                pipeline.clone(),
+                ring_buffer.clone(),
+                play_state.clone(),
+            );
         }
 
         Self {
             config,
             ring_buffer,
-            pipeline: pipeline_arc,
+            pipeline,
             producer_handle: Arc::new(Mutex::new(None)),
-            play_state: Arc::new(AtomicU8::new(PlayState::Initializing as u8)),
+            play_state,
+        }
+    }
+
+    fn start_flow_control_thread(
+        pipeline: Arc<gst::Pipeline>,
+        ring_buffer: Arc<FrameBuffer>,
+        play_state: Arc<AtomicU8>,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+
+        thread::spawn(move || {
+            while let Ok(is_full) = rx.recv() {
+                Self::handle_buffer_occupancy_events(pipeline.clone(), is_full, play_state.clone());
+            }
+        });
+
+        ring_buffer.set_state_sender(tx);
+    }
+
+    fn handle_buffer_occupancy_events(
+        pipeline: Arc<gst::Pipeline>,
+        is_full: bool,
+        play_state: Arc<AtomicU8>,
+    ) {
+        let (new_state, action_verb) = if is_full {
+            (gst::State::Paused, "pause")
+        } else {
+            if PlayState::from(play_state.load(Ordering::SeqCst)) != PlayState::Playing {
+                return;
+            }
+            (gst::State::Playing, "play")
+        };
+
+        tracing::info!("attempting gst pipeline {action_verb}");
+        let state_change_result = pipeline.set_state(new_state);
+
+        match state_change_result {
+            Ok(gst::StateChangeSuccess::Success) | Ok(gst::StateChangeSuccess::NoPreroll) => {
+                tracing::info!("gst pipeline {action_verb} succeeded");
+            }
+            Ok(gst::StateChangeSuccess::Async) => {
+                tracing::info!("gst pipeline {action_verb} in progress");
+                let (result, current, pending) =
+                    pipeline.state(Some(gst::ClockTime::from_seconds(1)));
+                match result {
+                    Ok(_) => {
+                        if current == gst::State::Paused {
+                            tracing::info!("gst pipeline {action_verb} succeeded");
+                        } else {
+                            tracing::warn!(
+                                ?current,
+                                ?pending,
+                                "gst pipeline {action_verb} initiation incomplete"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(?e, "gst pipeline {action_verb} initiation error");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(?error, "gst pipeline {action_verb} failed");
+            }
         }
     }
 
@@ -180,102 +183,49 @@ impl GstSource {
             )
             .is_ok()
         {
-            let pipeline = self
-                .pipeline
-                .lock()
-                .unwrap()
-                .take()
-                .expect("Pipeline should be available");
-
             let play_state = self.play_state.clone();
-
+            let pipeline = self.pipeline.clone();
             let handle = thread::spawn(move || {
-                Self::run_pipeline(pipeline, play_state);
+                Self::run_pipeline(pipeline.clone(), play_state);
             });
 
             *self.producer_handle.lock().unwrap() = Some(handle);
         }
     }
 
-    fn run_pipeline(pipeline: gst::Pipeline, play_state: Arc<AtomicU8>) {
+    fn run_pipeline(pipeline: Arc<gst::Pipeline>, play_state: Arc<AtomicU8>) {
         pipeline.set_state(gst::State::Playing).unwrap();
 
-        let pipeline = Self::start_gst_playback_loop(pipeline);
+        Self::process_gst_messages(pipeline.as_ref(), play_state.clone());
 
         play_state.store(PlayState::Stopped as u8, Ordering::SeqCst);
 
-        // Clean shutdown
+        // perform clean gst shutdown
         let _ = pipeline.set_state(gst::State::Null);
     }
 
-    fn start_gst_playback_loop(pipeline: gst::Pipeline) -> gst::Pipeline {
-        tracing::trace!("Starting playback loop");
+    fn process_gst_messages(pipeline: &gst::Pipeline, play_state: Arc<AtomicU8>) {
+        tracing::trace!("Starting gst msg processing loop");
 
         let bus = pipeline.bus().unwrap();
-
         loop {
-            let msg = bus.timed_pop(gst::ClockTime::from_mseconds(50));
-
-            match msg {
-                Some(msg) => {
-                    use gst::MessageView;
-                    match msg.view() {
-                        MessageView::Eos(_) => {
-                            tracing::info!("gst Eos msg received (end of stream)");
-                            break;
-                        }
-                        MessageView::Error(err) => {
-                            tracing::error!(
-                                "Pipeline error: {} - {}",
-                                err.error(),
-                                err.debug().unwrap_or_default()
-                            );
-                            break;
-                        }
-                        MessageView::StateChanged(state_changed) => {
-                            if state_changed.src().map(|s| s == &pipeline).unwrap_or(false) {
-                                tracing::debug!(
-                                    "Pipeline state changed from {:?} to {:?}",
-                                    state_changed.old(),
-                                    state_changed.current()
-                                );
-                            }
-                        }
-                        MessageView::StreamStart(_) => {
-                            tracing::debug!("Stream started");
-                        }
-
-                        MessageView::AsyncDone(_) => {
-                            tracing::trace!("gst async operation completed");
-                        }
-
-                        MessageView::Tag(tag) => {
-                            tracing::trace!("Received tag: {:?}", tag.tags());
-                        }
-
-                        MessageView::StreamStatus(status) => {
-                            tracing::trace!("Received stream status: {:?}", status);
-                        }
-
-                        MessageView::Latency(latency) => {
-                            tracing::trace!("Received Latency msg: {:?}", latency);
-                        }
-
-                        MessageView::DurationChanged(duration) => {
-                            tracing::trace!("Received DurationChanged msg: {:?}", duration);
-                        }
-
-                        MessageView::NewClock(new_clock) => {
-                            tracing::trace!("Received NewClock msg: {:?}", new_clock);
-                        }
-                        _ => {
-                            tracing::trace!("Received other message: {:?}", msg.type_());
-                        }
+            match bus.timed_pop(gst::ClockTime::from_mseconds(50)) {
+                Some(msg) => match msg.view() {
+                    MessageView::Eos(_) => {
+                        log_gst_message(msg);
+                        tracing::info!("gst Eos msg received (end of stream)");
+                        play_state.store(PlayState::Eos as u8, Ordering::SeqCst);
+                        break;
                     }
-                }
+                    MessageView::Error(_) => {
+                        log_gst_message(msg);
+                        break;
+                    }
+                    _ => log_gst_message(msg),
+                },
                 None => {
-                    // Timeout polling for GST message from bus.
-                    // check if the pipeline is still running
+                    // Timeout polling for gst message from bus.
+                    // Check if the pipeline is still running
                     let state = pipeline.current_state();
 
                     // If pipeline stopped unexpectedly, exit loop
@@ -286,81 +236,119 @@ impl GstSource {
                 }
             }
         }
-
-        pipeline
     }
 
-    fn convert_frame_data_with_counter(
+    fn create_frame_ctx(
         &self,
-        frame_data: bytes::Bytes,
+        frame_data: Bytes,
         ctx: &mut PipelineContext,
     ) -> Option<FrameContext> {
-        // Track frames generated in pipeline context
-        let counter = ctx
-            .entry("frames_generated".to_string())
-            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
-
-        // Convert bytes to ImageBuffer
         let width = 1920u32;
         let height = 1080u32;
 
-        if let Some(img_buf) = image::ImageBuffer::from_raw(width, height, frame_data.to_vec()) {
-            if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
-                atomic_counter.fetch_add(1, Ordering::SeqCst);
-            }
+        // TODO: ref rather than copy
+        if let Some(img_buf) = ImageBuffer::from_raw(width, height, frame_data.to_vec()) {
+            Self::inc_frame_counter(ctx);
 
-            tracing::trace!("Frame emitted");
-
+            tracing::trace!("Emitting frame");
             Some(FrameContext::new(Frame::ImgBuf(img_buf)))
         } else {
             tracing::warn!("Null frame emitted");
             None
         }
     }
+
+    fn inc_frame_counter(ctx: &mut PipelineContext) {
+        let counter = ctx
+            .entry("frames_sourced".to_string())
+            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
+
+        if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
+            atomic_counter.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 }
 
 impl FrameSource for GstSource {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
-        // Start the producer thread if not already started
-        self.start_producer_thread();
-
-        match self.get_play_state() {
-            PlayState::Initializing | PlayState::Playing => {
-                // Block with timeout to periodically check if pipeline has stopped
-                loop {
-                    if let Some(frame_data) = self
-                        .ring_buffer
-                        .read_frame_blocking(Duration::from_millis(250))
-                    {
-                        return self.convert_frame_data_with_counter(frame_data, ctx);
-                    }
-                    tracing::debug!("timeout or None when waiting for a frame");
-
-                    // Check if pipeline stopped while we were waiting
-                    if self.get_play_state() == PlayState::Stopped {
-                        tracing::debug!("gst pipeline stopped whilst waiting");
-                        // Try to get any remaining frames without blocking
-                        if let Some(frame_data) = self.ring_buffer.try_read_frame() {
-                            return self.convert_frame_data_with_counter(frame_data, ctx);
-                        } else {
-                            return None;
-                        }
-                    }
-                }
+        let bytes = match self.get_play_state() {
+            PlayState::Initializing => {
+                self.start_producer_thread();
+                return self.next_frame(ctx);
             }
-            PlayState::Stopped => {
-                tracing::debug!("gst pipeline stopped");
-                // Pipeline is done, try to get any remaining frames
-                if let Some(frame_data) = self.ring_buffer.try_read_frame() {
-                    self.convert_frame_data_with_counter(frame_data, ctx)
-                } else {
-                    None
+
+            PlayState::Playing => loop {
+                if let Some(bytes) = self.ring_buffer.read_frame(FRAME_BLOCKING_TIMEOUT) {
+                    break Some(bytes);
                 }
-            }
-        }
+
+                if self.get_play_state() == PlayState::Stopped {
+                    tracing::debug!("gst pipeline stopped whilst waiting");
+                    return self.next_frame(ctx);
+                }
+
+                tracing::info!("timeout waiting for a frame");
+            },
+
+            _ => self.ring_buffer.try_read_frame(),
+        };
+
+        bytes.and_then(|bytes| self.create_frame_ctx(bytes, ctx))
     }
 
     fn name(&self) -> &str {
         "gst_source"
+    }
+}
+
+fn log_gst_message(msg: Message) {
+    match msg.view() {
+        MessageView::Eos(_) => {
+            tracing::info!("gst Eos msg received (end of stream)");
+        }
+        MessageView::Error(err) => {
+            tracing::error!(
+                "Pipeline error: {} - {}",
+                err.error(),
+                err.debug().unwrap_or_default()
+            );
+        }
+        MessageView::StateChanged(state_changed) => {
+            tracing::trace!(
+                "Pipeline state changed from {:?} to {:?}",
+                state_changed.old(),
+                state_changed.current()
+            );
+        }
+        MessageView::StreamStart(_) => {
+            tracing::debug!("Stream started");
+        }
+
+        MessageView::AsyncDone(_) => {
+            tracing::trace!("gst async operation completed");
+        }
+
+        MessageView::Tag(tag) => {
+            tracing::trace!("Received tag: {:?}", tag.tags());
+        }
+
+        MessageView::StreamStatus(status) => {
+            tracing::trace!("Received stream status: {:?}", status);
+        }
+
+        MessageView::Latency(latency) => {
+            tracing::trace!("Received Latency msg: {:?}", latency);
+        }
+
+        MessageView::DurationChanged(duration) => {
+            tracing::trace!("Received DurationChanged msg: {:?}", duration);
+        }
+
+        MessageView::NewClock(new_clock) => {
+            tracing::trace!("Received NewClock msg: {:?}", new_clock);
+        }
+        _msg_view => {
+            tracing::trace!("Received other message: {:?}", msg.type_());
+        }
     }
 }

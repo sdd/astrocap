@@ -23,14 +23,14 @@ impl DummyProcessor {
 
 impl FrameProcessor for DummyProcessor {
     fn process(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) -> bool {
-        tracing::debug!(
+        tracing::trace!(
             "Processor received frame with metadata keys: {:?}",
             frame_ctx.metadata.keys().collect::<Vec<_>>()
         );
 
         // Apply processing delay if configured
         if let Some(delay_ms) = self.processing_delay_ms {
-            tracing::debug!("Applying processing delay of {} ms", delay_ms);
+            tracing::trace!("Applying processing delay of {} ms", delay_ms);
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
 

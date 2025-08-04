@@ -22,7 +22,7 @@ impl FrameSource for DummySource {
 
             // Track frames generated in pipeline context
             let counter = ctx
-                .entry("frames_generated".to_string())
+                .entry("frames_sourced".to_string())
                 .or_insert_with(|| Box::new(AtomicUsize::new(0)));
 
             if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {

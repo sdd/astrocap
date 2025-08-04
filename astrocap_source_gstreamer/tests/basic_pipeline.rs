@@ -7,6 +7,7 @@ use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, Pipe
 
 use astrocap_source_gstreamer::GstSource;
 
+// #[ignore]
 #[test]
 fn test_build_simplest_pipeline_from_toml() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -42,6 +43,7 @@ stage_type = "astrocap_core::DummySink"
     );
 }
 
+// #[ignore]
 #[test]
 fn test_run_pipeline_integration() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -87,11 +89,11 @@ stage_type = "astrocap_core::DummySink"
     println!("Pipeline execution completed successfully!");
 
     // Assert on the statistics recorded in the pipeline context
-    let frames_generated = final_context
-        .get("frames_generated")
-        .expect("frames_generated counter should exist")
+    let frames_sourced = final_context
+        .get("frames_sourced")
+        .expect("frames_sourced counter should exist")
         .downcast_ref::<AtomicUsize>()
-        .expect("frames_generated should be AtomicUsize")
+        .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
@@ -109,16 +111,17 @@ stage_type = "astrocap_core::DummySink"
         .load(Ordering::SeqCst);
 
     // Verify expected counts - gst source produces 50 frames (2 sec video)
-    assert_eq!(frames_generated, 50, "Expected 50 frames to be generated");
+    assert_eq!(frames_sourced, 50, "Expected 50 frames to be generated");
     assert_eq!(frames_processed, 50, "Expected 50 frames to be processed");
     assert_eq!(frames_sunk, 50, "Expected 50 frames to be sunk");
 
     println!("Statistics verification passed:");
-    println!("  Frames generated: {}", frames_generated);
+    println!("  Frames sourced: {}", frames_sourced);
     println!("  Frames processed: {}", frames_processed);
     println!("  Frames sunk: {}", frames_sunk);
 }
 
+// #[ignore]
 #[test]
 fn test_pseudo_live_drops_frames() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -154,8 +157,8 @@ stage_type = "astrocap_core::DummySink"
     let duration = start_time.elapsed();
 
     // Get counters
-    let frames_generated = final_context
-        .get("frames_generated")
+    let frames_sourced = final_context
+        .get("frames_sourced")
         .unwrap()
         .downcast_ref::<AtomicUsize>()
         .unwrap()
@@ -177,7 +180,7 @@ stage_type = "astrocap_core::DummySink"
 
     println!("Pseudo-live pipeline statistics:");
     println!("  Duration: {:?}", duration);
-    println!("  Frames generated: {}", frames_generated);
+    println!("  Frames sourced: {}", frames_sourced);
     println!("  Frames processed: {}", frames_processed);
     println!("  Frames sunk: {}", frames_sunk);
 
@@ -233,8 +236,8 @@ stage_type = "astrocap_core::DummySink"
     let duration = start_time.elapsed();
 
     // Get counters
-    let frames_generated = final_context
-        .get("frames_generated")
+    let frames_sourced = final_context
+        .get("frames_sourced")
         .unwrap()
         .downcast_ref::<AtomicUsize>()
         .unwrap()
@@ -256,16 +259,13 @@ stage_type = "astrocap_core::DummySink"
 
     println!("Non-live pipeline statistics:");
     println!("  Duration: {:?}", duration);
-    println!("  Frames generated: {}", frames_generated);
+    println!("  Frames sourced: {}", frames_sourced);
     println!("  Frames processed: {}", frames_processed);
     println!("  Frames sunk: {}", frames_sunk);
 
     // In non-live mode, should process all frames
     // 2s video at 25fps = 50 frames total
-    assert_eq!(
-        frames_generated, 50,
-        "Expected all 50 frames to be generated"
-    );
+    assert_eq!(frames_sourced, 50, "Expected all 50 frames to be generated");
     assert_eq!(
         frames_processed, 50,
         "Expected all 50 frames to be processed"
