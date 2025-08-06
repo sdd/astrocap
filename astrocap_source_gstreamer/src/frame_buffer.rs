@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::Sender;
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
@@ -13,6 +13,13 @@ pub struct FrameInfo {
     pub frame_size: usize,
 }
 
+/// Frame data with associated timing metadata
+#[derive(Debug, Clone)]
+pub struct FrameData {
+    pub bytes: Bytes,
+    pub timing_data: Option<HashMap<String, u64>>,
+}
+
 /// `FrameBuffer` buffers frames between stages.
 ///
 /// Fixed capacity ring buffer.
@@ -20,7 +27,7 @@ pub struct FrameInfo {
 /// pre-determined and compatible between sender and receiver.
 /// Can be configured in either blocking or frame-dropping modes.
 pub struct FrameBuffer {
-    buffer: Mutex<VecDeque<Bytes>>,
+    buffer: Mutex<VecDeque<FrameData>>,
     not_empty: Condvar,
     frame_info: FrameInfo,
     capacity: usize,
@@ -53,6 +60,14 @@ impl FrameBuffer {
     }
 
     pub fn write_frame(&self, frame_data: &[u8]) -> Result<(), &'static str> {
+        self.write_frame_with_timing(frame_data, None)
+    }
+
+    pub fn write_frame_with_timing(
+        &self,
+        frame_data: &[u8],
+        timing_data: Option<HashMap<String, u64>>,
+    ) -> Result<(), &'static str> {
         if frame_data.len() != self.frame_info.frame_size {
             return Err("Frame size mismatch");
         }
@@ -93,7 +108,11 @@ impl FrameBuffer {
         }
 
         // Add new frame at the back
-        buffer.push_back(Bytes::copy_from_slice(frame_data));
+        let frame_data = FrameData {
+            bytes: Bytes::copy_from_slice(frame_data),
+            timing_data,
+        };
+        buffer.push_back(frame_data);
 
         // Release buffer lock before notify
         drop(buffer);
@@ -102,7 +121,7 @@ impl FrameBuffer {
         Ok(())
     }
 
-    pub fn read_frame(&self, timeout: Duration) -> Option<Bytes> {
+    pub fn read_frame(&self, timeout: Duration) -> Option<FrameData> {
         let mut buffer = self.buffer.lock().unwrap();
 
         while buffer.is_empty() {
@@ -145,7 +164,7 @@ impl FrameBuffer {
         frame
     }
 
-    pub fn try_read_frame(&self) -> Option<Bytes> {
+    pub fn try_read_frame(&self) -> Option<FrameData> {
         let mut buffer = self.buffer.lock().unwrap();
         let buffer_len = buffer.len();
         let frame = buffer.pop_front();

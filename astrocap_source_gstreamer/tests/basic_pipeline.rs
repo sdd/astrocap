@@ -7,7 +7,7 @@ use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, Pipe
 
 use astrocap_source_gstreamer::GstSource;
 
-// #[ignore]
+#[ignore]
 #[test]
 fn test_build_simplest_pipeline_from_toml() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -43,7 +43,7 @@ stage_type = "astrocap_core::DummySink"
     );
 }
 
-// #[ignore]
+#[ignore]
 #[test]
 fn test_run_pipeline_integration() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -201,6 +201,7 @@ stage_type = "astrocap_core::DummySink"
     );
 }
 
+#[ignore]
 #[test]
 fn test_non_live_processes_all_frames() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

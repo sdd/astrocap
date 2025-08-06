@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU8, AtomicUsize, Ordering},
     Arc, Mutex,
@@ -295,18 +296,36 @@ impl GstSource {
 
     fn create_frame_ctx(
         &self,
-        frame_data: Bytes,
+        frame_data: FrameData,
         ctx: &mut PipelineContext,
     ) -> Option<FrameContext> {
         let width = 1920u32;
         let height = 1080u32;
 
         // TODO: ref rather than copy
-        if let Some(img_buf) = ImageBuffer::from_raw(width, height, frame_data.to_vec()) {
+        if let Some(img_buf) = ImageBuffer::from_raw(width, height, frame_data.bytes.to_vec()) {
             Self::inc_frame_counter(ctx);
 
+            let mut frame_ctx = FrameContext::new(Frame::ImgBuf(img_buf));
+
+            // Add timing data to frame context metadata if available
+            if let Some(timing_data) = frame_data.timing_data {
+                frame_ctx
+                    .metadata
+                    .insert("timing_data".to_string(), Box::new(timing_data));
+                tracing::trace!(
+                    "Added timing metadata to frame context with {} fields",
+                    frame_ctx
+                        .metadata
+                        .get("timing_data")
+                        .and_then(|data| data.downcast_ref::<HashMap<String, u64>>())
+                        .map(|map| map.len())
+                        .unwrap_or(0)
+                );
+            }
+
             tracing::trace!("Emitting frame");
-            Some(FrameContext::new(Frame::ImgBuf(img_buf)))
+            Some(frame_ctx)
         } else {
             tracing::warn!("Null frame emitted");
             None
@@ -326,15 +345,15 @@ impl GstSource {
 
 impl FrameSource for GstSource {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
-        let bytes = match self.get_play_state() {
+        let frame_data = match self.get_play_state() {
             PlayState::Initializing => {
                 let _ = self.start_producer_thread();
                 return self.next_frame(ctx);
             }
 
             PlayState::Playing => loop {
-                if let Some(bytes) = self.ring_buffer.read_frame(FRAME_BLOCKING_TIMEOUT) {
-                    break Some(bytes);
+                if let Some(frame_data) = self.ring_buffer.read_frame(FRAME_BLOCKING_TIMEOUT) {
+                    break Some(frame_data);
                 }
 
                 if self.get_play_state() == PlayState::Stopped {
@@ -348,7 +367,7 @@ impl FrameSource for GstSource {
             _ => self.ring_buffer.try_read_frame(),
         };
 
-        bytes.and_then(|bytes| self.create_frame_ctx(bytes, ctx))
+        frame_data.and_then(|frame_data| self.create_frame_ctx(frame_data, ctx))
     }
 
     fn name(&self) -> &str {

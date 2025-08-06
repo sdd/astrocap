@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use gst::glib;
@@ -6,6 +7,7 @@ use gst_base::subclass::prelude::*;
 use once_cell::sync::Lazy;
 
 use crate::frame_buffer::FrameBuffer;
+use crate::gst_buffer_timing_meta::TimingMeta;
 
 glib::wrapper! {
     /// Astrocap custom GStreamer sink element.
@@ -47,8 +49,26 @@ mod imp {
             let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
             let data = map.as_slice();
 
-            tracing::debug!("calling write_frame");
-            match ring_buffer.write_frame(data) {
+            // Extract timing metadata from the buffer
+            let timing_data: HashMap<String, u64> = TimingMeta::extract_timing_data(buffer);
+
+            let timing_data_option = if timing_data.is_empty() {
+                None
+            } else {
+                tracing::debug!(
+                    timing_field_count = timing_data.len(),
+                    ?timing_data,
+                    "Extracted timing metadata from buffer"
+                );
+
+                // Print timing summary for debugging
+                TimingMeta::print_timing_summary(buffer);
+
+                Some(timing_data)
+            };
+
+            tracing::debug!("calling write_frame with timing data");
+            match ring_buffer.write_frame_with_timing(data, timing_data_option) {
                 Ok(()) => Ok(gst::FlowSuccess::Ok),
                 Err("Buffer full") => {
                     // Pipeline should already be paused but just in case
