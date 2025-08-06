@@ -1,9 +1,10 @@
 use bytes::Bytes;
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
+#[allow(dead_code)]
 pub struct FrameInfo {
     pub width: u32,
     pub height: u32,
@@ -11,9 +12,6 @@ pub struct FrameInfo {
     pub timestamp: u64,
     pub frame_size: usize,
 }
-
-/// Callback type for when buffer becomes full or has space
-pub type BufferStateCallback = Arc<dyn Fn(bool) + Send + Sync>;
 
 /// `FrameBuffer` buffers frames between stages.
 ///
@@ -34,11 +32,7 @@ pub struct FrameBuffer {
 }
 
 impl FrameBuffer {
-    pub fn new(frame_info: FrameInfo, capacity: usize) -> Self {
-        Self::with_spill_mode(frame_info, capacity, true)
-    }
-
-    pub fn with_spill_mode(frame_info: FrameInfo, capacity: usize, should_spill: bool) -> Self {
+    pub fn new(frame_info: FrameInfo, capacity: usize, should_spill: bool) -> Self {
         let pause_threshold = (capacity - 3).max(1);
 
         Self {
@@ -188,11 +182,13 @@ impl FrameBuffer {
         frame
     }
 
+    #[allow(unused)]
     pub fn len(&self) -> usize {
         let buffer = self.buffer.lock().unwrap();
         buffer.len()
     }
 
+    #[allow(unused)]
     pub fn is_empty(&self) -> bool {
         let buffer = self.buffer.lock().unwrap();
         buffer.is_empty()

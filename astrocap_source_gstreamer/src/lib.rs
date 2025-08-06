@@ -1,5 +1,6 @@
 mod config;
 mod frame_buffer;
+mod gst_buffer_timing_meta;
 mod gst_pipeline;
 pub mod gst_source;
 mod ring_buffer_sink;

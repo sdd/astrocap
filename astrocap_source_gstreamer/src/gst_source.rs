@@ -5,7 +5,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use gst::prelude::{ElementExt, ElementExtManual};
+use gst::prelude::*;
 use gst::{Message, MessageView};
 
 use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext, FrameSource};
@@ -15,6 +15,7 @@ use thiserror::Error;
 
 use crate::config::*;
 use crate::frame_buffer::*;
+use crate::gst_buffer_timing_meta::instrument_pipeline_with_timing_meta;
 use crate::gst_pipeline::*;
 
 const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
@@ -26,6 +27,9 @@ pub enum GstSourceError {
 
     #[error("GStreamer init error: {0}")]
     GstInitError(#[from] gst::glib::Error),
+
+    #[error("General init error: {0}")]
+    GeneralInitError(String),
 
     #[error("GStreamer state change error: {0}")]
     GstStateChangeError(#[from] gst::StateChangeError),
@@ -71,7 +75,9 @@ impl From<u8> for PlayState {
 pub struct GstSource {
     #[allow(unused)]
     config: Config,
+
     ring_buffer: Arc<FrameBuffer>,
+
     pipeline: Arc<gst::Pipeline>,
     producer_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     play_state: Arc<AtomicU8>, // Store as u8 for atomic operations
@@ -98,9 +104,14 @@ impl GstSource {
         };
 
         let live_mode = config.input.is_live_mode();
-        let ring_buffer = Arc::new(FrameBuffer::with_spill_mode(frame_info, 10, live_mode));
+        let ring_buffer = Arc::new(FrameBuffer::new(frame_info, 10, live_mode));
 
+        // See https://lib.rs/crates/tracing-gstreamer
+        // See also https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=rust
+        // tracing_gstreamer::integrate_events();
+        // gst::debug_remove_default_log_function();
         gst::init()?;
+        // tracing_gstreamer::integrate_spans();
 
         let pipeline = match &config.input {
             InputConfig::File { path, .. } => build_file_pipeline(path, ring_buffer.clone()),
@@ -229,6 +240,8 @@ impl GstSource {
         pipeline: Arc<gst::Pipeline>,
         play_state: Arc<AtomicU8>,
     ) -> Result<(), GstSourceError> {
+        instrument_pipeline_with_timing_meta(pipeline.as_ref()).expect("TODO: panic message");
+
         pipeline.set_state(gst::State::Playing)?;
 
         let result = Self::process_gst_messages(pipeline.as_ref(), play_state.clone());
@@ -315,7 +328,7 @@ impl FrameSource for GstSource {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
         let bytes = match self.get_play_state() {
             PlayState::Initializing => {
-                self.start_producer_thread();
+                let _ = self.start_producer_thread();
                 return self.next_frame(ctx);
             }
 
@@ -379,7 +392,7 @@ fn log_gst_message(msg: Message) {
         }
 
         MessageView::Latency(latency) => {
-            tracing::trace!("Received Latency msg: {:?}", latency);
+            tracing::info!("Received Latency msg: {:?}", latency);
         }
 
         MessageView::DurationChanged(duration) => {

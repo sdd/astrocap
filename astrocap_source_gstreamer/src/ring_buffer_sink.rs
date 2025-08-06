@@ -17,6 +17,7 @@ glib::wrapper! {
 }
 
 impl RingBufferSink {
+    #[allow(unused)]
     pub(crate) fn new() -> Self {
         glib::Object::builder().build()
     }
