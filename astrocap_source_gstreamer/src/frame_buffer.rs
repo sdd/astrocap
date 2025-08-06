@@ -17,7 +17,7 @@ pub struct FrameInfo {
 #[derive(Debug, Clone)]
 pub struct FrameData {
     pub bytes: Bytes,
-    pub timing_data: Option<HashMap<String, u64>>,
+    pub timing_data: Option<Vec<(u64, String)>>,
 }
 
 /// `FrameBuffer` buffers frames between stages.
@@ -66,7 +66,7 @@ impl FrameBuffer {
     pub fn write_frame_with_timing(
         &self,
         frame_data: &[u8],
-        timing_data: Option<HashMap<String, u64>>,
+        timing_data: Option<Vec<(u64, String)>>,
     ) -> Result<(), &'static str> {
         if frame_data.len() != self.frame_info.frame_size {
             return Err("Frame size mismatch");

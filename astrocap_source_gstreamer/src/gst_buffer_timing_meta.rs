@@ -1,6 +1,5 @@
 use gst::prelude::*;
 use std::collections::HashMap;
-use std::sync::Once;
 use thiserror::Error;
 use tracing;
 
@@ -46,7 +45,7 @@ impl TimingMeta {
 
         gst::ReferenceTimestampMeta::add(buffer, &caps, now_ns, gst::ClockTime::NONE);
 
-        tracing::debug!(
+        tracing::trace!(
             stage = stage,
             timestamp_us = now_micros,
             "Recorded stage entry"
@@ -72,7 +71,7 @@ impl TimingMeta {
 
         gst::ReferenceTimestampMeta::add(buffer, &caps, now_ns, gst::ClockTime::NONE);
 
-        tracing::debug!(
+        tracing::trace!(
             stage = stage,
             timestamp_us = now_micros,
             "Recorded stage exit"
@@ -81,9 +80,10 @@ impl TimingMeta {
         Ok(())
     }
 
-    /// Extract all timing information from a buffer in microseconds
-    pub fn extract_timing_data(buffer: &gst::BufferRef) -> HashMap<String, u64> {
-        let mut timing_data = HashMap::new();
+    /// Extract all timing information from a buffer as a chronologically sorted Vec
+    /// Returns Vec<(timestamp_us, event_name)> sorted by timestamp (earliest first)
+    pub fn extract_timing_data(buffer: &gst::BufferRef) -> Vec<(u64, String)> {
+        let mut timing_events = Vec::new();
 
         // Iterate through all ReferenceTimestampMeta entries
         for meta in buffer.iter_meta::<gst::ReferenceTimestampMeta>() {
@@ -96,11 +96,11 @@ impl TimingMeta {
                         structure.get::<&str>("stage"),
                         structure.get::<&str>("event"),
                     ) {
-                        let field_name = format!("{}_{}", stage, event);
+                        let event_name = format!("{}_{}", stage, event);
                         let timestamp_ns = meta.timestamp().nseconds();
                         let timestamp_us = timestamp_ns / 1000; // Convert back to microseconds
 
-                        timing_data.insert(field_name, timestamp_us);
+                        timing_events.push((timestamp_us, event_name));
 
                         tracing::trace!(
                             stage = stage,
@@ -113,52 +113,35 @@ impl TimingMeta {
             }
         }
 
-        timing_data
+        // Sort by timestamp (chronological order)
+        timing_events.sort_by_key(|(timestamp, _)| *timestamp);
+
+        timing_events
     }
 
-    /// Print timing summary for a buffer (useful for debugging)
+    /// Print timing summary for a buffer showing elapsed time from start and delta from previous
     pub fn print_timing_summary(buffer: &gst::BufferRef) {
-        let timing_data = Self::extract_timing_data(buffer);
+        let timing_events = Self::extract_timing_data(buffer);
 
-        if timing_data.is_empty() {
+        if timing_events.is_empty() {
             tracing::info!("No timing data found on buffer");
             return;
         }
 
-        tracing::info!("=== Buffer Timing Summary ===");
+        tracing::info!("=== Buffer Processing Timeline ===");
 
-        // Sort by timestamp for chronological order
-        let mut sorted_times: Vec<_> = timing_data.iter().collect();
-        sorted_times.sort_by_key(|(_, &timestamp)| timestamp);
+        // Get the start time from the first event
+        let start_time = timing_events[0].0;
+        let mut prev_time = start_time;
 
-        for (stage_event, &timestamp_us) in sorted_times {
-            tracing::info!("{}: {} μs", stage_event, timestamp_us);
+        for (timestamp_us, event_name) in timing_events {
+            let elapsed_us = timestamp_us.saturating_sub(start_time);
+            let delta_us = timestamp_us.saturating_sub(prev_time);
+            tracing::info!("{}: Δ{} μs (+{} μs)", event_name, delta_us, elapsed_us);
+            prev_time = timestamp_us;
         }
 
-        // Calculate stage durations where we have both entry and exit
-        let mut stages = std::collections::HashSet::new();
-        for (stage_event, _) in &timing_data {
-            if let Some(stage) = stage_event
-                .strip_suffix("_entry")
-                .or_else(|| stage_event.strip_suffix("_exit"))
-            {
-                stages.insert(stage);
-            }
-        }
-
-        tracing::info!("=== Stage Durations ===");
-        for stage in stages {
-            let entry_key = format!("{}_entry", stage);
-            let exit_key = format!("{}_exit", stage);
-
-            if let (Some(&entry_time), Some(&exit_time)) =
-                (timing_data.get(&entry_key), timing_data.get(&exit_key))
-            {
-                let duration = exit_time.saturating_sub(entry_time);
-                tracing::info!("{}: {} μs", stage, duration);
-            }
-        }
-        tracing::info!("=============================");
+        tracing::info!("===================================");
     }
 }
 
@@ -173,7 +156,7 @@ pub fn instrument_pipeline_with_timing_meta(
     // Also set up dynamic instrumentation for bins like decodebin
     setup_dynamic_instrumentation(pipeline_element)?;
 
-    tracing::info!("Pipeline instrumentation completed");
+    tracing::debug!("Pipeline instrumentation completed");
     Ok(())
 }
 

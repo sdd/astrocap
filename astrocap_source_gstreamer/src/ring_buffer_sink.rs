@@ -50,12 +50,12 @@ mod imp {
             let data = map.as_slice();
 
             // Extract timing metadata from the buffer
-            let timing_data: HashMap<String, u64> = TimingMeta::extract_timing_data(buffer);
+            let timing_data = TimingMeta::extract_timing_data(buffer);
 
             let timing_data_option = if timing_data.is_empty() {
                 None
             } else {
-                tracing::debug!(
+                tracing::trace!(
                     timing_field_count = timing_data.len(),
                     ?timing_data,
                     "Extracted timing metadata from buffer"
@@ -67,7 +67,7 @@ mod imp {
                 Some(timing_data)
             };
 
-            tracing::debug!("calling write_frame with timing data");
+            tracing::trace!("calling write_frame with timing data");
             match ring_buffer.write_frame_with_timing(data, timing_data_option) {
                 Ok(()) => Ok(gst::FlowSuccess::Ok),
                 Err("Buffer full") => {
