@@ -12,7 +12,7 @@ impl DummySink {
 }
 
 impl FrameSink for DummySink {
-    fn consume(&mut self, frame_ctx: &FrameContext, ctx: &mut PipelineContext) {
+    fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
         tracing::debug!(
             "Sink received frame with metadata keys: {:?}",
             frame_ctx.metadata.keys().collect::<Vec<_>>()

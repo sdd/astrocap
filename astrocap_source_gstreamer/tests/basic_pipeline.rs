@@ -138,7 +138,7 @@ pseudo_live = true
 
 [[stages]]
 stage_type = "astrocap_core::DummyProcessor"
-processing_delay_ms = 200
+# processing_delay_ms = 200
 
 [sink]
 stage_type = "astrocap_core::DummySink"

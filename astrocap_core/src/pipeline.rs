@@ -2,6 +2,8 @@ use crate::{Error, FrameProcessor, FrameSink, FrameSource, StageFactory};
 use dashmap::DashMap;
 use serde::Deserialize;
 use std::any::Any;
+use std::collections::HashMap;
+use std::time::Instant;
 use toml::Value;
 
 pub type PipelineContextValue = Box<dyn Any + Send + Sync>;
@@ -58,6 +60,98 @@ impl std::fmt::Debug for Pipeline {
     }
 }
 
+/// Helper function to get or create timing data from FrameContext
+fn get_or_create_timing_data(frame_ctx: &mut crate::FrameContext) -> &mut Vec<(u64, String)> {
+    // Check if timing_data already exists
+    if !frame_ctx.metadata.contains_key("timing_data") {
+        frame_ctx.metadata.insert(
+            "timing_data".to_string(),
+            Box::new(Vec::<(u64, String)>::new()),
+        );
+    }
+
+    // Get mutable reference to timing data
+    frame_ctx
+        .metadata
+        .get_mut("timing_data")
+        .unwrap()
+        .downcast_mut::<Vec<(u64, String)>>()
+        .expect("timing_data should be Vec<(u64, String)>")
+}
+
+/// Helper function to add astrocap stage timing to existing timing data (in microseconds)
+fn add_stage_timing(
+    frame_ctx: &mut crate::FrameContext,
+    stage_name: &str,
+    stage_type: &str,
+    duration_us: u64,
+) {
+    let timing_data = get_or_create_timing_data(frame_ctx);
+
+    // Get current timestamp (we'll use the time since we got the frame for relative timing)
+    // This is approximate but gives us relative timing within the astrocap pipeline
+    let timestamp_us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as u64;
+
+    // Add astrocap-level timing with a prefix to distinguish from GST timing
+    let event_name = format!("astrocap_{}", stage_name);
+    timing_data.push((timestamp_us, event_name));
+
+    tracing::trace!(
+        stage_name,
+        stage_type,
+        duration_us,
+        timestamp_us,
+        total_timing_events = timing_data.len(),
+        "astrocap_pipeline.stage_latency_us"
+    );
+}
+
+/// Helper function to log timing summary exactly like GST's print_timing_summary
+fn log_frame_timing_summary(
+    frame_ctx: &crate::FrameContext,
+    frame_count: u64,
+    _total_frame_duration_us: u64,
+) {
+    if let Some(timing_data) = frame_ctx
+        .metadata
+        .get("timing_data")
+        .and_then(|data| data.downcast_ref::<Vec<(u64, String)>>())
+    {
+        if timing_data.is_empty() {
+            tracing::info!(frame_count, "No timing data found on frame");
+            return;
+        }
+
+        tracing::info!(frame_count, "=== Frame Processing Timeline ===");
+
+        // Sort all events by timestamp (chronological order)
+        let mut all_events = timing_data.clone();
+        all_events.sort_by_key(|(timestamp, _)| *timestamp);
+
+        // Get the start time from the first event
+        let start_time = all_events[0].0;
+        let mut prev_time = start_time;
+
+        for (timestamp_us, event_name) in all_events {
+            let elapsed_us = timestamp_us.saturating_sub(start_time);
+            let delta_us = timestamp_us.saturating_sub(prev_time);
+            tracing::info!(
+                frame_count,
+                "{}: Δ{} μs (+{} μs)",
+                event_name,
+                delta_us,
+                elapsed_us
+            );
+            prev_time = timestamp_us;
+        }
+
+        tracing::info!(frame_count, "===================================");
+    }
+}
+
 #[allow(unused)]
 impl FrameSourceWrapper {
     pub fn new(inner: Box<dyn FrameSource>, stage_type: &'static str) -> Self {
@@ -103,10 +197,38 @@ impl FrameSinkWrapper {
     }
 }
 
-// Delegate trait methods to inner implementations
+// Delegate trait methods to inner implementations with timing integration (in microseconds)
 impl FrameSource for FrameSourceWrapper {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<crate::FrameContext> {
-        self.inner.next_frame(ctx)
+        let start_time = Instant::now();
+        let mut result = self.inner.next_frame(ctx);
+        let duration = start_time.elapsed();
+        let duration_us = duration.as_micros() as u64;
+
+        // Add timing to the frame context if we got a frame
+        if let Some(ref mut frame_ctx) = result {
+            add_stage_timing(frame_ctx, self.name(), self.stage_type, duration_us);
+
+            // Log that we found existing GST timing data
+            if let Some(timing_data) = frame_ctx
+                .metadata
+                .get("timing_data")
+                .and_then(|data| data.downcast_ref::<Vec<(u64, String)>>())
+            {
+                let gst_event_count = timing_data
+                    .iter()
+                    .filter(|(_, name)| !name.starts_with("astrocap_"))
+                    .count();
+                if gst_event_count > 0 {
+                    tracing::trace!(
+                        gst_event_count,
+                        "Frame source retrieved frame with GST timing data"
+                    );
+                }
+            }
+        }
+
+        result
     }
 
     fn name(&self) -> &str {
@@ -116,7 +238,14 @@ impl FrameSource for FrameSourceWrapper {
 
 impl FrameProcessor for FrameProcessorWrapper {
     fn process(&mut self, frame_ctx: &mut crate::FrameContext, ctx: &mut PipelineContext) -> bool {
-        self.inner.process(frame_ctx, ctx)
+        let start_time = Instant::now();
+        let result = self.inner.process(frame_ctx, ctx);
+        let duration = start_time.elapsed();
+        let duration_us = duration.as_micros() as u64;
+
+        add_stage_timing(frame_ctx, self.name(), self.stage_type, duration_us);
+
+        result
     }
 
     fn name(&self) -> &str {
@@ -125,8 +254,13 @@ impl FrameProcessor for FrameProcessorWrapper {
 }
 
 impl FrameSink for FrameSinkWrapper {
-    fn consume(&mut self, frame_ctx: &crate::FrameContext, ctx: &mut PipelineContext) {
-        self.inner.consume(frame_ctx, ctx)
+    fn consume(&mut self, frame_ctx: &mut crate::FrameContext, ctx: &mut PipelineContext) {
+        let start_time = Instant::now();
+        self.inner.consume(frame_ctx, ctx);
+        let duration = start_time.elapsed();
+        let duration_us = duration.as_micros() as u64;
+
+        add_stage_timing(frame_ctx, self.name(), self.stage_type, duration_us);
     }
 
     fn name(&self) -> &str {
@@ -290,7 +424,13 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
         mut sink,
     } = pipeline;
 
+    let pipeline_start = Instant::now();
+    let mut frame_count = 0u64;
+
     while let Some(mut ctx) = source.next_frame(&mut pipeline_context) {
+        let frame_start = Instant::now();
+        frame_count += 1;
+
         let mut continue_processing = true;
         for stage in stages.iter_mut() {
             if !stage.process(&mut ctx, &mut pipeline_context) {
@@ -300,9 +440,41 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
         }
 
         if continue_processing {
-            sink.consume(&ctx, &mut pipeline_context);
+            sink.consume(&mut ctx, &mut pipeline_context);
+        }
+
+        let total_frame_duration = frame_start.elapsed();
+        let total_frame_duration_us = total_frame_duration.as_micros() as u64;
+
+        // Log comprehensive timing summary for this frame
+        log_frame_timing_summary(&ctx, frame_count, total_frame_duration_us);
+
+        // Log periodic throughput stats
+        if frame_count % 100 == 0 {
+            let elapsed = pipeline_start.elapsed();
+            let fps = frame_count as f64 / elapsed.as_secs_f64();
+
+            tracing::info!(
+                frames_processed = frame_count,
+                elapsed_seconds = elapsed.as_secs_f64(),
+                fps,
+                "Pipeline throughput"
+            );
+
+            // If you have a metrics library available
+            // metrics::gauge!("astrocap_pipeline.fps").set(fps);
         }
     }
+
+    let total_duration = pipeline_start.elapsed();
+    let fps = frame_count as f64 / total_duration.as_secs_f64();
+
+    tracing::info!(
+        total_frames = frame_count,
+        total_duration_seconds = total_duration.as_secs_f64(),
+        average_fps = fps,
+        "Pipeline completed"
+    );
 
     pipeline_context
 }

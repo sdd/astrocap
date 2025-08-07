@@ -62,7 +62,7 @@ mod imp {
                 );
 
                 // Print timing summary for debugging
-                TimingMeta::print_timing_summary(buffer);
+                // TimingMeta::print_timing_summary(buffer);
 
                 Some(timing_data)
             };

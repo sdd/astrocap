@@ -96,7 +96,7 @@ impl TimingMeta {
                         structure.get::<&str>("stage"),
                         structure.get::<&str>("event"),
                     ) {
-                        let event_name = format!("{}_{}", stage, event);
+                        let event_name = format!("gst_{}_{}", stage, event);
                         let timestamp_ns = meta.timestamp().nseconds();
                         let timestamp_us = timestamp_ns / 1000; // Convert back to microseconds
 

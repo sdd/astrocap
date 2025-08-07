@@ -318,7 +318,7 @@ impl GstSource {
                     frame_ctx
                         .metadata
                         .get("timing_data")
-                        .and_then(|data| data.downcast_ref::<HashMap<String, u64>>())
+                        .and_then(|data| data.downcast_ref::<Vec<(u64, String)>>())
                         .map(|map| map.len())
                         .unwrap_or(0)
                 );

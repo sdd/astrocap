@@ -46,7 +46,7 @@ pub trait FrameProcessor: Send + Sync {
 }
 
 pub trait FrameSink: Send + Sync {
-    fn consume(&mut self, frame_ctx: &FrameContext, ctx: &mut PipelineContext);
+    fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext);
     fn name(&self) -> &str;
 }
 
