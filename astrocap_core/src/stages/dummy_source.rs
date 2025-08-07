@@ -1,5 +1,5 @@
 use crate::pipeline::PipelineContext;
-use crate::{register_astrocap_frame_source, Error, Frame, FrameContext, FrameSource};
+use crate::{register_astrocap_frame_source, AstrocapError, Frame, FrameContext, FrameSource};
 use image::ImageBuffer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -8,7 +8,7 @@ pub struct DummySource {
 }
 
 impl DummySource {
-    pub fn new(_params: Option<&toml::Value>) -> Result<Self, Error> {
+    pub fn new(_params: Option<&toml::Value>) -> Result<Self, AstrocapError> {
         Ok(Self { frame_count: 5 })
     }
 }

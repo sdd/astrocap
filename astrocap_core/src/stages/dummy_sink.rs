@@ -1,12 +1,12 @@
 use crate::pipeline::PipelineContext;
-use crate::{register_astrocap_frame_sink, Error, FrameContext, FrameSink};
+use crate::{register_astrocap_frame_sink, AstrocapError, FrameContext, FrameSink};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use toml::Value;
 
 pub struct DummySink;
 
 impl DummySink {
-    pub fn new(_config: Option<&Value>) -> Result<Self, Error> {
+    pub fn new(_config: Option<&Value>) -> Result<Self, AstrocapError> {
         Ok(Self)
     }
 }

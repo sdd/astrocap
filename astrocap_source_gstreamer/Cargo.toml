@@ -5,27 +5,25 @@ edition = "2021"
 
 [dependencies]
 astrocap_core = { path = "../astrocap_core" }
-bytes = "1"
+
+bytes = { workspace = true }
 gst = { package = "gstreamer", version = "0.21", features = ["v1_20"] }
 gst-allocators = { package = "gstreamer-allocators", version = "0.21.2" }
 gst-base = { package = "gstreamer-base", version = "0.21.2" }
 gst-video = { package = "gstreamer-video", version = "0.21.2" }
-http = "1"
-image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
-metrics = "0.24"
-once_cell = "1"
-rtrb = "0.3"
-serde = { version = "1", features = ["derive"] }
-toml = "0.9"
-tracing = "0.1"
-test-log = { version = "0.2", features = ["trace"] }
-anyhow = "1"
-thiserror = "2"
-tracing-gstreamer = "0.9.0"
-serde_json = "1.0.141"
+
+http = { workspace = true }
+image = { workspace = true }
+metrics = { workspace = true }
+once_cell = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 astrocap_source_gstreamer = { path = "." }
+test-log = { version = "0.2", features = ["trace"] }
 
 [package.metadata.system-deps.gstreamer_1_0]
 name = "gstreamer-1.0"

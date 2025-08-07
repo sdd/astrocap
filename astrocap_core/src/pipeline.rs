@@ -1,4 +1,6 @@
-use crate::{Error, FrameProcessor, FrameSink, FrameSource, StageFactory};
+use crate::{
+    AstrocapError, FrameProcessor, FrameProcessorResult, FrameSink, FrameSource, StageFactory,
+};
 use dashmap::DashMap;
 use serde::Deserialize;
 use std::any::Any;
@@ -12,6 +14,7 @@ pub type PipelineContext = DashMap<String, PipelineContextValue>;
 #[derive(Deserialize, Debug)]
 pub struct PipelineConfig {
     pub source: StageConfig,
+    #[serde(default)]
     pub stages: Vec<StageConfig>,
     pub sink: StageConfig,
 }
@@ -237,7 +240,11 @@ impl FrameSource for FrameSourceWrapper {
 }
 
 impl FrameProcessor for FrameProcessorWrapper {
-    fn process(&mut self, frame_ctx: &mut crate::FrameContext, ctx: &mut PipelineContext) -> bool {
+    fn process(
+        &mut self,
+        frame_ctx: &mut crate::FrameContext,
+        ctx: &mut PipelineContext,
+    ) -> FrameProcessorResult {
         let start_time = Instant::now();
         let result = self.inner.process(frame_ctx, ctx);
         let duration = start_time.elapsed();
@@ -278,7 +285,7 @@ macro_rules! _register_astrocap_stage_impl {
             struct [<$stage_type Factory>];
 
             impl $crate::StageFactory for [<$stage_type Factory>] {
-                fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn std::any::Any>, $crate::Error> {
+                fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn std::any::Any>, $crate::AstrocapError> {
                     let instance = <$stage_type>::new(params)?;
                     Ok(Box::new(Box::new(instance) as Box<dyn $crate::$trait_name>) as Box<dyn std::any::Any>)
                 }
@@ -324,14 +331,14 @@ macro_rules! register_astrocap_frame_sink {
     };
 }
 
-pub fn build_pipeline(config: &PipelineConfig) -> Result<Pipeline, Error> {
+pub fn build_pipeline(config: &PipelineConfig) -> Result<Pipeline, AstrocapError> {
     tracing::trace!(?config, "Building pipeline");
 
     // Create specific factory functions for each trait type
     fn find_source_factory(
         type_name: &str,
         params: Option<&Value>,
-    ) -> Result<FrameSourceWrapper, Error> {
+    ) -> Result<FrameSourceWrapper, AstrocapError> {
         for factory in inventory::iter::<&dyn StageFactory>() {
             tracing::trace!("checking factory: {:?}", factory.stage_type());
             if factory.stage_type() == type_name {
@@ -358,7 +365,7 @@ pub fn build_pipeline(config: &PipelineConfig) -> Result<Pipeline, Error> {
     fn find_processor_factory(
         type_name: &str,
         params: Option<&toml::Value>,
-    ) -> Result<FrameProcessorWrapper, Error> {
+    ) -> Result<FrameProcessorWrapper, AstrocapError> {
         for factory in inventory::iter::<&dyn StageFactory>() {
             if factory.stage_type() == type_name {
                 let any_box = factory.create(params)?;
@@ -378,7 +385,7 @@ pub fn build_pipeline(config: &PipelineConfig) -> Result<Pipeline, Error> {
     fn find_sink_factory(
         type_name: &str,
         params: Option<&toml::Value>,
-    ) -> Result<FrameSinkWrapper, Error> {
+    ) -> Result<FrameSinkWrapper, AstrocapError> {
         for factory in inventory::iter::<&dyn StageFactory>() {
             if factory.stage_type() == type_name {
                 let any_box = factory.create(params)?;
@@ -433,7 +440,10 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
 
         let mut continue_processing = true;
         for stage in stages.iter_mut() {
-            if !stage.process(&mut ctx, &mut pipeline_context) {
+            if matches!(
+                stage.process(&mut ctx, &mut pipeline_context),
+                FrameProcessorResult::Skip
+            ) {
                 continue_processing = false;
                 break;
             }
@@ -477,4 +487,14 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
     );
 
     pipeline_context
+}
+
+pub fn run_pipeline_with_config_file_path(path: &str) -> PipelineContext {
+    let config_raw = std::fs::read_to_string(path).expect("Failed to read config file");
+
+    let config: PipelineConfig = toml::from_str(&config_raw).expect("Failed to parse config file");
+
+    let pipeline = build_pipeline(&config).expect("Failed to build pipeline from config");
+    let pipeline_context = PipelineContext::new();
+    run_pipeline(pipeline_context, pipeline)
 }

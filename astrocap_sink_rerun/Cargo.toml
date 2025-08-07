@@ -1,0 +1,17 @@
+[package]
+name = "astrocap_sink_rerun"
+edition = "2024"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+[dependencies]
+astrocap_core = { path = "../astrocap_core" }
+rerun = { workspace = true }
+toml = "0.9.5"
+tracing = "0.1.41"
+
+
+[lib]
+name = "astrocap_sink_rerun"

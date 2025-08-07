@@ -1,0 +1,17 @@
+[package]
+name = "astrocap_main"
+edition = "2024"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+[dependencies]
+astrocap_core = { workspace = true }
+astrocap_processor_median_sub = { workspace = true }
+astrocap_processor_rerun_img_tee = { workspace = true }
+astrocap_sink_rerun = { workspace = true }
+astrocap_source_gstreamer = { workspace = true }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

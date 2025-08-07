@@ -1,5 +1,8 @@
 use crate::pipeline::PipelineContext;
-use crate::{register_astrocap_frame_processor, Error, FrameContext, FrameProcessor};
+use crate::{
+    register_astrocap_frame_processor, AstrocapError, FrameContext, FrameProcessor,
+    FrameProcessorResult,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use toml::Value;
@@ -9,7 +12,7 @@ pub struct DummyProcessor {
 }
 
 impl DummyProcessor {
-    pub fn new(config: Option<&Value>) -> Result<Self, Error> {
+    pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
         let processing_delay_ms = config
             .and_then(|c| c.get("processing_delay_ms"))
             .and_then(|d| d.as_integer())
@@ -22,7 +25,11 @@ impl DummyProcessor {
 }
 
 impl FrameProcessor for DummyProcessor {
-    fn process(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) -> bool {
+    fn process(
+        &mut self,
+        frame_ctx: &mut FrameContext,
+        ctx: &mut PipelineContext,
+    ) -> FrameProcessorResult {
         tracing::trace!(
             "Processor received frame with metadata keys: {:?}",
             frame_ctx.metadata.keys().collect::<Vec<_>>()
@@ -43,7 +50,7 @@ impl FrameProcessor for DummyProcessor {
             atomic_counter.fetch_add(1, Ordering::SeqCst);
         }
 
-        true
+        FrameProcessorResult::Skip
     }
 
     fn name(&self) -> &str {

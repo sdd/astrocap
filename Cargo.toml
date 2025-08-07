@@ -5,7 +5,11 @@ members = [
     #    "opencv_load_from_file",
     "read_mkv_metadata",
     "astrocap_core",
+    "astrocap_processor_median_sub",
+    "astrocap_processor_rerun_img_tee",
+    "astrocap_sink_rerun",
     "astrocap_source_gstreamer",
+    "astrocap_main",
 ]
 resolver = "2"
 
@@ -20,4 +24,21 @@ debug = true
 
 
 [workspace.dependencies]
+astrocap_core = { path = "./astrocap_core" }
+astrocap_processor_median_sub = { path = "./astrocap_processor_median_sub" }
+astrocap_processor_rerun_img_tee = { path = "./astrocap_processor_rerun_img_tee" }
+astrocap_sink_rerun = { path = "astrocap_sink_rerun" }
+astrocap_source_gstreamer = { path = "./astrocap_source_gstreamer" }
+
+anyhow = "1"
+bytes = "1"
+http = "1"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+imageproc = { version = "0.23" }
+metrics = "0.24"
+once_cell = "1"
 rerun = { version = "0.23", features = ["run", "server"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+thiserror = "2"
+toml = "0.9"

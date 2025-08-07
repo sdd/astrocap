@@ -39,9 +39,9 @@ pub enum GstSourceError {
     BusError,
 }
 
-impl From<GstSourceError> for astrocap_core::Error {
+impl From<GstSourceError> for astrocap_core::AstrocapError {
     fn from(err: GstSourceError) -> Self {
-        astrocap_core::Error::PluginError(format!("{:?}", err))
+        astrocap_core::AstrocapError::PluginError(format!("{:?}", err))
     }
 }
 

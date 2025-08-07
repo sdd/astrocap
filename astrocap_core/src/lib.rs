@@ -8,7 +8,7 @@ pub mod error;
 pub mod pipeline;
 pub mod stages;
 
-pub use error::Error;
+pub use error::AstrocapError;
 
 // needed for the exported macros to work without the consuming crate having to import them
 pub use inventory;
@@ -35,13 +35,22 @@ impl FrameContext {
     }
 }
 
+pub enum FrameProcessorResult {
+    Continue,
+    Skip,
+}
+
 pub trait FrameSource: Send + Sync {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext>;
     fn name(&self) -> &str;
 }
 
 pub trait FrameProcessor: Send + Sync {
-    fn process(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) -> bool;
+    fn process(
+        &mut self,
+        frame_ctx: &mut FrameContext,
+        ctx: &mut PipelineContext,
+    ) -> FrameProcessorResult;
     fn name(&self) -> &str;
 }
 
@@ -51,6 +60,6 @@ pub trait FrameSink: Send + Sync {
 }
 
 pub trait StageFactory: Send + Sync {
-    fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn Any>, Error>;
+    fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn Any>, AstrocapError>;
     fn stage_type(&self) -> &'static str;
 }
