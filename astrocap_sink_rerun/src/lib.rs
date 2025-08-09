@@ -26,19 +26,15 @@ impl FrameSink for RerunSink {
             ctx.insert("rerun".to_string(), Box::new(self.rec.clone()));
         }
 
-        let Frame::ImgBuf(ref img) = frame_ctx.frame else {
+        let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
             tracing::warn!("No frame to process");
             return;
         };
 
-        if let Err(err) = self.rec.log(
-            "video/final",
-            &rerun::Image::from_pixel_format(
-                [1920, 1080],
-                rerun::PixelFormat::Y8_FullRange,
-                img.as_ref(),
-            ),
-        ) {
+        if let Err(err) = self
+            .rec
+            .log("video/final", &rerun::Image::from_l8(pixels, [1920, 1080]))
+        {
             tracing::error!("Failed to log frame: {}", err);
         }
     }

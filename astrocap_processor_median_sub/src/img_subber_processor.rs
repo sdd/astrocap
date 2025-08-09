@@ -1,9 +1,9 @@
+use crate::map_colors::map_colors;
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessor, FrameProcessorResult};
 use image::Luma;
 use toml::Value;
-
-use crate::map_colors::map_colors;
 
 pub struct ImgSubberProcessor {
     subtractand_key: String,
@@ -30,35 +30,32 @@ impl FrameProcessor for ImgSubberProcessor {
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
-        ctx: &mut PipelineContext,
+        _ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
         tracing::trace!(
             "MedianSubberProcessor received frame with metadata keys: {:?}",
             frame_ctx.metadata.keys().collect::<Vec<_>>()
         );
 
-        let Frame::ImgBuf(ref frame) = frame_ctx.frame else {
-            tracing::error!("FrameContext frame is not an ImgBuf!");
-            return FrameProcessorResult::Skip;
+        let Ok(frame) = frame_ctx.frame.get_image(None) else {
+            tracing::warn!("No frame to process");
+            return Skip;
         };
 
         let metadata_key = format!("video/{}", self.subtractand_key);
         let Some(subtractand) = frame_ctx.metadata.get(&metadata_key) else {
             tracing::error!("{metadata_key} not present in FrameContext!");
-            return FrameProcessorResult::Skip;
+            return Skip;
         };
 
         let Some(subtractand) = subtractand.downcast_ref::<Frame>() else {
             tracing::error!("{metadata_key} not downcastable to Frame::Imguf!");
-            return FrameProcessorResult::Skip;
+            return Skip;
         };
 
-        let subtractand = match subtractand {
-            Frame::ImgBuf(subtractand) => subtractand,
-            _ => {
-                tracing::error!("{metadata_key} not an ImgBuf!");
-                return FrameProcessorResult::Skip;
-            }
+        let Some(subtractand) = subtractand.as_cpu_image() else {
+            tracing::error!("{metadata_key} not CPU Frame!");
+            return Skip;
         };
 
         // subtract frame from sub_from
@@ -66,7 +63,7 @@ impl FrameProcessor for ImgSubberProcessor {
             Luma([(p[0]).saturating_sub(q[0])])
         });
 
-        frame_ctx.frame = Frame::ImgBuf(subtracted);
+        frame_ctx.frame = Frame::from(subtracted);
 
         FrameProcessorResult::Continue
     }

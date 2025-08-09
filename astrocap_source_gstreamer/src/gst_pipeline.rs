@@ -11,9 +11,6 @@ use http::Uri;
 use crate::frame_buffer::FrameBuffer;
 use crate::ring_buffer_sink::RingBufferSink;
 
-/// Global storage for timing data keyed by buffer pointer address
-type TimingStorage = Arc<Mutex<HashMap<usize, Instant>>>;
-
 /// Normalize element names by removing numeric suffixes that GStreamer adds
 /// e.g., "decodebin0", "decodebin1" -> "decodebin"
 fn normalize_stage_name(name: &str) -> String {

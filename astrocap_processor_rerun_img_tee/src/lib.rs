@@ -39,18 +39,14 @@ impl FrameProcessor for RerunTeeProcessor {
             .downcast_ref::<RecordingStream>()
             .expect("Rerun context is not a recording stream");
 
-        let Frame::ImgBuf(ref img) = frame_ctx.frame else {
+        let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
             tracing::warn!("No frame to process");
             return Skip;
         };
 
         if let Err(err) = rec.log(
             format!("video/{}", self.tag),
-            &rerun::Image::from_pixel_format(
-                [1920, 1080],
-                rerun::PixelFormat::Y8_FullRange,
-                img.as_ref(),
-            ),
+            &rerun::Image::from_l8(pixels, [1920, 1080]),
         ) {
             tracing::error!("Failed to log frame: {}", err);
             return Skip;

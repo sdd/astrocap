@@ -1,25 +1,18 @@
 use crate::pipeline::PipelineContext;
-use image::{ImageBuffer, Luma};
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub mod error;
+pub mod frame;
 pub mod pipeline;
 pub mod stages;
 
 pub use error::AstrocapError;
+pub use frame::Frame;
 
 // needed for the exported macros to work without the consuming crate having to import them
 pub use inventory;
 pub use paste;
-
-#[non_exhaustive]
-pub enum Frame {
-    ImgBufArc(ImageBuffer<Luma<u8>, Arc<[u8]>>),
-    ImgBuf(ImageBuffer<Luma<u8>, Vec<u8>>),
-    // May also have GPU buffer in here at some point
-}
 
 pub struct FrameContext {
     pub metadata: HashMap<String, Box<dyn Any + Send + Sync>>,

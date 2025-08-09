@@ -627,6 +627,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "astrocap_processor_point_extractor"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "image 0.24.9",
+ "serde",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
 name = "astrocap_processor_rerun_img_tee"
 version = "0.1.0"
 dependencies = [

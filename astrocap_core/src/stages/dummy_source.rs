@@ -1,6 +1,6 @@
+use crate::frame::CpuFrame;
 use crate::pipeline::PipelineContext;
 use crate::{register_astrocap_frame_source, AstrocapError, Frame, FrameContext, FrameSource};
-use image::ImageBuffer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct DummySource {
@@ -29,9 +29,7 @@ impl FrameSource for DummySource {
                 atomic_counter.fetch_add(1, Ordering::SeqCst);
             }
 
-            Some(FrameContext::new(Frame::ImgBuf(
-                ImageBuffer::from_raw(5, 2, vec![0u8; 10]).unwrap(),
-            )))
+            Some(FrameContext::new(Frame::Cpu(CpuFrame::new_owned(10, 10))))
         }
     }
 

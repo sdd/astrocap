@@ -19,10 +19,10 @@ impl FrameProcessor for MedianProcessor {
         frame_ctx: &mut FrameContext,
         _ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        if let Frame::ImgBuf(ref img) = frame_ctx.frame {
-            let img_median: GrayImage = median_filter(&img, 30, 30);
+        if let Ok(img) = frame_ctx.frame.get_image(None) {
+            let img_median: GrayImage = median_filter(img, 30, 30);
 
-            let frame = Frame::ImgBuf(img_median);
+            let frame = Frame::from(img_median);
 
             frame_ctx
                 .metadata

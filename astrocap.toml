@@ -3,16 +3,16 @@ stage_type = "astrocap_source_gstreamer::GstSource"
 file_path = "tests/test.mkv"
 pseudo_live = false
 
-#[[stages]]
-#stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
-#tag = "original"
-#
-#[[stages]]
-#stage_type = "astrocap_processor_median_sub::MedianProcessor"
-#
-#[[stages]]
-#stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
-#subtractand_key = "median"
+[[stages]]
+stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
+tag = "original"
+
+[[stages]]
+stage_type = "astrocap_processor_median_sub::MedianProcessor"
+
+[[stages]]
+stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
+subtractand_key = "median"
 
 [sink]
 stage_type = "astrocap_sink_rerun::RerunSink"

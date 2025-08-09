@@ -1,5 +1,4 @@
 use gst::prelude::*;
-use std::collections::HashMap;
 use thiserror::Error;
 use tracing;
 

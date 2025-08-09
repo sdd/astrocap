@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU8, AtomicUsize, Ordering},
     Arc, Mutex,
@@ -10,8 +9,6 @@ use gst::prelude::*;
 use gst::{Message, MessageView};
 
 use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext, FrameSource};
-use bytes::Bytes;
-use image::ImageBuffer;
 use thiserror::Error;
 
 use crate::config::*;
@@ -303,10 +300,10 @@ impl GstSource {
         let height = 1080u32;
 
         // TODO: ref rather than copy
-        if let Some(img_buf) = ImageBuffer::from_raw(width, height, frame_data.bytes.to_vec()) {
+        if let Some(frame) = Frame::from_raw(width, height, frame_data.bytes.to_vec()) {
             Self::inc_frame_counter(ctx);
 
-            let mut frame_ctx = FrameContext::new(Frame::ImgBuf(img_buf));
+            let mut frame_ctx = FrameContext::new(frame);
 
             // Add timing data to frame context metadata if available
             if let Some(timing_data) = frame_data.timing_data {
