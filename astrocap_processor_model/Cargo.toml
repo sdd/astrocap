@@ -1,0 +1,25 @@
+[package]
+name = "astrocap_processor_model"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+astrocap_core = { workspace = true }
+anyhow = "1"
+argmin = "0.8"
+argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
+kiddo = { version = "5" }
+ndarray = "0.15"
+nonmax = { version = "0.5", features = ["serde"] }
+num-traits = "0.2"
+ordered-float = "4"
+rerun = { version = "0.23", default-features = false }
+serde = { version = "1", features = ["derive"] }
+toml = { workspace = true }
+tracing = "0.1"
+
+[dev-dependencies]
+image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+
+[lib]
+name = "astrocap_model"

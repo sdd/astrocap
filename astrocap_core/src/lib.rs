@@ -6,11 +6,13 @@ pub mod error;
 pub mod frame;
 pub mod pipeline;
 pub mod stages;
+pub mod structs;
 
 pub use error::AstrocapError;
 pub use frame::Frame;
 
 // needed for the exported macros to work without the consuming crate having to import them
+use crate::structs::DetectedPoint;
 pub use inventory;
 pub use paste;
 
@@ -25,6 +27,24 @@ impl FrameContext {
             metadata: HashMap::new(),
             frame,
         }
+    }
+
+    pub fn get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
+        let Some(value) = self.metadata.get(key) else {
+            tracing::error!("key \"{}\" not present in frame context metadata", key);
+            return Err(AstrocapError::FrameMetadataNotFoundError);
+        };
+
+        let Some(downcasted) = value.downcast_ref::<T>() else {
+            tracing::error!("Could not downcast metadata value to requested type");
+            return Err(AstrocapError::FrameMetadataTypeError);
+        };
+
+        Ok(downcasted)
+    }
+
+    pub fn put<'a, T: Any + Send + Sync + 'static>(&'a mut self, key: &str, value: T) {
+        self.metadata.insert(key.to_string(), Box::new(value));
     }
 }
 

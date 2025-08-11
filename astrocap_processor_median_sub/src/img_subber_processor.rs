@@ -17,7 +17,7 @@ impl ImgSubberProcessor {
             .map(|d| d.to_string());
 
         let Some(subtractand_key) = subtractand_key else {
-            return Err(AstrocapError::PluginError(
+            return Err(AstrocapError::GeneralPluginError(
                 "subtractand_key not present in ImgSubber Config".to_string(),
             ));
         };

@@ -3,6 +3,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 use astrocap_core::pipeline::run_pipeline_with_config_file_path;
 
 use astrocap_processor_median_sub::{ImgSubberProcessor, MedianProcessor};
+use astrocap_processor_point_detector::PointDetectorProcessor;
+use astrocap_processor_point_fitter::PointFitterProcessor;
 use astrocap_processor_rerun_img_tee::RerunTeeProcessor;
 use astrocap_sink_rerun::RerunSink;
 use astrocap_source_gstreamer::GstSource;

@@ -139,6 +139,14 @@ impl Frame {
         Frame::Gpu(handle)
     }
 
+    /// If the Frame is CPU, return a CpuFrame ref; otherwise return None.
+    pub fn as_cpu_frame(&self) -> Option<&CpuFrame> {
+        match self {
+            Frame::Cpu(c) => Some(&c),
+            Frame::Gpu(_) => None,
+        }
+    }
+
     /// If the Frame is CPU, return an ing reference; otherwise return None.
     pub fn as_cpu_image(&self) -> Option<&ImageBuffer<Luma<u8>, CpuStorage>> {
         match self {

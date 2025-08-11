@@ -1,0 +1,15 @@
+[package]
+name = "astrocap_processor_point_detector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+astrocap_core = { path = "../astrocap_core" }
+image = { workspace = true }
+ordered-float = "5"
+serde = { version = "1", features = ["derive"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+name = "astrocap_processor_point_detector"

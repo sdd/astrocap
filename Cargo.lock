@@ -582,6 +582,8 @@ version = "0.1.0"
 dependencies = [
  "astrocap_core",
  "astrocap_processor_median_sub",
+ "astrocap_processor_point_detector",
+ "astrocap_processor_point_fitter",
  "astrocap_processor_rerun_img_tee",
  "astrocap_sink_rerun",
  "astrocap_source_gstreamer",
@@ -627,12 +629,52 @@ dependencies = [
 ]
 
 [[package]]
-name = "astrocap_processor_point_extractor"
+name = "astrocap_processor_model"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argmin",
+ "argmin-math",
+ "astrocap_core",
+ "image 0.24.9",
+ "kiddo",
+ "ndarray 0.15.6",
+ "nonmax",
+ "num-traits",
+ "ordered-float 4.6.0",
+ "rerun",
+ "serde",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_processor_point_detector"
 version = "0.1.0"
 dependencies = [
  "astrocap_core",
  "image 0.24.9",
+ "ordered-float 5.0.0",
  "serde",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_processor_point_fitter"
+version = "0.1.0"
+dependencies = [
+ "argmin",
+ "argmin-math",
+ "astrocap_core",
+ "az",
+ "image 0.24.9",
+ "kiddo",
+ "nalgebra 0.32.6",
+ "ndarray 0.15.6",
+ "ordered-float 5.0.0",
+ "serde",
+ "serde_json",
  "toml 0.9.5",
  "tracing",
 ]

@@ -1,0 +1,24 @@
+[package]
+name = "astrocap_processor_point_fitter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+astrocap_core = { path = "../astrocap_core" }
+argmin = "0.8"
+argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
+az = "1"
+image = { workspace = true }
+ordered-float = "5"
+nalgebra = "0.32"
+ndarray = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kiddo = { version = "5" }
+
+[lib]
+name = "astrocap_processor_point_fitter"
