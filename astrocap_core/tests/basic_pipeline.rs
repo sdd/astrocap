@@ -94,23 +94,17 @@ stage_type = "astrocap_core::DummySink"
 
     // Assert on the statistics recorded in the pipeline context
     let frames_sourced = final_context
-        .get("frames_sourced")
-        .expect("frames_sourced counter should exist")
-        .downcast_ref::<AtomicUsize>()
+        .get_as::<AtomicUsize>("frames_sourced")
         .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get("frames_processed")
-        .expect("frames_processed counter should exist")
-        .downcast_ref::<AtomicUsize>()
+        .get_as::<AtomicUsize>("frames_processed")
         .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get("frames_sunk")
-        .expect("frames_sunk counter should exist")
-        .downcast_ref::<AtomicUsize>()
+        .get_as::<AtomicUsize>("frames_sunk")
         .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 
@@ -152,24 +146,18 @@ stage_type = "astrocap_core::DummySink"
 
     // With 2 processors, frames_processed should be 10 (5 frames × 2 processors)
     let frames_sourced = final_context
-        .get("frames_sourced")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_sourced")
+        .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get("frames_processed")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_processed")
+        .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get("frames_sunk")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_sunk")
+        .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     assert_eq!(frames_sourced, 5, "Expected 5 frames to be generated");

@@ -9,6 +9,7 @@ use std::time::Duration;
 pub enum Frame {
     Cpu(CpuFrame),
     Gpu(Arc<dyn GpuFrame>),
+    None,
 }
 
 /// A simple CPU-backed frame type for grayscale images (GRAY8).
@@ -48,8 +49,8 @@ pub trait GpuFrame: Send + Sync + fmt::Debug {
 impl CpuStorage {
     pub fn as_slice(&self) -> &[u8] {
         match self {
-            CpuStorage::Shared(a) => &a,
-            CpuStorage::Owned(v) => &v,
+            CpuStorage::Shared(a) => a,
+            CpuStorage::Owned(v) => v,
         }
     }
     pub fn as_mut_vec(&mut self) -> &mut Vec<u8> {
@@ -87,9 +88,15 @@ impl From<Arc<[u8]>> for CpuStorage {
 }
 
 impl CpuFrame {
-    pub fn new_owned(width: u32, height: u32) -> Self {
-        let v = vec![0u8; (width as usize) * (height as usize)];
+    pub fn new_owned(width: u32, height: u32, v: Vec<u8>) -> Self {
         let storage = CpuStorage::Owned(v);
+        let img = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, storage)
+            .expect("width*height == len");
+        CpuFrame { img }
+    }
+
+    pub fn new_shared(width: u32, height: u32, v: Arc<[u8]>) -> Self {
+        let storage = CpuStorage::Shared(v);
         let img = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, storage)
             .expect("width*height == len");
         CpuFrame { img }
@@ -100,6 +107,25 @@ impl CpuFrame {
     }
     pub fn height(&self) -> u32 {
         self.img.height()
+    }
+
+    pub fn to_shared(self) -> CpuFrame {
+        let width = self.img.width();
+        let height = self.img.height();
+        match self.img.into_raw() {
+            CpuStorage::Shared(a) => CpuFrame {
+                img: ImageBuffer::<Luma<u8>, _>::from_raw(width, height, CpuStorage::Shared(a))
+                    .unwrap(),
+            },
+            CpuStorage::Owned(v) => CpuFrame {
+                img: ImageBuffer::<Luma<u8>, _>::from_raw(
+                    width,
+                    height,
+                    CpuStorage::Shared(Arc::from(v)),
+                )
+                .unwrap(),
+            },
+        }
     }
 }
 
@@ -116,6 +142,7 @@ impl fmt::Debug for Frame {
                 .field("w", &g.width())
                 .field("h", &g.height())
                 .finish(),
+            Frame::None => f.debug_struct("Frame::None").finish(),
         }
     }
 }
@@ -142,8 +169,8 @@ impl Frame {
     /// If the Frame is CPU, return a CpuFrame ref; otherwise return None.
     pub fn as_cpu_frame(&self) -> Option<&CpuFrame> {
         match self {
-            Frame::Cpu(c) => Some(&c),
-            Frame::Gpu(_) => None,
+            Frame::Cpu(c) => Some(c),
+            _ => None,
         }
     }
 
@@ -151,7 +178,7 @@ impl Frame {
     pub fn as_cpu_image(&self) -> Option<&ImageBuffer<Luma<u8>, CpuStorage>> {
         match self {
             Frame::Cpu(c) => Some(&c.img),
-            Frame::Gpu(_) => None,
+            _ => None,
         }
     }
 
@@ -169,6 +196,7 @@ impl Frame {
                 g.sync_gpu()?;
                 g.download_to_cpu(timeout)
             }
+            Frame::None => Err("Frame::None".to_string()),
         }
     }
 
@@ -180,6 +208,7 @@ impl Frame {
                 g.sync_gpu()?;
                 g.download_to_cpu(timeout)
             }
+            Frame::None => Err("Frame::None".to_string()),
         }
     }
 
@@ -216,7 +245,7 @@ impl Frame {
 
         match self {
             Frame::Cpu(ref cpu_frame) => Ok(&cpu_frame.img),
-            Frame::Gpu(_) => {
+            _ => {
                 unreachable!()
             }
         }
@@ -270,7 +299,7 @@ mod tests {
 
     #[test]
     fn cpu_frame_roundtrip() {
-        let f = CpuFrame::new_owned(16, 8);
+        let f = CpuFrame::new_owned(16, 8, vec![0; 16 * 8]);
         let mut frame = Frame::from_cpu_frame(f.clone());
         // ensure_cpu is a no-op for CPU frame
         frame.ensure_cpu(Some(Duration::from_secs(1))).unwrap();

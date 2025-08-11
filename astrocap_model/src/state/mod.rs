@@ -1,6 +1,6 @@
 pub mod moving_targets;
 pub mod point_handling;
-// pub mod solution_handling;
+// pub pipeline solution_handling;
 mod rolling_quantile;
 pub mod streaks;
 
@@ -116,7 +116,7 @@ where
 
         if let Some(ref rec) = rec {
             rec.log(
-                format!("model/detected_peaks"),
+                "model/detected_peaks".to_string(),
                 &rerun::Points2D::new(
                     detected_points_list
                         .iter()
@@ -141,7 +141,7 @@ where
 
         if let Some(ref rec) = rec {
             rec.log(
-                format!("model/fitted_points"),
+                "model/fitted_points".to_string(),
                 &rerun::Points2D::new(
                     fitted_points_list
                         .iter()
@@ -365,7 +365,7 @@ where
     fn log_to_rerun(&mut self) {
         if let Some(ref rec) = self.rec {
             rec.log(
-                format!("model/star_candidates"),
+                "model/star_candidates".to_string(),
                 &rerun::Points2D::new(
                     self.star_candidates
                         .iter()

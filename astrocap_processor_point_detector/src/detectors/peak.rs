@@ -1,12 +1,14 @@
-use crate::point_detector::DetectedPoint;
-use crate::PointDetector;
+use astrocap_core::structs::DetectedPoint;
+use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
+use image::Pixel;
+use imageproc::drawing::Canvas;
 
 // const POINT_SKIP_STEP: u32 = 3;
 const POINT_EXCLUSION_RADIUS_2: i32 = 400;
 const POINT_THRESHOLD: u8 = 50;
-const STEP_X: i32 = 1;
-const STEP_Y: i32 = 1;
+const STEP_X: u32 = 1;
+const STEP_Y: u32 = 1;
 // pub const PATCH_SIZE: i32 = 4;
 
 pub struct PointDetectPeak {}
@@ -35,43 +37,36 @@ impl PointDetector for PointDetectPeak {
             None
         };
 
-        let img_w = img.width() as i32;
-        let img_h = img.height() as i32;
+        let img_w = img.width();
+        let img_h = img.height();
 
-        let img_raw: &[u8] = img.as_raw();
-        let mask_raw = mask.map(|mask| mask.as_raw());
-
-        let mut x: i32 = 0;
-        let mut y: i32 = 0;
-        let mut idx: usize = 0;
+        let mut x: u32 = 0;
+        let mut y: u32 = 0;
 
         while y < img_h {
             while x < img_w {
-                if let Some(mask_raw) = mask_raw {
-                    if mask_raw[idx] == 0 {
+                if let Some(mask) = mask {
+                    if mask.get_pixel(x, y).channels()[0] == 0 {
                         x += STEP_X;
                         continue;
                     }
                 }
 
-                let val: u8 = img_raw[idx];
+                let val: u8 = img.get_pixel(x, y).channels()[0];
 
                 if val > POINT_THRESHOLD {
                     let mut curr_val: u8 = val;
-                    let mut point_idx = idx;
                     let mut point_x = x;
-                    while (point_idx as i32 + 1) < img_w && img_raw[point_idx + 1] > curr_val {
-                        point_idx += 1;
+                    while (point_x + 1) < img_w && img.get_pixel(x + 1, y).channels()[0] > curr_val
+                    {
                         point_x += 1;
-                        curr_val = img_raw[point_idx];
+                        curr_val = img.get_pixel(x, y).channels()[0];
                     }
 
                     let mut point_y = y;
-                    let mut point_idx = idx;
-                    while point_y + 1 < img_h && img_raw[idx + img_w as usize] > curr_val {
+                    while point_y + 1 < img_h && img.get_pixel(x, y + 1).channels()[0] > curr_val {
                         point_y += 1;
-                        point_idx += img_w as usize;
-                        curr_val = img_raw[point_idx];
+                        curr_val = img.get_pixel(x, y).channels()[0]
                     }
 
                     // find existing matches within POINT_EXCLUSION_RADIUS of current match
@@ -79,8 +74,8 @@ impl PointDetector for PointDetectPeak {
                         .iter()
                         .enumerate()
                         .filter(|&(_idx, existing)| {
-                            let xd = (existing.x as i32 - point_x).abs();
-                            let yd = (existing.y as i32 - point_y).abs();
+                            let xd = (existing.x as i32 - point_x as i32).abs();
+                            let yd = (existing.y as i32 - point_y as i32).abs();
                             ((xd * xd) + (yd * yd)) < POINT_EXCLUSION_RADIUS_2
                         })
                         .map(|(n, i)| (n, i.clone()))
@@ -107,8 +102,8 @@ impl PointDetector for PointDetectPeak {
                     }
 
                     let new_point = DetectedPoint {
-                        x: point_x as u32,
-                        y: point_y as u32,
+                        x: point_x,
+                        y: point_y,
                         amplitude: curr_val,
                         fitted: None,
                     };
@@ -117,7 +112,6 @@ impl PointDetector for PointDetectPeak {
                 }
 
                 x += STEP_X;
-                idx += STEP_X as usize;
             }
             x = 0;
             y += STEP_Y;
@@ -138,6 +132,9 @@ pub fn inside_existing_point(x: i32, y: i32, points: &[DetectedPoint]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::PointDetectPeak;
+    use astrocap_core::structs::DetectedPoint;
+    use astrocap_core::traits::PointDetector;
     use image::io::Reader as ImageReader;
     use image::{GrayImage, ImageBuffer, Luma};
     use imageproc::filter::median_filter;
@@ -147,9 +144,6 @@ mod tests {
     use std::collections::HashSet;
     use std::fs::File;
     use std::sync::Arc;
-
-    use super::PointDetectPeak;
-    use crate::PointDetector;
 
     type Tree = KdTree<f64, usize, 2, 32, u32>;
 
@@ -181,14 +175,15 @@ mod tests {
         let subtracted = map_colors2(&img, &img_median, |p, q| {
             Luma([(p[0] as u8).saturating_sub(q[0] as u8)])
         });
+
         subtracted
             .save("../test-images/astrocap_model/test-image-1-subtracted.png")
             .unwrap();
 
-        let arc_sub = Arc::new(subtracted);
-
         // perform the extract
-        let results: Vec<DetectedPoint> = PointDetectPeak::detect(arc_sub, Some(img_median), None);
+        let point_detect_peak = PointDetectPeak {};
+        let results: Vec<DetectedPoint> =
+            point_detect_peak.detect(&subtracted.into(), Some(&img_median.into()), None);
 
         serde_json::to_writer(
             File::create("../test-images/astrocap_model/test-image-1-detected.json").unwrap(),

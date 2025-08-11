@@ -1,8 +1,8 @@
-use crate::PointFitter;
 use argmin::core::{CostFunction, State, TerminationReason};
 use argmin::solver::neldermead::NelderMead;
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
+use astrocap_core::traits::PointFitter;
 use image::Pixel;
 use ndarray::Array1;
 use std::sync::Arc;
@@ -350,6 +350,10 @@ pub fn gaussian_2d(
 
 #[cfg(test)]
 mod tests {
+    use super::PointFitterGaussianNelderMead;
+    use astrocap_core::frame::{CpuFrame, CpuStorage};
+    use astrocap_core::structs::DetectedPoint;
+    use astrocap_core::traits::PointFitter;
     use image::io::Reader as ImageReader;
     use image::{ImageBuffer, Luma};
     use kiddo::float::kdtree::KdTree;
@@ -357,10 +361,6 @@ mod tests {
     use std::collections::HashSet;
     use std::fs::File;
     use std::sync::Arc;
-
-    use super::PointFitterGaussianNelderMead;
-    use crate::PointFitter;
-    use astrocap_core::structs::DetectedPoint;
 
     struct Point {
         x: usize,
@@ -383,9 +383,7 @@ mod tests {
         let img_height = raw_img.height();
         let img_width = raw_img.width();
 
-        let img =
-            ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(img_width, img_height, raw_img.into_bytes())
-                .expect("Could not create ImageBuffer from VideoFrame");
+        let img = CpuFrame::new_owned(img_width, img_height, raw_img.into_bytes());
 
         let points: Vec<DetectedPoint> = serde_json::from_reader(
             File::open("../test-images/astrocap_model/test-image-1-detected.json").unwrap(),

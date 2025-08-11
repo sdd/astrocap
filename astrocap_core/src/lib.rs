@@ -1,18 +1,19 @@
-use crate::pipeline::PipelineContext;
 use std::any::Any;
 use std::collections::HashMap;
+use std::mem::swap;
 
 pub mod error;
 pub mod frame;
 pub mod pipeline;
 pub mod stages;
 pub mod structs;
+pub mod traits;
 
 pub use error::AstrocapError;
 pub use frame::Frame;
+pub use traits::{FrameProcessor, FrameSink, FrameSource, StageFactory};
 
 // needed for the exported macros to work without the consuming crate having to import them
-use crate::structs::DetectedPoint;
 pub use inventory;
 pub use paste;
 
@@ -43,36 +44,18 @@ impl FrameContext {
         Ok(downcasted)
     }
 
-    pub fn put<'a, T: Any + Send + Sync + 'static>(&'a mut self, key: &str, value: T) {
+    pub fn put<T: Any + Send + Sync + 'static>(&mut self, key: &str, value: T) {
         self.metadata.insert(key.to_string(), Box::new(value));
+    }
+
+    pub fn take_frame(&mut self) -> Frame {
+        let mut f = Frame::None;
+        swap(&mut f, &mut self.frame);
+        f
     }
 }
 
 pub enum FrameProcessorResult {
     Continue,
     Skip,
-}
-
-pub trait FrameSource: Send + Sync {
-    fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext>;
-    fn name(&self) -> &str;
-}
-
-pub trait FrameProcessor: Send + Sync {
-    fn process(
-        &mut self,
-        frame_ctx: &mut FrameContext,
-        ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult;
-    fn name(&self) -> &str;
-}
-
-pub trait FrameSink: Send + Sync {
-    fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext);
-    fn name(&self) -> &str;
-}
-
-pub trait StageFactory: Send + Sync {
-    fn create(&self, params: Option<&toml::Value>) -> Result<Box<dyn Any>, AstrocapError>;
-    fn stage_type(&self) -> &'static str;
 }

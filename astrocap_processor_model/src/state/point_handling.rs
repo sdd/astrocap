@@ -1,10 +1,7 @@
-use crate::state::{FrameState, ModelState};
-
-use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
-use az::{Az, Cast};
-
+use astrocap_core::frame::CpuFrame;
+use astrocap_core::traits::PointFitter;
+use az::Az;
 use kiddo::SquaredEuclidean;
-use ndarray::{ArrayBase, Dim, OwnedRepr};
 use nonmax::NonMaxUsize;
 use num_traits::float::FloatCore;
 use serde::Serialize;
@@ -12,6 +9,8 @@ use std::collections::HashSet;
 use std::num::NonZero;
 use std::sync::Arc;
 use tracing::*;
+
+use crate::state::{FrameState, ModelState};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DetectedPoint {
@@ -63,7 +62,8 @@ pub struct StarCandidate {
 impl ModelState {
     pub(crate) fn fit_existing_points(
         &mut self,
-        frame: Arc<dyn PointFitter>,
+        frame: &CpuFrame,
+        point_fitter: Arc<dyn PointFitter>,
     ) -> (HashSet<usize>, Vec<(usize, Option<usize>)>) {
         let mut match_indexes: HashSet<usize> = HashSet::new();
         let mut candidate_matches: Vec<(usize, Option<usize>)> = Vec::new();
@@ -95,12 +95,12 @@ impl ModelState {
 
             let search_radius = if has_kalman && match_rate > 0.7 && track_confidence > 20.0 {
                 // Strong track - use tight radius
-                let tight_radius = 3.0f32; // Much smaller for established tracks
-                tight_radius
+                // Much smaller for established tracks
+                3.0f32
             } else if recent_matches.len() >= 5 && match_rate > 0.4 {
                 // Moderate track - use standard radius
-                let moderate_radius = 7.0324;
-                moderate_radius
+
+                7.0324
             } else {
                 // Weak/new track - use larger radius but not too large
                 let unmatched_frames = cand
@@ -145,12 +145,12 @@ impl ModelState {
                 }
 
                 let detected_point = &mut curr_frame_state.detected_points_list[detected_point_idx];
-                if detected_point.fitted_point.is_none() {
-                    let fitted_point = frame.fit(detected_point);
-                    detected_point.fitted_point = Some(fitted_point);
+                if detected_point.fitted.is_none() {
+                    let fitted_point = point_fitter.fit(frame, detected_point);
+                    detected_point.fitted = Some(fitted_point);
                 }
 
-                let fitted_point = detected_point.fitted_point.as_ref().unwrap();
+                let fitted_point = detected_point.fitted.as_ref().unwrap();
 
                 if fitted_point.radius_x > self.model_config.max_star_candidate_radius
                     || fitted_point.radius_y > self.model_config.max_star_candidate_radius
@@ -166,7 +166,7 @@ impl ModelState {
             if let Some((best_detected_point_idx, _)) = best_match {
                 let detected_point =
                     &curr_frame_state.detected_points_list[best_detected_point_idx];
-                let fitted_point = detected_point.fitted_point.as_ref().unwrap();
+                let fitted_point = detected_point.fitted.as_ref().unwrap();
                 let measurement_valid = cand.validate_measurement(fitted_point.x, fitted_point.y);
 
                 candidates_with_matches.push((
@@ -202,7 +202,7 @@ impl ModelState {
                 .unwrap();
 
             let detected_point = &curr_frame_state.detected_points_list[detected_point_idx];
-            let fitted_point = detected_point.fitted_point.as_ref().unwrap();
+            let fitted_point = detected_point.fitted.as_ref().unwrap();
             let measurement_noise = 1.0f32;
 
             if measurement_valid && history_confidence > 0.3f32 {
@@ -246,8 +246,7 @@ impl ModelState {
     pub(crate) fn fit_strong_unmatched_new_points(
         &mut self,
         point_fitter: Arc<dyn PointFitter>,
-        img_w: u32,
-        img_h: u32,
+        frame: &CpuFrame,
     ) {
         let Some(ref mut curr_frame_state) = self.current_frame_state else {
             warn!("Not enough previous frame states found when trying to fit existing points");
@@ -266,7 +265,7 @@ impl ModelState {
             }
 
             // skip points that are too dim
-            if detected_point.amplitude
+            if (detected_point.amplitude as f32)
                 < self
                     .model_config
                     .detected_point_candidate_amplitude_threshold
@@ -278,7 +277,7 @@ impl ModelState {
             let close_candidates = self
                 .star_candidates_tree
                 .nearest_n_within::<SquaredEuclidean>(
-                    &[detected_point.x, detected_point.y],
+                    &[detected_point.x as f32, detected_point.y as f32],
                     self.model_config.max_existing_candidate_match_dist
                         * self.model_config.max_existing_candidate_match_dist,
                     NonZero::new(1).unwrap(),
@@ -288,16 +287,16 @@ impl ModelState {
                 continue;
             }
 
-            if detected_point.fitted_point.is_none() {
-                detected_point.fitted_point = Some(point_fitter.fit(detected_point));
+            if detected_point.fitted.is_none() {
+                detected_point.fitted = Some(point_fitter.fit(frame, detected_point));
             }
 
-            let fitted_point = &detected_point.fitted_point.clone().unwrap();
+            let fitted_point = &detected_point.fitted.clone().unwrap();
 
-            if fitted_point.x >= 0
-                && fitted_point.y >= 0
-                && fitted_point.x < img_w
-                && fitted_point.y < img_h
+            if fitted_point.x >= 0f32
+                && fitted_point.y >= 0f32
+                && fitted_point.x < frame.width() as f32
+                && fitted_point.y < frame.height() as f32
                 && fitted_point.score > self.model_config.min_new_star_candidate_score
                 && fitted_point.radius_x < self.model_config.max_star_candidate_radius
                 && fitted_point.radius_y < self.model_config.max_star_candidate_radius
@@ -666,7 +665,7 @@ impl StarCandidate {
 
     fn matrix_inverse_2x2(&self, a: &[[f32; 2]; 2]) -> [[f32; 2]; 2] {
         let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
-        let inv_det = F::one() / det;
+        let inv_det = det.recip();
         [
             [a[1][1] * inv_det, -a[0][1] * inv_det],
             [-a[1][0] * inv_det, a[0][0] * inv_det],
@@ -691,7 +690,7 @@ impl StarCandidate {
         for i in 0..4 {
             for j in 0..4 {
                 if i == j {
-                    i_kh[i][j] = F::one();
+                    i_kh[i][j] = 1f32;
                 }
                 if j < 2 {
                     i_kh[i][j] -= k[i][j];
@@ -701,7 +700,7 @@ impl StarCandidate {
         i_kh
     }
 
-    pub fn validate_measurement(&self, measured_x: f32, measured_y: F) -> bool {
+    pub fn validate_measurement(&self, measured_x: f32, measured_y: f32) -> bool {
         if !self.kalman_initialized {
             return true; // Accept all measurements for uninitialized filters
         }
@@ -742,7 +741,7 @@ impl StarCandidate {
         measured_x: f32,
         measured_y: f32,
         historical_frame_states: &[FrameState],
-    ) -> F {
+    ) -> f32 {
         // Returns confidence weight [0.0, 1.0]
 
         let min_history_for_validation = 3;
@@ -781,7 +780,7 @@ impl StarCandidate {
                 opt_match.map(|match_idx| {
                     let frame_state = &historical_frame_states[frame_idx_in_history];
                     let point = &frame_state.detected_points_list[match_idx.get()];
-                    let fitted = point.fitted_point.as_ref().unwrap();
+                    let fitted = point.fitted.as_ref().unwrap();
                     (history_idx, fitted.x, fitted.y)
                 })
             })
@@ -816,10 +815,9 @@ impl StarCandidate {
 
             // Convert to confidence weight (sigmoid function)
             let max_allowed_deviation = 5.0f32;
-            let confidence = ((-deviation / max_allowed_deviation).exp())
-                / (1.0f32 + (-deviation / max_allowed_deviation).exp());
 
-            confidence
+            ((-deviation / max_allowed_deviation).exp())
+                / (1.0f32 + (-deviation / max_allowed_deviation).exp())
         } else {
             1.0f32 // Full confidence if insufficient history
         }

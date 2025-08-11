@@ -8,6 +8,7 @@ documentation.workspace = true
 
 [dependencies]
 astrocap_core = { workspace = true }
+astrocap_processor_frame_stacker = { workspace = true }
 astrocap_processor_point_detector = { workspace = true }
 astrocap_processor_point_fitter = { workspace = true }
 astrocap_processor_median_sub = { workspace = true }

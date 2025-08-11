@@ -1,5 +1,6 @@
 use crate::pipeline::PipelineContext;
-use crate::{register_astrocap_frame_sink, AstrocapError, FrameContext, FrameSink};
+use crate::traits::FrameSink;
+use crate::{register_astrocap_frame_sink, AstrocapError, FrameContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use toml::Value;
 

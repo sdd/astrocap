@@ -17,8 +17,6 @@ use tracing::{debug, info, instrument};
 use crate::cli::Args;
 use astrocap_model::config::ModelConfig;
 use astrocap_model::point_detect_adaptive_centroid::PointDetectAdaptiveCentroid;
-use astrocap_model::point_detect_local_maxima::PointDetectLocalMaxima;
-use astrocap_model::point_detect_peak::PointDetectPeak;
 use astrocap_model::point_fitter_nelder_mead::PointFitterGaussianNelderMead;
 use astrocap_model::state::ModelState;
 use astrocap_model::traits::ImageLumaExtractor;

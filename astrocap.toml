@@ -15,6 +15,14 @@ stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
 subtractand_key = "median"
 
 [[stages]]
+stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
+tag = "median_subbed"
+
+[[stages]]
+stage_type = "astrocap_processor_frame_stacker::FrameStackerProcessor"
+stack_depth = 4
+
+[[stages]]
 stage_type = "astrocap_processor_point_detector::PointDetectorProcessor"
 
 [[stages]]

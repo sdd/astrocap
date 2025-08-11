@@ -568,6 +568,7 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "image 0.24.9",
+ "imageproc",
  "inventory",
  "paste",
  "serde",
@@ -581,6 +582,7 @@ name = "astrocap_main"
 version = "0.1.0"
 dependencies = [
  "astrocap_core",
+ "astrocap_processor_frame_stacker",
  "astrocap_processor_median_sub",
  "astrocap_processor_point_detector",
  "astrocap_processor_point_fitter",
@@ -618,6 +620,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "astrocap_processor_frame_stacker"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "image 0.24.9",
+ "imageproc",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
 name = "astrocap_processor_median_sub"
 version = "0.1.0"
 dependencies = [
@@ -636,6 +649,7 @@ dependencies = [
  "argmin",
  "argmin-math",
  "astrocap_core",
+ "az",
  "image 0.24.9",
  "kiddo",
  "ndarray 0.15.6",
@@ -654,8 +668,12 @@ version = "0.1.0"
 dependencies = [
  "astrocap_core",
  "image 0.24.9",
+ "imageproc",
+ "kiddo",
  "ordered-float 5.0.0",
+ "rerun",
  "serde",
+ "serde_json",
  "toml 0.9.5",
  "tracing",
 ]
@@ -673,6 +691,7 @@ dependencies = [
  "nalgebra 0.32.6",
  "ndarray 0.15.6",
  "ordered-float 5.0.0",
+ "rerun",
  "serde",
  "serde_json",
  "toml 0.9.5",

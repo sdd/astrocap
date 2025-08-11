@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DetectedPoint {
     pub x: u32,
     pub y: u32,
@@ -8,7 +8,7 @@ pub struct DetectedPoint {
     pub fitted: Option<FittedPoint>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FittedPoint {
     pub x: f32,
     pub y: f32,
@@ -19,7 +19,7 @@ pub struct FittedPoint {
     pub fit_quality: FittedPointQuality,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FittedPointQuality {
     pub reduced_chi_squared: f32,
     pub snr: f32,

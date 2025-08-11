@@ -1,9 +1,9 @@
+use crate::median_filter::median_filter;
 use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessor, FrameProcessorResult};
+use astrocap_core::traits::FrameProcessor;
+use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::GrayImage;
 use toml::Value;
-
-use crate::median_filter::median_filter;
 
 pub struct MedianProcessor {}
 

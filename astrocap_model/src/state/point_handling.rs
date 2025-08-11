@@ -113,12 +113,12 @@ where
 
             let search_radius = if has_kalman && match_rate > 0.7 && track_confidence > 20.0 {
                 // Strong track - use tight radius
-                let tight_radius = 3.0f64.az::<F>(); // Much smaller for established tracks
-                tight_radius
+                // Much smaller for established tracks
+                3.0f64.az::<F>()
             } else if recent_matches.len() >= 5 && match_rate > 0.4 {
                 // Moderate track - use standard radius
-                let moderate_radius = 7.0f64.az::<F>();
-                moderate_radius
+
+                7.0f64.az::<F>()
             } else {
                 // Weak/new track - use larger radius but not too large
                 let unmatched_frames = cand
@@ -842,10 +842,9 @@ where
 
             // Convert to confidence weight (sigmoid function)
             let max_allowed_deviation = 5.0f64.az::<F>();
-            let confidence = ((-deviation / max_allowed_deviation).exp())
-                / (1.0f64.az::<F>() + (-deviation / max_allowed_deviation).exp());
 
-            confidence
+            ((-deviation / max_allowed_deviation).exp())
+                / (1.0f64.az::<F>() + (-deviation / max_allowed_deviation).exp())
         } else {
             1.0f64.az::<F>() // Full confidence if insufficient history
         }

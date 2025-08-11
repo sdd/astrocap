@@ -1,9 +1,10 @@
 use crate::config::PointFitterConfig;
 use crate::fitters::nelder_mead::PointFitterGaussianNelderMead;
-use crate::PointFitter;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
-use astrocap_core::{AstrocapError, FrameContext, FrameProcessor, FrameProcessorResult};
+use astrocap_core::traits::{FrameProcessor, PointFitter};
+use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
+use rerun::RecordingStream;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -32,7 +33,7 @@ impl FrameProcessor for PointFitterProcessor {
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
-        _ctx: &mut PipelineContext,
+        ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
         let Some(frame) = frame_ctx.frame.as_cpu_frame() else {
             tracing::error!("Frame is not present");
@@ -48,6 +49,18 @@ impl FrameProcessor for PointFitterProcessor {
             .iter()
             .map(|detected_point| self.point_fitter.fit(frame, detected_point))
             .collect();
+
+        if let Ok(rec) = ctx.get_as::<RecordingStream>("rerun") {
+            rec.log(
+                format!("model/fitted_points"),
+                &rerun::Points2D::new(
+                    detected_points_list
+                        .iter()
+                        .map(|cand| (cand.x as f32, cand.y as f32)),
+                ),
+            )
+            .unwrap();
+        }
 
         frame_ctx.put("fitted_points", fitted_points_list);
 

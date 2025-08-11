@@ -1,8 +1,6 @@
 use crate::pipeline::PipelineContext;
-use crate::{
-    register_astrocap_frame_processor, AstrocapError, FrameContext, FrameProcessor,
-    FrameProcessorResult,
-};
+use crate::traits::FrameProcessor;
+use crate::{register_astrocap_frame_processor, AstrocapError, FrameContext, FrameProcessorResult};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use toml::Value;
@@ -25,6 +23,13 @@ impl DummyProcessor {
 }
 
 impl FrameProcessor for DummyProcessor {
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        ctx.entry("frames_processed".to_string())
+            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
+
+        Ok(())
+    }
+
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,

@@ -90,23 +90,17 @@ stage_type = "astrocap_core::DummySink"
 
     // Assert on the statistics recorded in the pipeline context
     let frames_sourced = final_context
-        .get("frames_sourced")
-        .expect("frames_sourced counter should exist")
-        .downcast_ref::<AtomicUsize>()
+        .get_as::<AtomicUsize>("frames_sourced")
         .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get("frames_processed")
-        .expect("frames_processed counter should exist")
-        .downcast_ref::<AtomicUsize>()
+        .get_as::<AtomicUsize>("frames_processed")
         .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get("frames_sunk")
-        .expect("frames_sunk counter should exist")
-        .downcast_ref::<AtomicUsize>()
+        .get_as::<AtomicUsize>("frames_sunk")
         .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 
@@ -156,26 +150,20 @@ stage_type = "astrocap_core::DummySink"
     let final_context = run_pipeline(pipeline_context, pipeline);
     let duration = start_time.elapsed();
 
-    // Get counters
+    // Assert on the statistics recorded in the pipeline context
     let frames_sourced = final_context
-        .get("frames_sourced")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_sourced")
+        .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get("frames_processed")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_processed")
+        .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get("frames_sunk")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_sunk")
+        .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     println!("Pseudo-live pipeline statistics:");
@@ -238,24 +226,18 @@ stage_type = "astrocap_core::DummySink"
 
     // Get counters
     let frames_sourced = final_context
-        .get("frames_sourced")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_sourced")
+        .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get("frames_processed")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_processed")
+        .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get("frames_sunk")
-        .unwrap()
-        .downcast_ref::<AtomicUsize>()
-        .unwrap()
+        .get_as::<AtomicUsize>("frames_sunk")
+        .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     println!("Non-live pipeline statistics:");

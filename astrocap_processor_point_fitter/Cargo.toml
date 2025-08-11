@@ -12,6 +12,7 @@ image = { workspace = true }
 ordered-float = "5"
 nalgebra = "0.32"
 ndarray = "0.15"
+rerun = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 toml = { workspace = true }

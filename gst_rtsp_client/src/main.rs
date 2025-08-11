@@ -21,7 +21,7 @@ mod point_extractor_consumer;
 mod run;
 mod snapshot_consumer;
 mod video_frame_to_image_buffer;
-// pub(crate) mod window_renderer;
+// pub(crate) pipeline window_renderer;
 
 fn app_main() -> Result<()> {
     // Set up logging

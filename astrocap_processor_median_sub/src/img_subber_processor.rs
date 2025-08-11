@@ -1,7 +1,8 @@
 use crate::map_colors::map_colors;
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
-use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessor, FrameProcessorResult};
+use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::Luma;
 use toml::Value;
 

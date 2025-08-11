@@ -195,7 +195,7 @@ where
     };*/
 
     // Combine all components
-    let total_score = amplitude_score + r_squared_score + snr_score + radius_score;
+
     //+ symmetry_score + negative_radius_penalty + chi2_score;
 
     // Expected score ranges with this system:
@@ -204,7 +204,7 @@ where
     // Marginal candidates (amp ~30-34): ~0-20
     // Spurious detections: negative to ~10
 
-    total_score
+    amplitude_score + r_squared_score + snr_score + radius_score
 }
 
 pub struct PointFitterGaussianNelderMead {
@@ -240,8 +240,8 @@ where
     fn fit(&self, point: &DetectedPoint<F>) -> FittedPoint<F> {
         let img = self.frame.as_ref();
 
-        let centre_x = point.x.max(0).min(img.width() - 1).az::<F>();
-        let centre_y = point.y.max(0).min(img.height() - 1).az::<F>();
+        let centre_x = point.x.min(img.width() - 1).az::<F>();
+        let centre_y = point.y.min(img.height() - 1).az::<F>();
 
         let problem = Gaussian2DFitProblem {
             img,
@@ -564,8 +564,8 @@ where
 
     if count > F::zero() {
         let mean = sum / count;
-        let variance = (sum_squared / count) - (mean * mean);
-        variance
+
+        (sum_squared / count) - (mean * mean)
     } else {
         F::zero()
     }

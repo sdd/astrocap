@@ -2,7 +2,7 @@ use clap::Parser;
 use derive_more::{Display, Error};
 use gst::glib;
 use http::Uri;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Display, Error)]
 #[display(fmt = "Received error from {src}: {error} (debug: {debug:?})")]

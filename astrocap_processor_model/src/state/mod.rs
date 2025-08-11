@@ -1,24 +1,25 @@
 pub mod point_handling;
 
-pub use point_handling::{DetectedPoint, FittedPoint, StarCandidate};
+pub use point_handling::StarCandidate;
 use std::collections::HashSet;
 
-use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
+use argmin_math::ArgminAdd;
+use az::Az;
 use std::error::Error;
-use std::num::NonZero;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 
 use crate::config::ModelConfig;
 
+use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::{FrameContext, FrameProcessor, FrameProcessorResult};
-use kiddo::{KdTree, SquaredEuclidean};
-use ndarray::{ArrayBase, Dim, OwnedRepr};
+use astrocap_core::structs::DetectedPoint;
+use astrocap_core::traits::{FrameProcessor, PointFitter};
+use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
+use kiddo::KdTree;
 use nonmax::NonMaxUsize;
 use num_traits::float::FloatCore;
-use ordered_float::OrderedFloat;
+use num_traits::real::Real;
 use rerun::RecordingStream;
 
 const POINT_EXCLUSION_DIST: f64 = 3.4f64;
@@ -32,7 +33,6 @@ pub struct FrameState {
 #[derive(Debug)]
 pub struct ModelState {
     model_config: ModelConfig,
-    rec: Option<RecordingStream>,
 
     pub current_frame_state: Option<FrameState>,
     pub historical_frame_states: Vec<FrameState>,
@@ -44,27 +44,32 @@ pub struct ModelState {
 }
 
 impl ModelState {
-    pub fn new(
-        model_config: ModelConfig,
-        _star_index_path: Option<PathBuf>,
-        rec: Option<RecordingStream>,
-    ) -> Self {
-        ModelState {
+    pub fn new(config: Option<&toml::Value>) -> Result<Self, AstrocapError> {
+        let Some(config) = config else {
+            return Err(AstrocapError::PluginMissingConfigError);
+        };
+
+        let model_config: ModelConfig = config
+            .clone()
+            .try_into()
+            .map_err(|_| AstrocapError::PluginInvalidConfigError)?;
+
+        Ok(ModelState {
             model_config,
-            rec,
             current_frame_state: None,
             historical_frame_states: vec![],
             star_candidates: vec![],
             star_candidates_tree: KdTree::new(),
             matched_point_indices: HashSet::new(),
-        }
+        })
     }
 }
 
-impl FrameState {
+/*impl FrameState {
     pub fn from_frame(rec: Option<RecordingStream>) -> Self {
         let mut detected_points_list = PD::detect(frame, median, mask);
 
+        // fit all detected points
         let fitted_points_list: Vec<_> = detected_points_list
             .iter()
             .map(|cand| point_fitter.fit(cand))
@@ -78,12 +83,16 @@ impl FrameState {
             point.fitted_point = Some(fitted_point.clone());
         }
 
+        // build a kd tree of all detected points
         let mut detected_points_tree: KdTree<f32, 2> =
             KdTree::with_capacity(detected_points_list.len());
 
+        // track which detected points we're going to remove
         let mut detected_points_removed_index_list: Vec<_> =
             Vec::with_capacity(detected_points_list.len());
 
+        // keep only the brightest point in the vicinity if there are points within
+        // POINT_EXCLUSION_DIST of each other
         for (idx, point) in detected_points_list.iter().enumerate() {
             let query = [point.x, point.y];
             let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
@@ -114,6 +123,7 @@ impl FrameState {
             }
         }
 
+        // remove the points added to the list
         detected_points_removed_index_list.sort_unstable();
         for &idx in detected_points_removed_index_list.iter().rev() {
             detected_points_list.remove(idx as usize);
@@ -126,7 +136,7 @@ impl FrameState {
             detected_points_tree,
         }
     }
-}
+}*/
 
 impl FrameProcessor for ModelState {
     fn process(
@@ -135,14 +145,28 @@ impl FrameProcessor for ModelState {
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
         // pull detected_points from frame context
+        let Ok(detected_points_list) = frame_ctx.get_as::<Vec<DetectedPoint>>("detected_points")
+        else {
+            return FrameProcessorResult::Skip;
+        };
 
         // create a frame state from detected points
+        let frame_state = FrameState {
+            detected_points_list: detected_points_list.clone(),
+            detected_points_tree: KdTree::new(), // TODO
+        };
 
-        // pull star_candidates from pipeline context
+        // pull tracked_objects from pipeline context
+        let Ok(tracked_objects) = frame_ctx.get_as::<Vec<StarCandidate>>("tracked_objects") else {
+            return FrameProcessorResult::Skip;
+        };
 
         // set them on self
+        self.star_candidates = tracked_objects.clone();
+        self.current_frame_state = Some(frame_state);
 
         // call self.process_frame()
+        FrameProcessorResult::Skip
     }
 
     fn name(&self) -> &str {
@@ -151,22 +175,15 @@ impl FrameProcessor for ModelState {
 }
 
 impl ModelState {
-    pub fn process_frame(&mut self, rec: Option<RecordingStream>) -> Result<(), Box<dyn Error>> {
-        // Create new frame state from current frame
-        let new_frame_state = FrameState::from_frame(frame.clone(), median, mask, rec.clone());
-
-        // Move current frame to history (if it exists)
-        if let Some(current) = self.current_frame_state.take() {
-            self.historical_frame_states.push(current);
-        }
-
-        // Set new current frame
-        self.current_frame_state = Some(new_frame_state);
-
+    pub fn process_frame(
+        &mut self,
+        frame: &CpuFrame,
+        rec: Option<RecordingStream>,
+        point_fitter: Arc<dyn PointFitter>,
+    ) -> Result<(), Box<dyn Error>> {
         // Now fit existing points and get match information
-        let point_fitter = Arc::new(PF::new(frame.clone()));
         let (matched_point_indices, candidate_matches) =
-            self.fit_existing_points(point_fitter.clone());
+            self.fit_existing_points(frame, point_fitter.clone());
         self.matched_point_indices = matched_point_indices;
 
         // Update the detected_point_match_history after frame has been moved to history
@@ -185,7 +202,7 @@ impl ModelState {
         if let Some(ref current_frame_state) = self.current_frame_state {
             let img_w = frame.width();
             let img_h = frame.height();
-            self.fit_strong_unmatched_new_points(point_fitter, img_w, img_h);
+            self.fit_strong_unmatched_new_points(point_fitter, frame);
         }
 
         // Update state positions (Kalman predictions, etc.)
@@ -195,9 +212,9 @@ impl ModelState {
         self.clean_up_state();
 
         // Log to rerun if available
-        if rec.is_some() {
-            self.log_to_rerun();
-        }
+        // if rec.is_some() {
+        //     self.log_to_rerun();
+        // }
 
         Ok(())
     }
@@ -237,12 +254,12 @@ impl ModelState {
                     // matched this frame
                     let point = &curr_frame_state.detected_points_list[fitted_point_idx.get()];
 
-                    let score = point.fitted_point.as_ref().unwrap().score;
+                    let score = point.fitted.as_ref().unwrap().score;
                     max_score = FloatCore::max(max_score, score);
                     min_score = FloatCore::min(min_score, score);
                     cand.log_likelihood += score;
 
-                    if point.amplitude < self.model_config.amplitude_penalty_threshold {
+                    if (point.amplitude as f32) < self.model_config.amplitude_penalty_threshold {
                         cand.log_likelihood -= self.model_config.amplitude_penalty;
                     }
                 } else {
@@ -273,45 +290,43 @@ impl ModelState {
         );
     }
 
-    fn log_to_rerun(&mut self) {
-        if let Some(ref rec) = self.rec {
-            rec.log(
-                format!("model/star_candidates"),
-                &rerun::Points2D::new(
-                    self.star_candidates
-                        .iter()
-                        .filter(|cand| {
-                            cand.log_likelihood
-                                > self.model_config.star_candidate_long_term_match_threshold
-                        })
-                        .map(|cand| (cand.x.az::<f32>(), cand.y.az::<f32>())),
-                )
-                .with_colors(
-                    self.star_candidates
-                        .iter()
-                        .filter(|cand| {
-                            cand.log_likelihood
-                                > self.model_config.star_candidate_long_term_match_threshold
-                        })
-                        .map(|cand| {
-                            let log_likelihood = cand.log_likelihood.az::<f32>();
-                            let hue = (log_likelihood.min(1000.0) / 1000.0) * 270.0; // 0° = red, 270° = violet
-                            let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
-                            rerun::Color::from_rgb(r, g, b)
-                        }),
-                )
-                .with_labels(
-                    self.star_candidates
-                        .iter()
-                        .filter(|cand| {
-                            cand.log_likelihood
-                                > self.model_config.star_candidate_long_term_match_threshold
-                        })
-                        .map(|cand| format!("LL: {}, Age: {}", cand.log_likelihood, cand.age)),
-                ),
+    fn log_to_rerun(&mut self, rec: RecordingStream) {
+        rec.log(
+            "model/star_candidates".to_string(),
+            &rerun::Points2D::new(
+                self.star_candidates
+                    .iter()
+                    .filter(|cand| {
+                        cand.log_likelihood
+                            > self.model_config.star_candidate_long_term_match_threshold
+                    })
+                    .map(|cand| (cand.x.az::<f32>(), cand.y.az::<f32>())),
             )
-            .unwrap()
-        }
+            .with_colors(
+                self.star_candidates
+                    .iter()
+                    .filter(|cand| {
+                        cand.log_likelihood
+                            > self.model_config.star_candidate_long_term_match_threshold
+                    })
+                    .map(|cand| {
+                        let log_likelihood = cand.log_likelihood.az::<f32>();
+                        let hue = (log_likelihood.min(1000.0) / 1000.0) * 270.0; // 0° = red, 270° = violet
+                        let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
+                        rerun::Color::from_rgb(r, g, b)
+                    }),
+            )
+            .with_labels(
+                self.star_candidates
+                    .iter()
+                    .filter(|cand| {
+                        cand.log_likelihood
+                            > self.model_config.star_candidate_long_term_match_threshold
+                    })
+                    .map(|cand| format!("LL: {}, Age: {}", cand.log_likelihood, cand.age)),
+            ),
+        )
+        .unwrap()
     }
 }
 
@@ -339,52 +354,4 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     let b = ((b_prime + m) * 255.0).round() as u8;
 
     (r, g, b)
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::point_detect_peak::PointDetectPeak;
-    use crate::point_fitter_nelder_mead::PointFitterGaussianNelderMead;
-    use crate::state::{ModelConfig, ModelState};
-    use crate::traits::ImageLumaExtractor;
-    use image::io::Reader as ImageReader;
-    use image::{ImageBuffer, Luma, Pixel};
-    use std::sync::Arc;
-
-    impl ImageLumaExtractor for ImageBuffer<Luma<u8>, Vec<u8>> {
-        fn get_luma8_for_pixel(&self, x: u32, y: u32) -> u8 {
-            self.get_pixel(x, y).channels()[0]
-        }
-        fn width(&self) -> u32 {
-            self.width()
-        }
-        fn height(&self) -> u32 {
-            self.height()
-        }
-    }
-
-    #[test]
-    fn can_construct_correctly() {
-        let raw_img = ImageReader::open("../test-images/astrocap_model/test-image-1.png")
-            .unwrap()
-            .decode()
-            .unwrap();
-        let img_height = raw_img.height();
-        let img_width = raw_img.width();
-        const MAX_FALSE_POSITIVES: usize = 500;
-
-        let img =
-            ImageBuffer::<Luma<u8>, Vec<u8>>::from_vec(img_width, img_height, raw_img.into_bytes())
-                .expect("Could not create ImageBuffer from VideoFrame");
-
-        let arc_img = Arc::new(img);
-
-        let mut model_state: ModelState<f64> = ModelState::new(ModelConfig::default(), None, None);
-
-        model_state
-            .process_frame::<PointDetectPeak, PointFitterGaussianNelderMead>(
-                arc_img, None, None, None,
-            )
-            .unwrap();
-    }
 }

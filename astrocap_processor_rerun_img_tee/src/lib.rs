@@ -1,10 +1,11 @@
 use astrocap_core::FrameProcessorResult::{Continue, Skip};
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{
-    AstrocapError, Frame, FrameContext, FrameProcessor, FrameProcessorResult,
-    register_astrocap_frame_processor,
+    AstrocapError, Frame, FrameContext, FrameProcessorResult, register_astrocap_frame_processor,
 };
 use rerun::RecordingStream;
+use rerun::external::arrow::array::Datum;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use toml::Value;
 
@@ -25,19 +26,31 @@ impl RerunTeeProcessor {
 }
 
 impl FrameProcessor for RerunTeeProcessor {
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        ctx.entry("rerun".to_string()).or_insert(Box::new(
+            rerun::RecordingStreamBuilder::new("astrocap")
+                .connect_grpc()
+                .map(|res| {
+                    tracing::info!("Initialized Rerun connection");
+                    res
+                })
+                .map_err(|err| {
+                    AstrocapError::GeneralPluginError(format!(
+                        "Failed to connect to rerun: {}",
+                        err
+                    ))
+                })?,
+        ));
+
+        Ok(())
+    }
+
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let Some(rec) = ctx.get("rerun") else {
-            tracing::warn!("No rerun context");
-            return Continue;
-        };
-
-        let rec = rec
-            .downcast_ref::<RecordingStream>()
-            .expect("Rerun context is not a recording stream");
+        let rec = ctx.get_as::<RecordingStream>("rerun").unwrap();
 
         let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
             tracing::warn!("No frame to process");

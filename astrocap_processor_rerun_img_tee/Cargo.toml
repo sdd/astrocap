@@ -9,8 +9,8 @@ documentation.workspace = true
 [dependencies]
 astrocap_core = { path = "../astrocap_core" }
 rerun = { workspace = true }
-toml = "0.9.5"
-tracing = "0.1.41"
+toml = { workspace = true }
+tracing = { workspace = true }
 
 [lib]
 name = "astrocap_processor_rerun_img_tee"

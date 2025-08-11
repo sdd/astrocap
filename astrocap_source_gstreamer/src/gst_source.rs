@@ -8,13 +8,13 @@ use std::time::Duration;
 use gst::prelude::*;
 use gst::{Message, MessageView};
 
-use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext, FrameSource};
-use thiserror::Error;
-
 use crate::config::*;
 use crate::frame_buffer::*;
 use crate::gst_buffer_timing_meta::instrument_pipeline_with_timing_meta;
 use crate::gst_pipeline::*;
+use astrocap_core::traits::FrameSource;
+use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext};
+use thiserror::Error;
 
 const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
 

@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
 pub struct ModelConfig {
     pub min_reqd_qty_to_attempt_solve: usize,
     pub max_existing_candidate_match_dist: f32,
