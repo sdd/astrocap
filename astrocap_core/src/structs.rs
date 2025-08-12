@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DetectedPoint {
-    pub x: u32,
-    pub y: u32,
-    pub amplitude: u8,
+    pub x: f32,
+    pub y: f32,
+    pub amplitude: f32,
     pub fitted: Option<FittedPoint>,
 }
 

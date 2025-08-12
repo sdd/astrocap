@@ -189,8 +189,8 @@ pub struct PointFitterGaussianNelderMead {}
 
 impl PointFitter for PointFitterGaussianNelderMead {
     fn fit(&self, frame: &CpuFrame, point: &DetectedPoint) -> FittedPoint {
-        let centre_x = point.x.min(frame.img.width() - 1) as f32;
-        let centre_y = point.y.min(frame.img.height() - 1) as f32;
+        let centre_x = point.x.min((frame.img.width() - 1) as f32);
+        let centre_y = point.y.min((frame.img.height() - 1) as f32);
 
         let problem = Gaussian2DFitProblem {
             frame,

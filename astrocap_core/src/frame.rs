@@ -12,10 +12,12 @@ pub enum Frame {
     None,
 }
 
+pub type CpuImgBuf = ImageBuffer<Luma<u8>, CpuStorage>;
+
 /// A simple CPU-backed frame type for grayscale images (GRAY8).
 #[derive(Clone)]
 pub struct CpuFrame {
-    pub img: ImageBuffer<Luma<u8>, CpuStorage>,
+    pub img: CpuImgBuf,
 }
 
 /// Small Cow-like storage for CPU pixel storage
@@ -175,7 +177,7 @@ impl Frame {
     }
 
     /// If the Frame is CPU, return an ing reference; otherwise return None.
-    pub fn as_cpu_image(&self) -> Option<&ImageBuffer<Luma<u8>, CpuStorage>> {
+    pub fn as_cpu_image(&self) -> Option<&CpuImgBuf> {
         match self {
             Frame::Cpu(c) => Some(&c.img),
             _ => None,
@@ -237,10 +239,7 @@ impl Frame {
         }
     }
 
-    pub fn get_image(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<&ImageBuffer<Luma<u8>, CpuStorage>, String> {
+    pub fn get_image(&mut self, timeout: Option<Duration>) -> Result<&CpuImgBuf, String> {
         self.ensure_cpu(timeout)?;
 
         match self {

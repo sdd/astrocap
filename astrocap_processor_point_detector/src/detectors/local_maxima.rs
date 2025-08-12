@@ -1,43 +1,78 @@
-use crate::state::DetectedPoint;
-use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector};
-use az::{Az, Cast};
-use std::sync::Arc;
+use astrocap_core::frame::CpuImgBuf;
+use astrocap_core::structs::DetectedPoint;
+use astrocap_core::traits::PointDetector;
+use astrocap_core::Frame;
+use image::Pixel;
+use serde::Deserialize;
 
-const POINT_THRESHOLD: u8 = 40;
-const MIN_SEPARATION: f64 = 20.0; // Minimum separation between stars (pixels)
-const CENTROID_WINDOW: i32 = 5; // Window size for centroid calculation
+const DEFAULT_POINT_THRESHOLD: u8 = 40;
+const DEFAULT_MIN_SEPARATION: f64 = 20.0; // Minimum separation between stars (pixels)
+const DEFAULT_CENTROID_WINDOW: i32 = 5; // Window size for centroid calculation
 
-pub struct PointDetectLocalMaxima {}
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub(crate) struct LocalMaximaConfig {
+    point_threshold: u8,
+    min_separation: f64,
+    centroid_window: i32,
+}
 
-impl<F: AstroFloat> PointDetector<F> for PointDetectLocalMaxima
-where
-    u32: Cast<F>,
-    u8: Cast<F>,
-    F: Cast<u32>,
-    f64: Cast<F>,
-{
+impl Default for LocalMaximaConfig {
+    fn default() -> Self {
+        Self {
+            point_threshold: DEFAULT_POINT_THRESHOLD,
+            min_separation: DEFAULT_MIN_SEPARATION,
+            centroid_window: DEFAULT_CENTROID_WINDOW,
+        }
+    }
+}
+
+pub struct PointDetectLocalMaxima {
+    pub(crate) config: LocalMaximaConfig,
+}
+
+impl PointDetector for PointDetectLocalMaxima {
     fn detect(
-        img: Arc<dyn ImageLumaExtractor>,
-        _median: Option<Arc<dyn ImageLumaExtractor>>, // Ignored by this detector
-        mask: Option<Arc<dyn ImageLumaExtractor>>,
-    ) -> Vec<DetectedPoint<F>> {
+        &self,
+        img: &Frame,
+        _median: Option<&Frame>,
+        mask: Option<&Frame>,
+    ) -> Vec<DetectedPoint> {
+        let min_separation_2 = self.config.min_separation * self.config.min_separation;
+
+        let mut points: Vec<DetectedPoint> = vec![];
+
+        let Some(img) = img.as_cpu_image() else {
+            tracing::error!("CPU image not retrieved for frame");
+            return points;
+        };
+
+        let mask = if let Some(mask) = mask {
+            let Some(mask) = mask.as_cpu_image() else {
+                tracing::error!("CPU image not retrieved for frame");
+                return points;
+            };
+            Some(mask)
+        } else {
+            None
+        };
+
         let img_w = img.width();
         let img_h = img.height();
-        let mut candidates = Vec::new();
 
         // First pass: find local maxima
         for y in 1..(img_h - 1) {
             for x in 1..(img_w - 1) {
                 // Check mask
                 if let Some(ref mask) = mask {
-                    if mask.get_luma8_for_pixel(x, y) == 0 {
+                    if mask.get_pixel(x, y).channels()[0] == 0 {
                         continue;
                     }
                 }
 
-                let center_val = img.get_luma8_for_pixel(x, y);
+                let center_val: u8 = img.get_pixel(x, y).channels()[0];
 
-                if center_val < POINT_THRESHOLD {
+                if center_val < self.config.point_threshold {
                     continue;
                 }
 
@@ -52,7 +87,7 @@ where
                         let nx = (x as i32 + dx) as u32;
                         let ny = (y as i32 + dy) as u32;
 
-                        if img.get_luma8_for_pixel(nx, ny) > center_val {
+                        if img.get_pixel(nx, ny).channels()[0] > center_val {
                             is_local_max = false;
                             break 'outer;
                         }
@@ -62,13 +97,13 @@ where
                 if is_local_max {
                     // Calculate centroid in larger window for sub-pixel accuracy
                     let (centroid_x, centroid_y, peak_intensity) =
-                        calculate_centroid(&*img, x, y, CENTROID_WINDOW);
+                        calculate_centroid(&*img, x, y, self.config.centroid_window);
 
-                    candidates.push(DetectedPoint {
-                        x: centroid_x.round() as u32,
-                        y: centroid_y.round() as u32,
-                        amplitude: peak_intensity.az::<F>(),
-                        fitted_point: None,
+                    points.push(DetectedPoint {
+                        x: centroid_x.round(),
+                        y: centroid_y.round(),
+                        amplitude: peak_intensity,
+                        fitted: None,
                     });
                 }
             }
@@ -76,13 +111,13 @@ where
 
         // Second pass: remove points that are too close to each other
         let mut final_points = Vec::new();
-        candidates.sort_by(|a, b| b.amplitude.partial_cmp(&a.amplitude).unwrap());
+        points.sort_by(|a, b| b.amplitude.partial_cmp(&a.amplitude).unwrap());
 
-        for candidate in candidates {
-            let too_close = final_points.iter().any(|existing: &DetectedPoint<F>| {
+        for candidate in points {
+            let too_close = final_points.iter().any(|existing: &DetectedPoint| {
                 let dx = candidate.x as f64 - existing.x as f64;
                 let dy = candidate.y as f64 - existing.y as f64;
-                (dx * dx + dy * dy) < MIN_SEPARATION * MIN_SEPARATION
+                (dx * dx + dy * dy) < min_separation_2
             });
 
             if !too_close {
@@ -95,11 +130,11 @@ where
 }
 
 fn calculate_centroid(
-    img: &dyn ImageLumaExtractor,
+    img: &CpuImgBuf,
     center_x: u32,
     center_y: u32,
     window: i32,
-) -> (f64, f64, f64) {
+) -> (f32, f32, f32) {
     let mut sum_intensity = 0.0;
     let mut sum_x_weighted = 0.0;
     let mut sum_y_weighted = 0.0;
@@ -111,26 +146,22 @@ fn calculate_centroid(
             let y = center_y as i32 + dy;
 
             if x >= 0 && y >= 0 && x < img.width() as i32 && y < img.height() as i32 {
-                let intensity = img.get_luma8_for_pixel(x as u32, y as u32) as f64;
+                let intensity = img.get_pixel(x as u32, y as u32).channels()[0] as f32;
 
                 if intensity > peak_intensity {
                     peak_intensity = intensity;
                 }
 
                 sum_intensity += intensity;
-                sum_x_weighted += intensity * x as f64;
-                sum_y_weighted += intensity * y as f64;
+                sum_x_weighted += intensity * x as f32;
+                sum_y_weighted += intensity * y as f32;
             }
         }
     }
 
-    if sum_intensity > 0.0 {
-        (
-            sum_x_weighted / sum_intensity,
-            sum_y_weighted / sum_intensity,
-            peak_intensity,
-        )
-    } else {
-        (center_x as f64, center_y as f64, peak_intensity)
-    }
+    (
+        sum_x_weighted / sum_intensity,
+        sum_y_weighted / sum_intensity,
+        peak_intensity,
+    )
 }

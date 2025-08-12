@@ -1,4 +1,4 @@
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::EnvFilter;
 
 use astrocap_core::pipeline::run_pipeline_with_config_file_path;
 

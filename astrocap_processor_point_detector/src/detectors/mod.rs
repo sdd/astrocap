@@ -1,3 +1,3 @@
-// pub(crate) pipeline adaptive_centroid;
-// pub(crate) pipeline local_maxima;
+pub(crate) mod adaptive_centroid;
+pub(crate) mod local_maxima;
 pub(crate) mod peak;

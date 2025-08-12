@@ -2,16 +2,39 @@ use astrocap_core::structs::DetectedPoint;
 use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
-use imageproc::drawing::Canvas;
+use ordered_float::OrderedFloat;
+use serde::Deserialize;
 
 // const POINT_SKIP_STEP: u32 = 3;
-const POINT_EXCLUSION_RADIUS_2: i32 = 400;
-const POINT_THRESHOLD: u8 = 50;
-const STEP_X: u32 = 1;
-const STEP_Y: u32 = 1;
+const DEFAULT_POINT_EXCLUSION_RADIUS_2: i32 = 400;
+const DEFAULT_POINT_THRESHOLD: u8 = 50;
+const DEFAULT_STEP_X: u32 = 1;
+const DEFAULT_STEP_Y: u32 = 1;
 // pub const PATCH_SIZE: i32 = 4;
 
-pub struct PointDetectPeak {}
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub(crate) struct PeakConfig {
+    point_exclusion_radius_2: i32,
+    point_threshold: u8,
+    step_x: u32,
+    step_y: u32,
+}
+
+impl Default for PeakConfig {
+    fn default() -> Self {
+        Self {
+            point_exclusion_radius_2: DEFAULT_POINT_EXCLUSION_RADIUS_2,
+            point_threshold: DEFAULT_POINT_THRESHOLD,
+            step_x: DEFAULT_STEP_X,
+            step_y: DEFAULT_STEP_Y,
+        }
+    }
+}
+
+pub struct PointDetectPeak {
+    pub(crate) config: PeakConfig,
+}
 
 impl PointDetector for PointDetectPeak {
     fn detect(
@@ -47,14 +70,14 @@ impl PointDetector for PointDetectPeak {
             while x < img_w {
                 if let Some(mask) = mask {
                     if mask.get_pixel(x, y).channels()[0] == 0 {
-                        x += STEP_X;
+                        x += self.config.step_x;
                         continue;
                     }
                 }
 
                 let val: u8 = img.get_pixel(x, y).channels()[0];
 
-                if val > POINT_THRESHOLD {
+                if val > self.config.point_threshold {
                     let mut curr_val: u8 = val;
                     let mut point_x = x;
                     while (point_x + 1) < img_w && img.get_pixel(x + 1, y).channels()[0] > curr_val
@@ -76,18 +99,19 @@ impl PointDetector for PointDetectPeak {
                         .filter(|&(_idx, existing)| {
                             let xd = (existing.x as i32 - point_x as i32).abs();
                             let yd = (existing.y as i32 - point_y as i32).abs();
-                            ((xd * xd) + (yd * yd)) < POINT_EXCLUSION_RADIUS_2
+                            ((xd * xd) + (yd * yd)) < self.config.point_exclusion_radius_2
                         })
                         .map(|(n, i)| (n, i.clone()))
                         .collect();
 
-                    matching.sort_by_key(|(_, p)| p.amplitude);
+                    matching.sort_by_key(|(_, p)| OrderedFloat(p.amplitude));
 
                     // if one of these nearby existing matches has higher amplitude, skip
                     // the current point
+                    let curr_val_f32 = curr_val as f32;
                     if let Some((_, last)) = matching.last() {
-                        if last.amplitude > curr_val {
-                            x += STEP_X;
+                        if last.amplitude > curr_val_f32 {
+                            x += self.config.step_x;
                             continue;
                         } else {
                             // otherwise remove the matches in favour of our new one
@@ -102,19 +126,19 @@ impl PointDetector for PointDetectPeak {
                     }
 
                     let new_point = DetectedPoint {
-                        x: point_x,
-                        y: point_y,
-                        amplitude: curr_val,
+                        x: point_x as f32,
+                        y: point_y as f32,
+                        amplitude: curr_val_f32,
                         fitted: None,
                     };
 
                     points.push(new_point.clone());
                 }
 
-                x += STEP_X;
+                x += self.config.step_x;
             }
             x = 0;
-            y += STEP_Y;
+            y += self.config.step_y;
         }
 
         points
@@ -122,17 +146,25 @@ impl PointDetector for PointDetectPeak {
 }
 
 #[allow(dead_code)]
-pub fn inside_existing_point(x: i32, y: i32, points: &[DetectedPoint]) -> bool {
+pub fn inside_existing_point(
+    x: i32,
+    y: i32,
+    points: &[DetectedPoint],
+    point_exclusion_radius_2: i32,
+) -> bool {
     points.iter().any(|point| {
         let xd = (point.x as i32 - x).abs();
         let yd = (point.y as i32 - y).abs();
-        ((xd * xd) + (yd * yd)) < POINT_EXCLUSION_RADIUS_2
+        ((xd * xd) + (yd * yd)) < point_exclusion_radius_2
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::PointDetectPeak;
+    use super::{
+        PeakConfig, PointDetectPeak, DEFAULT_POINT_EXCLUSION_RADIUS_2, DEFAULT_POINT_THRESHOLD,
+        DEFAULT_STEP_X, DEFAULT_STEP_Y,
+    };
     use astrocap_core::structs::DetectedPoint;
     use astrocap_core::traits::PointDetector;
     use image::io::Reader as ImageReader;
@@ -181,7 +213,13 @@ mod tests {
             .unwrap();
 
         // perform the extract
-        let point_detect_peak = PointDetectPeak {};
+        let config = PeakConfig {
+            step_y: DEFAULT_STEP_Y,
+            step_x: DEFAULT_STEP_X,
+            point_threshold: DEFAULT_POINT_THRESHOLD,
+            point_exclusion_radius_2: DEFAULT_POINT_EXCLUSION_RADIUS_2,
+        };
+        let point_detect_peak = PointDetectPeak { config };
         let results: Vec<DetectedPoint> =
             point_detect_peak.detect(&subtracted.into(), Some(&img_median.into()), None);
 

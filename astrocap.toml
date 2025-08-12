@@ -28,6 +28,7 @@ stack_depth = 4
 
 [[stages]]
 stage_type = "astrocap_processor_point_detector::PointDetectorProcessor"
+algorithm = "LocalMaxima"
 
 [[stages]]
 stage_type = "astrocap_processor_point_fitter::PointFitterProcessor"

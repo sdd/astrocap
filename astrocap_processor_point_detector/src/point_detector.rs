@@ -1,11 +1,12 @@
 use crate::config::PointExtractorConfig;
+use crate::detectors::adaptive_centroid::PointDetectAdaptiveCentroid;
+use crate::detectors::local_maxima::PointDetectLocalMaxima;
 use crate::detectors::peak::PointDetectPeak;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::traits::{FrameProcessor, PointDetector};
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
 use std::sync::Arc;
-use tracing::log::Log;
 
 pub struct PointDetectorProcessor {
     point_detector: Arc<dyn PointDetector>,
@@ -17,12 +18,22 @@ impl PointDetectorProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let _config: PointExtractorConfig = config
-            .clone()
-            .try_into()
-            .map_err(|e| AstrocapError::PluginInvalidConfigError(e.to_string()))?;
+        let config: PointExtractorConfig = config.clone().try_into().map_err(|e| {
+            AstrocapError::PluginInvalidConfigError(format!(
+                "PointDetectorProcessor: {}",
+                e.to_string()
+            ))
+        })?;
 
-        let point_detector: Arc<dyn PointDetector> = Arc::new(PointDetectPeak {});
+        let point_detector: Arc<dyn PointDetector> = match config {
+            PointExtractorConfig::Peak(config) => Arc::new(PointDetectPeak { config }),
+            PointExtractorConfig::LocalMaxima(config) => {
+                Arc::new(PointDetectLocalMaxima { config })
+            }
+            PointExtractorConfig::AdaptiveCentroid(config) => {
+                Arc::new(PointDetectAdaptiveCentroid { config })
+            }
+        };
 
         Ok(Self { point_detector })
     }
