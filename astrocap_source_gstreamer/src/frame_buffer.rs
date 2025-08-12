@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
@@ -99,7 +99,7 @@ impl FrameBuffer {
                 if let Some(sender) = sender_clone {
                     tracing::info!(%buffer_len, "buffer reached upper capacity threshold");
                     drop(buffer); // Release buffer lock
-                    if let Err(_) = sender.send(true) {
+                    if sender.send(true).is_err() {
                         tracing::warn!("Failed to send message");
                     }
                     buffer = self.buffer.lock().unwrap(); // Re-acquire buffer lock
@@ -155,7 +155,7 @@ impl FrameBuffer {
                     buffer_len = %new_buffer_len,
                     "buffer reached lower occupancy threshold",
                 );
-                if let Err(_) = sender.send(false) {
+                if sender.send(false).is_err() {
                     tracing::warn!("failed to send message");
                 }
             }
@@ -189,7 +189,7 @@ impl FrameBuffer {
                         buffer_len = %new_buffer_len,
                         "buffer reached lower capacity threshold",
                     );
-                    if let Err(_) = sender.send(false) {
+                    if sender.send(false).is_err() {
                         tracing::warn!("failed to send message");
                     }
                 }

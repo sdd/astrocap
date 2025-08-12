@@ -4,7 +4,6 @@ use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::Luma;
-use imageproc::definitions::Image;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use toml::Value;
@@ -13,22 +12,32 @@ use crate::map_colors::map_colors;
 
 pub struct FrameStackerProcessor {
     stack_depth: usize,
+    stack_depth_pow2: u8,
 }
 
 impl FrameStackerProcessor {
     pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
-        let stack_depth = config
+        let Some(stack_depth) = config
             .and_then(|c| c.get("stack_depth"))
             .and_then(|d| d.as_integer())
-            .map(|d| d as usize);
-
-        let Some(stack_depth) = stack_depth else {
-            return Err(AstrocapError::GeneralPluginError(
-                "stack_depth not present in FrameStackerProcessor Config".to_string(),
+        else {
+            return Err(AstrocapError::PluginInvalidConfigError(
+                "missing stack_depth in FrameStackerProcessor Config".to_string(),
             ));
         };
 
-        Ok(Self { stack_depth })
+        if (stack_depth as u32).next_power_of_two() != (stack_depth as u32) {
+            return Err(AstrocapError::PluginInvalidConfigError(
+                "stack_depth must be a power of 2 in FrameStackerProcessor Config".to_string(),
+            ));
+        } else {
+            tracing::info!(stack_depth_pow2 = (stack_depth as u32).ilog2());
+        }
+
+        Ok(Self {
+            stack_depth: stack_depth as usize,
+            stack_depth_pow2: (stack_depth as u32).ilog2() as u8,
+        })
     }
 }
 
@@ -83,13 +92,13 @@ impl FrameProcessor for FrameStackerProcessor {
         };
 
         let integration_frame = map_colors(&integration_frame.img, &frame.img, |p, q| {
-            Luma([(p[0]).saturating_add(q[0])])
+            Luma([(p[0]).saturating_add(q[0] >> self.stack_depth_pow2)])
         });
 
         let img = match old_frame {
             None => integration_frame,
             Some(old_frame) => map_colors(&integration_frame, &old_frame.img, |p, q| {
-                Luma([(p[0]).saturating_sub(q[0])])
+                Luma([(p[0]).saturating_sub(q[0] >> self.stack_depth_pow2)])
             }),
         };
 

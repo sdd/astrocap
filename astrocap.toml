@@ -11,6 +11,10 @@ tag = "original"
 stage_type = "astrocap_processor_median_sub::MedianProcessor"
 
 [[stages]]
+stage_type = "astrocap_processor_mask::MaskProcessor"
+file_path = "mask-2.png"
+
+[[stages]]
 stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
 subtractand_key = "median"
 

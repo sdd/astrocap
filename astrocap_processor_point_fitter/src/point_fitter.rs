@@ -1,11 +1,10 @@
 use crate::config::PointFitterConfig;
 use crate::fitters::nelder_mead::PointFitterGaussianNelderMead;
 use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
+use astrocap_core::structs::{DetectedPoint, FittedPoint};
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
-use serde::Serialize;
 use std::sync::Arc;
 
 pub struct PointFitterProcessor {
@@ -21,7 +20,7 @@ impl PointFitterProcessor {
         let _config: PointFitterConfig = config
             .clone()
             .try_into()
-            .map_err(|_| AstrocapError::PluginInvalidConfigError)?;
+            .map_err(|e| AstrocapError::PluginInvalidConfigError(e.to_string()))?;
 
         let point_fitter: Arc<dyn PointFitter> = Arc::new(PointFitterGaussianNelderMead {});
 
@@ -52,7 +51,7 @@ impl FrameProcessor for PointFitterProcessor {
 
         if let Ok(rec) = ctx.get_as::<RecordingStream>("rerun") {
             rec.log(
-                format!("model/fitted_points"),
+                "model/fitted_points".to_string(),
                 &rerun::Points2D::new(
                     detected_points_list
                         .iter()

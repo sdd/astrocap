@@ -5,7 +5,6 @@ use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
 use astrocap_core::traits::PointFitter;
 use image::Pixel;
 use ndarray::Array1;
-use std::sync::Arc;
 use tracing::{debug, warn};
 
 const INITIAL_GAUSSIAN_ALPHA: f32 = 1.0; // was 2.5;
@@ -117,7 +116,7 @@ pub fn calculate_star_score(fitted_point: &FittedPoint) -> f32 {
     // Ideal radius around 1.2 pixels (from your data), quadratic penalty for deviations
     let ideal_radius = 1.2f32;
     let radius_deviation = (avg_radius - ideal_radius).abs();
-    let radius_score = if avg_radius > 3.0f32 || avg_radius < 0.3f32 {
+    let radius_score = if !(0.3f32..=3.0f32).contains(&avg_radius) {
         // Hard limits for unreasonable radii
         -20.0f32
     } else {
@@ -171,7 +170,7 @@ pub fn calculate_star_score(fitted_point: &FittedPoint) -> f32 {
     };*/
 
     // Combine all components
-    let total_score = amplitude_score + r_squared_score + snr_score + radius_score;
+
     //+ symmetry_score + negative_radius_penalty + chi2_score;
 
     // Expected score ranges with this system:
@@ -180,7 +179,7 @@ pub fn calculate_star_score(fitted_point: &FittedPoint) -> f32 {
     // Marginal candidates (amp ~30-34): ~0-20
     // Spurious detections: negative to ~10
 
-    total_score
+    amplitude_score + r_squared_score + snr_score + radius_score
 }
 
 pub struct PointFitterGaussianNelderMead {}
@@ -190,11 +189,11 @@ pub struct PointFitterGaussianNelderMead {}
 
 impl PointFitter for PointFitterGaussianNelderMead {
     fn fit(&self, frame: &CpuFrame, point: &DetectedPoint) -> FittedPoint {
-        let centre_x = point.x.max(0).min(frame.img.width() - 1) as f32;
-        let centre_y = point.y.max(0).min(frame.img.height() - 1) as f32;
+        let centre_x = point.x.min(frame.img.width() - 1) as f32;
+        let centre_y = point.y.min(frame.img.height() - 1) as f32;
 
         let problem = Gaussian2DFitProblem {
-            frame: frame,
+            frame,
             centre_x,
             centre_y,
         };
@@ -484,8 +483,8 @@ fn calculate_patch_variance(frame: &CpuFrame, centre_x: f32, centre_y: f32) -> f
 
     if count > 0f32 {
         let mean = sum / count;
-        let variance = (sum_squared / count) - (mean * mean);
-        variance
+
+        (sum_squared / count) - (mean * mean)
     } else {
         0f32
     }

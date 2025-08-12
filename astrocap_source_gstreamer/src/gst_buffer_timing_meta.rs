@@ -1,6 +1,5 @@
 use gst::prelude::*;
 use thiserror::Error;
-use tracing;
 
 #[derive(Error, Debug)]
 pub enum TimingMetaError {

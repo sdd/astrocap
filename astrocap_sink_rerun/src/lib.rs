@@ -17,20 +17,23 @@ impl RerunSink {
 
 impl FrameSink for RerunSink {
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.entry("rerun".to_string()).or_insert(Box::new(
-            rerun::RecordingStreamBuilder::new("astrocap")
-                .connect_grpc()
-                .map(|res| {
-                    tracing::info!("Initialized Rerun connection");
-                    res
-                })
-                .map_err(|err| {
-                    AstrocapError::GeneralPluginError(format!(
-                        "Failed to connect to rerun: {}",
-                        err
-                    ))
-                })?,
-        ));
+        ctx.entry("rerun".to_string()).or_insert_with(|| {
+            Box::new(
+                rerun::RecordingStreamBuilder::new("astrocap")
+                    .connect_grpc()
+                    .map(|res| {
+                        tracing::info!("Initialized Rerun connection");
+                        res
+                    })
+                    .map_err(|err| {
+                        AstrocapError::GeneralPluginError(format!(
+                            "Failed to connect to rerun: {}",
+                            err
+                        ))
+                    })
+                    .unwrap(),
+            )
+        });
 
         Ok(())
     }

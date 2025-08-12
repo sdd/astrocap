@@ -2,11 +2,10 @@ use astrocap_core::FrameProcessorResult::{Continue, Skip};
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{
-    AstrocapError, Frame, FrameContext, FrameProcessorResult, register_astrocap_frame_processor,
+    AstrocapError, FrameContext, FrameProcessorResult, register_astrocap_frame_processor,
 };
 use rerun::RecordingStream;
 use rerun::external::arrow::array::Datum;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use toml::Value;
 
 pub struct RerunTeeProcessor {
@@ -27,20 +26,22 @@ impl RerunTeeProcessor {
 
 impl FrameProcessor for RerunTeeProcessor {
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.entry("rerun".to_string()).or_insert(Box::new(
-            rerun::RecordingStreamBuilder::new("astrocap")
-                .connect_grpc()
-                .map(|res| {
-                    tracing::info!("Initialized Rerun connection");
-                    res
-                })
-                .map_err(|err| {
-                    AstrocapError::GeneralPluginError(format!(
-                        "Failed to connect to rerun: {}",
-                        err
-                    ))
-                })?,
-        ));
+        ctx.entry("rerun".to_string()).or_insert_with(|| {
+            Box::new(
+                rerun::RecordingStreamBuilder::new("astrocap")
+                    .connect_grpc()
+                    .inspect(|res| {
+                        tracing::info!("Initialized Rerun connection");
+                    })
+                    .map_err(|err| {
+                        AstrocapError::GeneralPluginError(format!(
+                            "Failed to connect to rerun: {}",
+                            err
+                        ))
+                    })
+                    .unwrap(),
+            )
+        });
 
         Ok(())
     }

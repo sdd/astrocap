@@ -11,6 +11,7 @@ astrocap_core = { workspace = true }
 astrocap_processor_frame_stacker = { workspace = true }
 astrocap_processor_point_detector = { workspace = true }
 astrocap_processor_point_fitter = { workspace = true }
+astrocap_processor_mask = { workspace = true }
 astrocap_processor_median_sub = { workspace = true }
 astrocap_processor_rerun_img_tee = { workspace = true }
 astrocap_sink_rerun = { workspace = true }

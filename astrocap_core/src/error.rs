@@ -8,8 +8,8 @@ pub enum AstrocapError {
     #[error("Plugin config missing")]
     PluginMissingConfigError,
 
-    #[error("Plugin config invalid")]
-    PluginInvalidConfigError,
+    #[error("Plugin config invalid: {0}")]
+    PluginInvalidConfigError(String),
 
     #[error("Frame metadata not found")]
     FrameMetadataNotFoundError,

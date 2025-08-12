@@ -2,9 +2,8 @@ use crate::config::PointExtractorConfig;
 use crate::detectors::peak::PointDetectPeak;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::traits::{FrameProcessor, PointDetector};
-use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
+use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
-use serde::Serialize;
 use std::sync::Arc;
 use tracing::log::Log;
 
@@ -21,7 +20,7 @@ impl PointDetectorProcessor {
         let _config: PointExtractorConfig = config
             .clone()
             .try_into()
-            .map_err(|_| AstrocapError::PluginInvalidConfigError)?;
+            .map_err(|e| AstrocapError::PluginInvalidConfigError(e.to_string()))?;
 
         let point_detector: Arc<dyn PointDetector> = Arc::new(PointDetectPeak {});
 
@@ -40,11 +39,14 @@ impl FrameProcessor for PointDetectorProcessor {
             return FrameProcessorResult::Skip;
         };
 
-        let detected_points_list = self.point_detector.detect(&frame_ctx.frame, None, None);
+        let mask = ctx.get_as::<Frame>("image/mask").ok();
+        let median = frame_ctx.get_as::<Frame>("video/median").ok();
 
-        if let Ok(ref rec) = ctx.get_as::<RecordingStream>("rerun") {
+        let detected_points_list = self.point_detector.detect(&frame_ctx.frame, median, mask);
+
+        if let Ok(rec) = ctx.get_as::<RecordingStream>("rerun") {
             rec.log(
-                format!("model/detected_points"),
+                "model/detected_points".to_string(),
                 &rerun::Points2D::new(
                     detected_points_list
                         .iter()

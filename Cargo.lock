@@ -583,6 +583,7 @@ version = "0.1.0"
 dependencies = [
  "astrocap_core",
  "astrocap_processor_frame_stacker",
+ "astrocap_processor_mask",
  "astrocap_processor_median_sub",
  "astrocap_processor_point_detector",
  "astrocap_processor_point_fitter",
@@ -621,6 +622,17 @@ dependencies = [
 
 [[package]]
 name = "astrocap_processor_frame_stacker"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "image 0.24.9",
+ "imageproc",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_processor_mask"
 version = "0.1.0"
 dependencies = [
  "astrocap_core",
