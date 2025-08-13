@@ -29,6 +29,11 @@ impl PointFitterProcessor {
 }
 
 impl FrameProcessor for PointFitterProcessor {
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        ctx.put("point_fitter", self.point_fitter.clone());
+
+        Ok(())
+    }
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,

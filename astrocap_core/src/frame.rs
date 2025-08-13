@@ -1,4 +1,4 @@
-use image::{ImageBuffer, Luma};
+use image::{GrayImage, ImageBuffer, Luma};
 use std::any::Any;
 use std::fmt;
 use std::ops::Deref;
@@ -6,11 +6,22 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// The unified Frame type.
+#[derive(Clone)]
 pub enum Frame {
     Cpu(CpuFrame),
     Gpu(Arc<dyn GpuFrame>),
     None,
 }
+
+// impl Clone for Frame {
+//     fn clone(&self) -> Frame {
+//         match self {
+//             Frame::Cpu(frame) => Frame::Cpu(frame.clone()),
+//             Frame::Gpu(frame) => Frame::Gpu(frame.clone()),
+//             Frame::None => Frame::None,
+//         }
+//     }
+// }
 
 pub type CpuImgBuf = ImageBuffer<Luma<u8>, CpuStorage>;
 
@@ -104,6 +115,17 @@ impl CpuFrame {
         CpuFrame { img }
     }
 
+    pub fn new_shared_from_img(img: GrayImage) -> Self {
+        let width = img.width();
+        let height = img.height();
+        let buf = Arc::from(img.into_raw());
+
+        let storage = CpuStorage::Shared(buf);
+        let img = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, storage)
+            .expect("width*height == len");
+        CpuFrame { img }
+    }
+
     pub fn width(&self) -> u32 {
         self.img.width()
     }
@@ -155,6 +177,10 @@ impl Frame {
         Frame::Cpu(cpu)
     }
 
+    pub fn shared_from_img(img: GrayImage) -> Self {
+        Self::from_cpu_frame(CpuFrame::new_shared_from_img(img))
+    }
+
     /// Create from Arc-backed CPU storage
     pub fn from_cpu_arc(buf: Arc<[u8]>, width: u32, height: u32) -> Self {
         let storage = CpuStorage::Shared(buf);
@@ -170,6 +196,14 @@ impl Frame {
 
     /// If the Frame is CPU, return a CpuFrame ref; otherwise return None.
     pub fn as_cpu_frame(&self) -> Option<&CpuFrame> {
+        match self {
+            Frame::Cpu(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// If the Frame is CPU, return a CpuFrame ref; otherwise return None.
+    pub fn to_cpu_frame(self) -> Option<CpuFrame> {
         match self {
             Frame::Cpu(c) => Some(c),
             _ => None,

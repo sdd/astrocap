@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use argmin_math::ArgminAdd;
 use az::Az;
 use std::error::Error;
+use std::num::NonZero;
 use std::sync::Arc;
 use tracing::info;
 
@@ -16,13 +17,12 @@ use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::structs::DetectedPoint;
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
-use kiddo::KdTree;
+use kiddo::{KdTree, SquaredEuclidean};
 use nonmax::NonMaxUsize;
 use num_traits::float::FloatCore;
 use num_traits::real::Real;
+use ordered_float::OrderedFloat;
 use rerun::RecordingStream;
-
-const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
 #[derive(Debug, Clone)]
 pub struct FrameState {
@@ -49,10 +49,9 @@ impl ModelState {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let model_config: ModelConfig = config
-            .clone()
-            .try_into()
-            .map_err(|_| AstrocapError::PluginInvalidConfigError)?;
+        let model_config: ModelConfig = config.clone().try_into().map_err(|e| {
+            AstrocapError::PluginInvalidConfigError(format!("AstrocapProcessorModel: {}", e))
+        })?;
 
         Ok(ModelState {
             model_config,
@@ -138,7 +137,71 @@ impl ModelState {
     }
 }*/
 
+impl FrameState {
+    pub fn new(mut detected_points_list: Vec<DetectedPoint>, point_exclusion_dist: f32) -> Self {
+        let mut detected_points_tree: KdTree<f32, 2> =
+            KdTree::with_capacity(detected_points_list.len());
+
+        let mut detected_points_removed_index_list: Vec<_> =
+            Vec::with_capacity(detected_points_list.len());
+
+        for (idx, point) in detected_points_list.iter().enumerate() {
+            let query = [point.x, point.y];
+            let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
+                &query,
+                point_exclusion_dist,
+                NonZero::new(usize::MAX).unwrap(),
+                false,
+            );
+
+            near_neighbours.sort_unstable_by_key(|nn| {
+                OrderedFloat(detected_points_list[nn.item as usize].amplitude)
+            });
+            if let Some(brightest) = near_neighbours.pop() {
+                let brightest_point = &detected_points_list[brightest.item as usize];
+                if brightest_point.amplitude < point.amplitude {
+                    detected_points_tree
+                        .remove(&[brightest_point.x, brightest_point.y], brightest.item);
+                    detected_points_removed_index_list.push(brightest.item);
+                    detected_points_tree.add(&[point.x, point.y], idx as u64);
+                }
+            } else {
+                detected_points_tree.add(&[point.x, point.y], idx as u64);
+            }
+            for close_point_result in near_neighbours {
+                let point = &detected_points_list[close_point_result.item as usize];
+                detected_points_tree.remove(&[point.x, point.y], close_point_result.item);
+                detected_points_removed_index_list.push(close_point_result.item);
+            }
+        }
+
+        detected_points_removed_index_list.sort_unstable();
+        for &idx in detected_points_removed_index_list.iter().rev() {
+            detected_points_list.remove(idx as usize);
+        }
+
+        info!(
+            detected_point_qty = detected_points_list.len(),
+            removed_point_qty = detected_points_removed_index_list.len(),
+            tree_size = detected_points_tree.size(),
+        );
+
+        Self {
+            detected_points_list,
+            detected_points_tree,
+        }
+    }
+}
+
 impl FrameProcessor for ModelState {
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        let tracked_objects: Vec<StarCandidate> = vec![];
+
+        ctx.put("tracked_objects", tracked_objects);
+
+        Ok(())
+    }
+
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
@@ -147,26 +210,62 @@ impl FrameProcessor for ModelState {
         // pull detected_points from frame context
         let Ok(detected_points_list) = frame_ctx.get_as::<Vec<DetectedPoint>>("detected_points")
         else {
+            tracing::error!("Detected points not found");
             return FrameProcessorResult::Skip;
         };
 
         // create a frame state from detected points
-        let frame_state = FrameState {
-            detected_points_list: detected_points_list.clone(),
-            detected_points_tree: KdTree::new(), // TODO
-        };
+        let new_frame_state = FrameState::new(
+            detected_points_list.clone(),
+            self.model_config.point_exclusion_radius,
+        );
+
+        // Move current frame to history (if it exists)
+        if let Some(current) = self.current_frame_state.take() {
+            self.historical_frame_states.push(current);
+        }
+
+        // Set new current frame
+        self.current_frame_state = Some(new_frame_state);
 
         // pull tracked_objects from pipeline context
-        let Ok(tracked_objects) = frame_ctx.get_as::<Vec<StarCandidate>>("tracked_objects") else {
+        let Ok(tracked_objects) = ctx.get_as::<Vec<StarCandidate>>("tracked_objects") else {
+            tracing::error!("Tracked objects not found");
+            return FrameProcessorResult::Skip;
+        };
+
+        // pull rerun from pipeline context
+        let rec = ctx.get_as::<RecordingStream>("rerun").ok();
+
+        // pull rerun from pipeline context
+        let Ok(point_fitter) = ctx.get_as::<Arc<dyn PointFitter>>("point_fitter") else {
+            tracing::error!("Point fitter not found");
             return FrameProcessorResult::Skip;
         };
 
         // set them on self
         self.star_candidates = tracked_objects.clone();
-        self.current_frame_state = Some(frame_state);
 
-        // call self.process_frame()
-        FrameProcessorResult::Skip
+        let frame = frame_ctx.frame.as_cpu_frame().unwrap();
+
+        tracing::info!(
+            curr_frame_state_len = self
+                .current_frame_state
+                .as_ref()
+                .unwrap()
+                .detected_points_list
+                .len(),
+            star_candidates_len = self.star_candidates.len(),
+        );
+
+        if let Err(err) = self.process_frame(frame, point_fitter.clone(), rec) {
+            tracing::error!("Error processing frame: {}", err);
+            return FrameProcessorResult::Skip;
+        }
+
+        ctx.put("tracked_objects", self.star_candidates.clone());
+
+        FrameProcessorResult::Continue
     }
 
     fn name(&self) -> &str {
@@ -178,8 +277,8 @@ impl ModelState {
     pub fn process_frame(
         &mut self,
         frame: &CpuFrame,
-        rec: Option<RecordingStream>,
         point_fitter: Arc<dyn PointFitter>,
+        rec: Option<&RecordingStream>,
     ) -> Result<(), Box<dyn Error>> {
         // Now fit existing points and get match information
         let (matched_point_indices, candidate_matches) =
@@ -212,9 +311,11 @@ impl ModelState {
         self.clean_up_state();
 
         // Log to rerun if available
-        // if rec.is_some() {
-        //     self.log_to_rerun();
-        // }
+        if let Some(rec) = rec {
+            self.log_to_rerun(rec);
+        } else {
+            info!("No rerun available");
+        }
 
         Ok(())
     }
@@ -290,7 +391,7 @@ impl ModelState {
         );
     }
 
-    fn log_to_rerun(&mut self, rec: RecordingStream) {
+    fn log_to_rerun(&mut self, rec: &RecordingStream) {
         rec.log(
             "model/star_candidates".to_string(),
             &rerun::Points2D::new(

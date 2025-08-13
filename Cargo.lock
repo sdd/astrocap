@@ -585,6 +585,7 @@ dependencies = [
  "astrocap_processor_frame_stacker",
  "astrocap_processor_mask",
  "astrocap_processor_median_sub",
+ "astrocap_processor_model",
  "astrocap_processor_point_detector",
  "astrocap_processor_point_fitter",
  "astrocap_processor_rerun_img_tee",
@@ -627,6 +628,7 @@ dependencies = [
  "astrocap_core",
  "image 0.24.9",
  "imageproc",
+ "serde",
  "toml 0.9.5",
  "tracing",
 ]
@@ -649,6 +651,7 @@ dependencies = [
  "astrocap_core",
  "image 0.24.9",
  "imageproc",
+ "serde",
  "toml 0.9.5",
  "tracing",
 ]

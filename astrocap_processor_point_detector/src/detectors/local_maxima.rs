@@ -4,6 +4,7 @@ use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
 use serde::Deserialize;
+use std::sync::Arc;
 
 const DEFAULT_POINT_THRESHOLD: u8 = 40;
 const DEFAULT_MIN_SEPARATION: f64 = 20.0; // Minimum separation between stars (pixels)
@@ -35,7 +36,7 @@ impl PointDetector for PointDetectLocalMaxima {
     fn detect(
         &self,
         img: &Frame,
-        _median: Option<&Frame>,
+        _median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
     ) -> Vec<DetectedPoint> {
         let min_separation_2 = self.config.min_separation * self.config.min_separation;

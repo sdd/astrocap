@@ -10,9 +10,11 @@ use std::num::NonZero;
 use std::sync::Arc;
 use tracing::*;
 
+use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
+
 use crate::state::{FrameState, ModelState};
 
-#[derive(Clone, Debug, Serialize)]
+/*#[derive(Clone, Debug, Serialize)]
 pub struct DetectedPoint {
     pub x: u32,
     pub y: u32,
@@ -37,7 +39,7 @@ pub struct FittedPointQuality {
     pub snr: f32,
     pub r_squared: f32,
     pub rms_residual: f32,
-}
+}*/
 
 #[derive(Clone, Debug, Serialize)]
 pub struct StarCandidate {

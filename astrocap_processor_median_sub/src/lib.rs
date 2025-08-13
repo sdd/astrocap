@@ -2,6 +2,7 @@ use astrocap_core::register_astrocap_frame_processor;
 
 mod img_subber_processor;
 mod map_colors;
+mod median_config;
 mod median_filter;
 mod median_processor;
 

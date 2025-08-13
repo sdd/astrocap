@@ -23,4 +23,4 @@ tracing = "0.1"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 
 [lib]
-name = "astrocap_model"
+name = "astrocap_processor_model"

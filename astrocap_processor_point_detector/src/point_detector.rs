@@ -51,7 +51,10 @@ impl FrameProcessor for PointDetectorProcessor {
         };
 
         let mask = ctx.get_as::<Frame>("image/mask").ok();
-        let median = frame_ctx.get_as::<Frame>("video/median").ok();
+        let median = frame_ctx
+            .get_as::<Arc<Frame>>("video/median")
+            .ok()
+            .map(|f| f.clone());
 
         let detected_points_list = self.point_detector.detect(&frame_ctx.frame, median, mask);
 

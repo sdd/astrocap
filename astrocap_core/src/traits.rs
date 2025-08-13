@@ -3,12 +3,13 @@ use crate::pipeline::PipelineContext;
 use crate::structs::{DetectedPoint, FittedPoint};
 use crate::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use std::any::Any;
+use std::sync::Arc;
 
 pub trait PointDetector: Send + Sync + 'static {
     fn detect(
         &self,
         frame: &Frame,
-        median: Option<&Frame>,
+        median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
     ) -> Vec<DetectedPoint>;
 }

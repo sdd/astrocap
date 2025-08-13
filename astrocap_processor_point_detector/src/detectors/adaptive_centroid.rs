@@ -4,6 +4,7 @@ use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
 use serde::Deserialize;
+use std::sync::Arc;
 
 const DEFAULT_BASE_THRESHOLD: u8 = 20; // Base threshold for dark regions
 const DEFAULT_DARK_THRESHOLD: u8 = 90; // Median value that we consider "dark"
@@ -48,7 +49,7 @@ impl PointDetector for PointDetectAdaptiveCentroid {
     fn detect(
         &self,
         img: &Frame,
-        median: Option<&Frame>,
+        median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
     ) -> Vec<DetectedPoint> {
         let min_separation_2 = self.config.min_separation * self.config.min_separation;
@@ -59,8 +60,9 @@ impl PointDetector for PointDetectAdaptiveCentroid {
             return points;
         };
 
-        let median = if let Some(median) = median {
-            let Some(median) = median.as_cpu_image() else {
+        let median_frame = median.as_ref();
+        let median = if let Some(median_frame) = median_frame {
+            let Some(median) = median_frame.as_cpu_image() else {
                 tracing::error!("CPU image not retrieved for median");
                 return points;
             };

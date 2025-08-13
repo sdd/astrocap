@@ -4,6 +4,7 @@ use astrocap_core::Frame;
 use image::Pixel;
 use ordered_float::OrderedFloat;
 use serde::Deserialize;
+use std::sync::Arc;
 
 // const POINT_SKIP_STEP: u32 = 3;
 const DEFAULT_POINT_EXCLUSION_RADIUS_2: i32 = 400;
@@ -40,7 +41,7 @@ impl PointDetector for PointDetectPeak {
     fn detect(
         &self,
         img: &Frame,
-        _median: Option<&Frame>,
+        _median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
     ) -> Vec<DetectedPoint> {
         let mut points: Vec<DetectedPoint> = vec![];

@@ -1,8 +1,12 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct ModelConfig {
     pub min_reqd_qty_to_attempt_solve: usize,
+
+    pub point_exclusion_radius: f32,
+
     pub max_existing_candidate_match_dist: f32,
     pub min_new_star_candidate_score: f32,
     pub max_star_candidate_radius: f32,
@@ -22,6 +26,9 @@ impl Default for ModelConfig {
     fn default() -> Self {
         Self {
             min_reqd_qty_to_attempt_solve: 6,
+
+            point_exclusion_radius: 3.4f32,
+
             max_existing_candidate_match_dist: 15f32,
             min_new_star_candidate_score: 0f32,
             max_star_candidate_radius: 4.5f32,

@@ -1,3 +1,5 @@
+const TRACING_TARGET: &str = "astrocap_timing";
+
 /// Helper function to get or create timing data from FrameContext
 pub(crate) fn get_or_create_timing_data(
     frame_ctx: &mut crate::FrameContext,
@@ -40,6 +42,7 @@ pub(crate) fn add_stage_timing(
     timing_data.push((timestamp_us, event_name));
 
     tracing::trace!(
+        target: TRACING_TARGET,
         stage_name,
         stage_type,
         duration_us,
@@ -53,7 +56,7 @@ pub(crate) fn add_stage_timing(
 pub(crate) fn log_frame_timing_summary(
     frame_ctx: &crate::FrameContext,
     frame_count: u64,
-    _total_frame_duration_us: u64,
+    total_frame_duration_us: u64,
 ) {
     if let Some(timing_data) = frame_ctx
         .metadata
@@ -61,11 +64,19 @@ pub(crate) fn log_frame_timing_summary(
         .and_then(|data| data.downcast_ref::<Vec<(u64, String)>>())
     {
         if timing_data.is_empty() {
-            tracing::info!(frame_count, "No timing data found on frame");
+            tracing::info!(
+                target: TRACING_TARGET,
+                frame_count,
+                "No timing data found on frame"
+            );
             return;
         }
 
-        tracing::info!(frame_count, "=== Frame Processing Timeline ===");
+        tracing::debug!(
+            target: TRACING_TARGET,
+            frame_count,
+            "=== Frame Processing Timeline ==="
+        );
 
         // Sort all events by timestamp (chronological order)
         let mut all_events = timing_data.clone();
@@ -78,7 +89,8 @@ pub(crate) fn log_frame_timing_summary(
         for (timestamp_us, event_name) in all_events {
             let elapsed_us = timestamp_us.saturating_sub(start_time);
             let delta_us = timestamp_us.saturating_sub(prev_time);
-            tracing::info!(
+            tracing::debug!(
+                target: TRACING_TARGET,
                 frame_count,
                 "{}: Δ{} μs (+{} μs)",
                 event_name,
@@ -88,6 +100,17 @@ pub(crate) fn log_frame_timing_summary(
             prev_time = timestamp_us;
         }
 
-        tracing::info!(frame_count, "===================================");
+        tracing::debug!(
+            target: TRACING_TARGET,
+            frame_count,
+            "==================================="
+        );
+
+        let fps = (total_frame_duration_us as f32 / 1e6).recip();
+        tracing::info!(
+            target: TRACING_TARGET,
+            fps,
+            "Frame rate (instantaneous)"
+        )
     }
 }

@@ -4,6 +4,7 @@ use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::Luma;
+use std::sync::Arc;
 use toml::Value;
 
 pub struct ImgSubberProcessor {
@@ -49,7 +50,7 @@ impl FrameProcessor for ImgSubberProcessor {
             return Skip;
         };
 
-        let Some(subtractand) = subtractand.downcast_ref::<Frame>() else {
+        let Some(subtractand) = subtractand.downcast_ref::<Arc<Frame>>() else {
             tracing::error!("{metadata_key} not downcastable to Frame::Imguf!");
             return Skip;
         };

@@ -33,6 +33,7 @@ astrocap_core = { path = "./astrocap_core" }
 astrocap_processor_frame_stacker = { path = "./astrocap_processor_frame_stacker" }
 astrocap_processor_mask = { path = "./astrocap_processor_mask" }
 astrocap_processor_median_sub = { path = "./astrocap_processor_median_sub" }
+astrocap_processor_model = { path = "./astrocap_processor_model" }
 astrocap_processor_point_detector = { path = "./astrocap_processor_point_detector" }
 astrocap_processor_point_fitter = { path = "./astrocap_processor_point_fitter" }
 astrocap_processor_rerun_img_tee = { path = "./astrocap_processor_rerun_img_tee" }

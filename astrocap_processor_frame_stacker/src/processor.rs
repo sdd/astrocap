@@ -1,43 +1,66 @@
+use crate::map_colors::map_colors;
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::Luma;
+use serde::Deserialize;
+use std::cmp::max;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use toml::Value;
 
-use crate::map_colors::map_colors;
+const DEFAULT_STACK_DEPTH: usize = 8;
+const DEFAULT_RENORMALIZE: Renormalize = Renormalize::Sqrt;
+
+#[derive(Debug, Deserialize)]
+enum Renormalize {
+    None,
+    Full,
+    Sqrt,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct FrameStackerConfig {
+    stack_depth: usize,
+    renormalize: Renormalize,
+}
+
+impl Default for FrameStackerConfig {
+    fn default() -> Self {
+        Self {
+            stack_depth: DEFAULT_STACK_DEPTH,
+            renormalize: DEFAULT_RENORMALIZE,
+        }
+    }
+}
 
 pub struct FrameStackerProcessor {
-    stack_depth: usize,
-    stack_depth_pow2: u8,
+    config: FrameStackerConfig,
 }
 
 impl FrameStackerProcessor {
     pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
-        let Some(stack_depth) = config
-            .and_then(|c| c.get("stack_depth"))
-            .and_then(|d| d.as_integer())
-        else {
-            return Err(AstrocapError::PluginInvalidConfigError(
-                "missing stack_depth in FrameStackerProcessor Config".to_string(),
-            ));
+        let Some(config) = config else {
+            return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        if (stack_depth as u32).next_power_of_two() != (stack_depth as u32) {
+        let config: FrameStackerConfig = config.clone().try_into().map_err(|e| {
+            AstrocapError::PluginInvalidConfigError(format!(
+                "FrameStackerProcessor:: {}",
+                e.to_string()
+            ))
+        })?;
+
+        if config.stack_depth != 4 && config.stack_depth != 8 {
             return Err(AstrocapError::PluginInvalidConfigError(
-                "stack_depth must be a power of 2 in FrameStackerProcessor Config".to_string(),
+                "stack_depth must be either 4 or 8 FrameStackerProcessor Config".to_string(),
             ));
-        } else {
-            tracing::info!(stack_depth_pow2 = (stack_depth as u32).ilog2());
         }
 
-        Ok(Self {
-            stack_depth: stack_depth as usize,
-            stack_depth_pow2: (stack_depth as u32).ilog2() as u8,
-        })
+        Ok(Self { config })
     }
 }
 
@@ -84,22 +107,72 @@ impl FrameProcessor for FrameStackerProcessor {
             let mut frame_stack = frame_stack.lock().unwrap();
             frame_stack.push_back(frame.clone());
 
-            if frame_stack.len() > self.stack_depth {
+            if frame_stack.len() > self.config.stack_depth {
                 Some(frame_stack.pop_front().unwrap())
             } else {
                 None
             }
         };
 
-        let integration_frame = map_colors(&integration_frame.img, &frame.img, |p, q| {
-            Luma([(p[0]).saturating_add(q[0] >> self.stack_depth_pow2)])
-        });
+        let add_fn = match (self.config.stack_depth, &self.config.renormalize) {
+            (4, Renormalize::Full) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0] >> 2)])
+            }
+            (8, Renormalize::Full) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0] >> 3)])
+            }
+            (4, Renormalize::None) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0])])
+            }
+            (8, Renormalize::None) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0])])
+            }
+            (4, Renormalize::Sqrt) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0] >> 1)])
+            }
+            (8, Renormalize::Sqrt) => |p: Luma<u8>, q: Luma<u8>| {
+                let tmp: u16 = (q[0] as u16) >> 1;
+                let scaled: u16 = (tmp * 181) >> 8;
+                Luma([(p[0]).saturating_add(scaled as u8)])
+            },
+            _ => {
+                tracing::error!("Unexpected combination of stack depth and renormalize");
+                return Skip;
+            }
+        };
+
+        let integration_frame = map_colors(&integration_frame.img, &frame.img, add_fn);
+
+        let sub_fn = match (self.config.stack_depth, &self.config.renormalize) {
+            (4, Renormalize::Full) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0] >> 2)])
+            }
+            (8, Renormalize::Full) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0] >> 3)])
+            }
+            (4, Renormalize::None) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0])])
+            }
+            (8, Renormalize::None) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0])])
+            }
+            (4, Renormalize::Sqrt) => {
+                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0] >> 1)])
+            }
+            (8, Renormalize::Sqrt) => |p: Luma<u8>, q: Luma<u8>| {
+                let tmp: u16 = (q[0] as u16) >> 1;
+                let scaled: u16 = (tmp * 181) >> 8;
+                Luma([(p[0]).saturating_sub(scaled as u8)])
+            },
+            _ => {
+                tracing::error!("Unexpected combination of stack depth and renormalize");
+                return Skip;
+            }
+        };
 
         let img = match old_frame {
             None => integration_frame,
-            Some(old_frame) => map_colors(&integration_frame, &old_frame.img, |p, q| {
-                Luma([(p[0]).saturating_sub(q[0] >> self.stack_depth_pow2)])
-            }),
+            Some(old_frame) => map_colors(&integration_frame, &old_frame.img, sub_fn),
         };
 
         let cpu_storage: Arc<[u8]> = Arc::from(img.into_raw());
