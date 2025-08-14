@@ -1,4 +1,5 @@
 use crate::pipeline::PipelineContext;
+use crate::statistics::ProcessingType;
 use crate::traits::FrameProcessor;
 use crate::{register_astrocap_frame_processor, AstrocapError, FrameContext, FrameProcessorResult};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,6 +24,10 @@ impl DummyProcessor {
 }
 
 impl FrameProcessor for DummyProcessor {
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
+    }
+
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         ctx.entry("frames_processed".to_string())
             .or_insert_with(|| Box::new(AtomicUsize::new(0)));

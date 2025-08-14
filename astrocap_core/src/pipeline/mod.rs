@@ -12,7 +12,7 @@ pub(crate) mod wrappers;
 
 use crate::pipeline::timing::log_frame_timing_summary;
 use crate::pipeline::wrappers::{FrameProcessorWrapper, FrameSinkWrapper, FrameSourceWrapper};
-use crate::statistics::PipelineStatistics;
+use crate::statistics::{PipelineStatistics, StatsContext};
 use crate::traits::{FrameProcessor, FrameSink, FrameSource, StageFactory};
 use crate::{AstrocapError, FrameProcessorResult};
 
@@ -257,6 +257,19 @@ pub fn run_pipeline(
         mut sink,
     } = pipeline;
 
+    // Set up global statistics context
+    if let Some(ref stats) = stats {
+        pipeline_context.put("pipeline_statistics", stats.clone());
+        StatsContext::set_global_stats(stats.clone());
+
+        // Auto-register all stage processing types
+        stats.register_stage("source", source.get_processing_type());
+        for stage in &stages {
+            stats.register_stage(stage.stage_type, stage.get_processing_type());
+        }
+        stats.register_stage("sink", sink.get_processing_type());
+    }
+
     // Add statistics to pipeline context if provided
     if let Some(ref stats) = stats {
         pipeline_context.put("pipeline_statistics", stats.clone());
@@ -337,6 +350,9 @@ pub fn run_pipeline(
         average_fps = fps,
         "Pipeline completed"
     );
+
+    // Clean up global stats when pipeline completes
+    StatsContext::clear_global_stats();
 
     pipeline_context
 }

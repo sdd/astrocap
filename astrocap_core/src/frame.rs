@@ -5,6 +5,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::statistics::{MemoryOperation, StatsContext};
+
 /// The unified Frame type.
 #[derive(Clone)]
 pub enum Frame {
@@ -223,18 +225,62 @@ impl Frame {
         self.as_cpu_image().map(|i| i.as_ref())
     }
 
-    /// Download to CPU if needed. Blocking; may be expensive.
-    /// `timeout` can be used to bound GPU wait time.
+    // Clean, easy-to-use methods that automatically track operations
+    pub fn from_raw(width: u32, height: u32, buf: Vec<u8>) -> Option<Self> {
+        let bytes = buf.len();
+        StatsContext::record_memory_operation(MemoryOperation::CpuAllocation(bytes));
+
+        let storage = CpuStorage::Owned(buf);
+        let img = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, storage);
+        img.map(|img| Frame::Cpu(CpuFrame { img }))
+    }
+
     pub fn to_cpu(&self, timeout: Option<Duration>) -> Result<CpuFrame, String> {
         match self {
-            Frame::Cpu(c) => Ok(c.clone()),
+            Frame::Cpu(c) => {
+                StatsContext::record_memory_operation(MemoryOperation::ZeroCopyReference);
+                Ok(c.clone())
+            }
             Frame::Gpu(g) => {
+                let bytes = (g.width() * g.height()) as usize;
+                StatsContext::record_memory_operation(MemoryOperation::GpuDownload(bytes));
                 g.sync_gpu()?;
                 g.download_to_cpu(timeout)
             }
             Frame::None => Err("Frame::None".to_string()),
         }
     }
+
+    pub fn ensure_cpu(&mut self, timeout: Option<Duration>) -> Result<(), String> {
+        if let Frame::Gpu(g) = self {
+            let bytes = (g.width() * g.height()) as usize;
+            StatsContext::record_memory_operation(MemoryOperation::GpuDownload(bytes));
+            let cpu = {
+                g.sync_gpu()?;
+                g.download_to_cpu(timeout)?
+            };
+            *self = Frame::Cpu(cpu);
+        } else {
+            StatsContext::record_memory_operation(MemoryOperation::ZeroCopyReference);
+        }
+        Ok(())
+    }
+
+    // For future GPU operations
+    pub fn ensure_gpu(&mut self, timeout: Option<Duration>) -> Result<(), String> {
+        if let Frame::Cpu(c) = self {
+            let bytes = (c.width() * c.height()) as usize;
+            StatsContext::record_memory_operation(MemoryOperation::GpuUpload(bytes));
+            // TODO: Implement GPU upload
+            Err("GPU upload not yet implemented".to_string())
+        } else {
+            StatsContext::record_memory_operation(MemoryOperation::ZeroCopyReference);
+            Ok(())
+        }
+    }
+
+    /// Download to CPU if needed. Blocking; may be expensive.
+    /// `timeout` can be used to bound GPU wait time.
 
     /// Consume self and ensure CPU ownership; may trigger a download.
     pub fn into_cpu(self, timeout: Option<Duration>) -> Result<CpuFrame, String> {
@@ -250,16 +296,6 @@ impl Frame {
 
     /// Convert this Frame to CPU in-place (mutates). Useful if you want a single variable to
     /// keep CPU payload after downconvert. Returns error if download fails.
-    pub fn ensure_cpu(&mut self, timeout: Option<Duration>) -> Result<(), String> {
-        if let Frame::Gpu(g) = self {
-            let cpu = {
-                g.sync_gpu()?;
-                g.download_to_cpu(timeout)?
-            };
-            *self = Frame::Cpu(cpu);
-        }
-        Ok(())
-    }
 
     /// If this is a GPU frame, try to downcast to a concrete backend
     /// (e.g., if you need GL-specific access).
@@ -286,13 +322,6 @@ impl Frame {
 
     pub fn get_pixels(&mut self, timeout: Option<Duration>) -> Result<&[u8], String> {
         Ok(self.get_image(timeout)?.as_raw())
-    }
-
-    pub fn from_raw(width: u32, height: u32, buf: Vec<u8>) -> Option<Self> {
-        let storage = CpuStorage::Owned(buf);
-        let img = ImageBuffer::<Luma<u8>, _>::from_raw(width, height, storage);
-
-        img.map(|img| Frame::Cpu(CpuFrame { img }))
     }
 }
 

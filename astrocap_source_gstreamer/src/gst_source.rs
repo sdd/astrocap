@@ -12,6 +12,7 @@ use crate::config::*;
 use crate::frame_buffer::*;
 use crate::gst_buffer_timing_meta::instrument_pipeline_with_timing_meta;
 use crate::gst_pipeline::*;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameSource;
 use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext};
 use thiserror::Error;
@@ -388,6 +389,10 @@ impl FrameSource for GstSource {
 
     fn name(&self) -> &str {
         "gst_source"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 

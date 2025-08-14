@@ -1,13 +1,13 @@
+use crate::map_colors::map_colors;
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::{GenericImageView, Luma};
 use std::sync::Arc;
 use toml::Value;
-
-use crate::map_colors::map_colors;
 
 pub struct MaskProcessor {
     file_path: String,
@@ -90,5 +90,9 @@ impl FrameProcessor for MaskProcessor {
 
     fn name(&self) -> &str {
         "mask"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }

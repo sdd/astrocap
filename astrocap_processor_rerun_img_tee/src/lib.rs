@@ -1,5 +1,6 @@
 use astrocap_core::FrameProcessorResult::{Continue, Skip};
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{
     AstrocapError, Frame, FrameContext, FrameProcessorResult, register_astrocap_frame_processor,
@@ -97,6 +98,10 @@ impl FrameProcessor for RerunTeeProcessor {
 
     fn name(&self) -> &str {
         "rerun_tee_processor"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 

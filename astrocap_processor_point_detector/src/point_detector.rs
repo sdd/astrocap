@@ -3,6 +3,7 @@ use crate::detectors::adaptive_centroid::PointDetectAdaptiveCentroid;
 use crate::detectors::local_maxima::PointDetectLocalMaxima;
 use crate::detectors::peak::PointDetectPeak;
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::{FrameProcessor, PointDetector};
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
@@ -80,5 +81,9 @@ impl FrameProcessor for PointDetectorProcessor {
 
     fn name(&self) -> &str {
         "point_extractor"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }

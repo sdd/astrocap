@@ -1,6 +1,7 @@
 use crate::median_config::MedianConfig;
 use crate::median_filter::median_filter;
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::GrayImage;
@@ -128,5 +129,9 @@ impl FrameProcessor for MedianProcessor {
 
     fn name(&self) -> &str {
         "median"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }

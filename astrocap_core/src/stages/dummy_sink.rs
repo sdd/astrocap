@@ -1,4 +1,5 @@
 use crate::pipeline::PipelineContext;
+use crate::statistics::ProcessingType;
 use crate::traits::FrameSink;
 use crate::{register_astrocap_frame_sink, AstrocapError, FrameContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,6 +32,10 @@ impl FrameSink for DummySink {
 
     fn name(&self) -> &str {
         "dummy_sink"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 

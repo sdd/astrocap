@@ -1,5 +1,6 @@
 use crate::frame::CpuFrame;
 use crate::pipeline::PipelineContext;
+use crate::statistics::ProcessingType;
 use crate::structs::{DetectedPoint, FittedPoint};
 use crate::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use std::any::Any;
@@ -20,14 +21,11 @@ pub trait PointFitter: Send + Sync + 'static {
 
 pub trait FrameSource: Send + Sync {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext>;
-    fn name(&self) -> &str;
-
     fn pipeline_ctx_init(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         Ok(())
     }
-    fn pipeline_ctx_cleanup(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        Ok(())
-    }
+    fn name(&self) -> &str;
+    fn processing_type(&self) -> ProcessingType;
 }
 
 pub trait FrameProcessor: Send + Sync {
@@ -36,26 +34,20 @@ pub trait FrameProcessor: Send + Sync {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult;
-    fn name(&self) -> &str;
-
     fn pipeline_ctx_init(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         Ok(())
     }
-    fn pipeline_ctx_cleanup(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        Ok(())
-    }
+    fn name(&self) -> &str;
+    fn processing_type(&self) -> ProcessingType;
 }
 
 pub trait FrameSink: Send + Sync {
     fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext);
-    fn name(&self) -> &str;
-
     fn pipeline_ctx_init(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         Ok(())
     }
-    fn pipeline_ctx_cleanup(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        Ok(())
-    }
+    fn name(&self) -> &str;
+    fn processing_type(&self) -> ProcessingType;
 }
 
 pub trait StageFactory: Send + Sync {

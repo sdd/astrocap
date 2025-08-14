@@ -1,4 +1,5 @@
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameSink;
 use astrocap_core::{AstrocapError, Frame, FrameContext, register_astrocap_frame_sink};
 use rerun::RecordingStream;
@@ -53,6 +54,10 @@ impl FrameSink for RerunSink {
 
     fn name(&self) -> &str {
         "rerun_sink"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 

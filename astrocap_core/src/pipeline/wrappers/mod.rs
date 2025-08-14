@@ -1,5 +1,6 @@
 use crate::pipeline::PipelineContext;
 use crate::statistics::PipelineStatistics;
+use crate::statistics::{ProcessingType, StatsContext};
 use crate::traits::{FrameProcessor, FrameSink, FrameSource};
 use crate::{AstrocapError, FrameContext, FrameProcessorResult};
 use std::sync::Arc;
@@ -16,9 +17,17 @@ impl FrameSourceWrapper {
     }
 
     pub fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
-        // Sources handle their own timing to allow fine-grained control
-        // over what work is measured vs coordination overhead
-        self.inner.next_frame(ctx)
+        // Set current stage context for Frame operations
+        StatsContext::set_current_stage(self.stage_type.to_string());
+
+        let result = self.inner.next_frame(ctx);
+
+        StatsContext::clear_current_stage();
+        result
+    }
+
+    pub fn get_processing_type(&self) -> ProcessingType {
+        self.inner.processing_type()
     }
 
     pub fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
@@ -42,6 +51,10 @@ impl FrameProcessorWrapper {
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
         let start_time = Instant::now();
+
+        // Set current stage context for Frame operations
+        StatsContext::set_current_stage(self.stage_type.to_string());
+
         let result = self.inner.process(frame_ctx, ctx);
         let duration_us = start_time.elapsed().as_micros() as u64;
 
@@ -50,7 +63,12 @@ impl FrameProcessorWrapper {
             stats.record_stage_timing(self.stage_type, duration_us);
         }
 
+        StatsContext::clear_current_stage();
         result
+    }
+
+    pub fn get_processing_type(&self) -> ProcessingType {
+        self.inner.processing_type()
     }
 
     pub fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
@@ -70,6 +88,9 @@ impl FrameSinkWrapper {
 
     pub fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
         let start_time = Instant::now();
+
+        StatsContext::set_current_stage(self.stage_type.to_string());
+
         self.inner.consume(frame_ctx, ctx);
         let duration_us = start_time.elapsed().as_micros() as u64;
 
@@ -77,6 +98,12 @@ impl FrameSinkWrapper {
         if let Ok(stats) = ctx.get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
             stats.record_stage_timing(self.stage_type, duration_us);
         }
+
+        StatsContext::clear_current_stage();
+    }
+
+    pub fn get_processing_type(&self) -> ProcessingType {
+        self.inner.processing_type()
     }
 
     pub fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {

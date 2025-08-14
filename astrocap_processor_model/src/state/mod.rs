@@ -14,6 +14,7 @@ use crate::config::ModelConfig;
 
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
+use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::DetectedPoint;
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
@@ -270,6 +271,10 @@ impl FrameProcessor for ModelState {
 
     fn name(&self) -> &str {
         "model_v2"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 

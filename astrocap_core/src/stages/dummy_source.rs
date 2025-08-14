@@ -1,5 +1,6 @@
 use crate::frame::CpuFrame;
 use crate::pipeline::PipelineContext;
+use crate::statistics::ProcessingType;
 use crate::traits::FrameSource;
 use crate::{register_astrocap_frame_source, AstrocapError, Frame, FrameContext};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -40,6 +41,10 @@ impl FrameSource for DummySource {
 
     fn name(&self) -> &str {
         "dummy_source"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 
