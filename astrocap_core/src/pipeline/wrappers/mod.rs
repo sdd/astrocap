@@ -16,16 +16,9 @@ impl FrameSourceWrapper {
     }
 
     pub fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
-        let start_time = Instant::now();
-        let result = self.inner.next_frame(ctx);
-        let duration_us = start_time.elapsed().as_micros() as u64;
-
-        // Record timing if statistics are available
-        if let Ok(stats) = ctx.get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
-            stats.record_stage_timing(self.stage_type, duration_us);
-        }
-
-        result
+        // Sources handle their own timing to allow fine-grained control
+        // over what work is measured vs coordination overhead
+        self.inner.next_frame(ctx)
     }
 
     pub fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {

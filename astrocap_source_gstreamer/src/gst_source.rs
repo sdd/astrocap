@@ -296,6 +296,11 @@ impl GstSource {
         frame_data: FrameData,
         ctx: &mut PipelineContext,
     ) -> Option<FrameContext> {
+        use std::time::Instant;
+
+        // Time the actual frame processing work
+        let processing_start = Instant::now();
+
         let width = 1920u32;
         let height = 1080u32;
 
@@ -320,6 +325,20 @@ impl GstSource {
                         .unwrap_or(0)
                 );
             }
+
+            let processing_duration = processing_start.elapsed();
+            let duration_us = processing_duration.as_micros() as u64;
+
+            // Record timing to pipeline statistics if available
+            if let Ok(stats) = ctx
+                .get_as::<std::sync::Arc<astrocap_core::statistics::PipelineStatistics>>(
+                    "pipeline_statistics",
+                )
+            {
+                stats.record_stage_timing("GstSource", duration_us);
+            }
+
+            tracing::trace!(duration_us, "GstSource frame processing completed");
 
             tracing::trace!("Emitting frame");
             Some(frame_ctx)
