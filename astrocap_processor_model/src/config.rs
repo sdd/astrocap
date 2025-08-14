@@ -20,6 +20,8 @@ pub struct ModelConfig {
     pub amplitude_penalty: f32,
     pub star_candidate_discard_threshold: f32,
     pub detected_point_candidate_amplitude_threshold: f32,
+
+    pub disable_kalman_velocity: bool,
 }
 
 impl Default for ModelConfig {
@@ -45,6 +47,8 @@ impl Default for ModelConfig {
             // star_candidate_discard_threshold: -10.0f32,
             star_candidate_discard_threshold: 0f32,
             detected_point_candidate_amplitude_threshold: 20.0f32,
+
+            disable_kalman_velocity: false,
         }
     }
 }

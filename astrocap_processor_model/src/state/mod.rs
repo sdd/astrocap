@@ -299,13 +299,11 @@ impl ModelState {
 
         // Now fit strong unmatched new points to create new star candidates
         if let Some(ref current_frame_state) = self.current_frame_state {
-            let img_w = frame.width();
-            let img_h = frame.height();
             self.fit_strong_unmatched_new_points(point_fitter, frame);
         }
 
         // Update state positions (Kalman predictions, etc.)
-        self.update_state_positions();
+        self.update_state_positions(self.model_config.disable_kalman_velocity);
 
         // Clean up poor candidates
         self.clean_up_state();
@@ -320,10 +318,10 @@ impl ModelState {
         Ok(())
     }
 
-    fn update_state_positions(&mut self) {
+    fn update_state_positions(&mut self, disable_movement: bool) {
         for candidate in self.star_candidates.iter_mut() {
             if candidate.kalman_initialized {
-                candidate.kalman_predict();
+                candidate.kalman_predict(disable_movement);
             }
         }
 
@@ -382,7 +380,17 @@ impl ModelState {
             .star_candidates
             .clone()
             .into_iter()
-            .filter(|cand| cand.log_likelihood > self.model_config.star_candidate_discard_threshold)
+            .filter(|cand| {
+                let unmatched_frames = cand
+                    .detected_point_match_history
+                    .iter()
+                    .rev()
+                    .take_while(|&m| m.is_none())
+                    .count();
+
+                cand.log_likelihood > self.model_config.star_candidate_discard_threshold
+                // && (unmatched_frames < 50)
+            })
             .collect();
 
         info!(
@@ -424,7 +432,19 @@ impl ModelState {
                         cand.log_likelihood
                             > self.model_config.star_candidate_long_term_match_threshold
                     })
-                    .map(|cand| format!("LL: {}, Age: {}", cand.log_likelihood, cand.age)),
+                    .map(|cand| {
+                        let unmatched_frames = cand
+                            .detected_point_match_history
+                            .iter()
+                            .rev()
+                            .take_while(|&m| m.is_none())
+                            .count();
+
+                        format!(
+                            "ID: {}, Age: {}, LL: {}, unmatched: {}",
+                            cand.id, cand.age, cand.log_likelihood, unmatched_frames
+                        )
+                    }),
             ),
         )
         .unwrap()

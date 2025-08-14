@@ -7,6 +7,7 @@ use num_traits::float::FloatCore;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::num::NonZero;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::*;
 
@@ -14,35 +15,16 @@ use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
 
 use crate::state::{FrameState, ModelState};
 
-/*#[derive(Clone, Debug, Serialize)]
-pub struct DetectedPoint {
-    pub x: u32,
-    pub y: u32,
-    pub amplitude: u8,
-    pub fitted_point: Option<FittedPoint>,
-}
+static mut STAR_CANDIDATE_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Clone, Debug, Serialize)]
-pub struct FittedPoint {
-    pub x: f32,
-    pub y: f32,
-    pub amplitude: f32,
-    pub radius_x: f32,
-    pub radius_y: f32,
-    pub score: f32, // Keep this for backward compatibility during transition
-    pub fit_quality: FittedPointQuality,
+pub fn next_star_candidate_id() -> usize {
+    unsafe { STAR_CANDIDATE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst) }
 }
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FittedPointQuality {
-    pub reduced_chi_squared: f32,
-    pub snr: f32,
-    pub r_squared: f32,
-    pub rms_residual: f32,
-}*/
 
 #[derive(Clone, Debug, Serialize)]
 pub struct StarCandidate {
+    pub id: usize,
+
     pub x: f32,
     pub y: f32,
     pub amplitude: f32,
@@ -87,7 +69,7 @@ impl ModelState {
                 .detected_point_match_history
                 .iter()
                 .rev()
-                .take(10) // Look at last 10 frames
+                .take(20) // Look at last 10 frames
                 .collect::<Vec<_>>();
 
             let match_rate = recent_matches.iter().filter(|m| m.is_some()).count() as f32
@@ -95,14 +77,14 @@ impl ModelState {
             let has_kalman = cand.kalman_initialized;
             let track_confidence = cand.log_likelihood.az::<f32>();
 
-            let search_radius = if has_kalman && match_rate > 0.7 && track_confidence > 20.0 {
+            let search_radius = if has_kalman && match_rate > 0.7 && track_confidence > 100.0 {
                 // Strong track - use tight radius
                 // Much smaller for established tracks
-                3.0f32
-            } else if recent_matches.len() >= 5 && match_rate > 0.4 {
-                // Moderate track - use standard radius
+                self.model_config.max_existing_candidate_match_dist
+            // } else if recent_matches.len() >= 5 && match_rate > 0.4 {
+            // Moderate track - use standard radius
 
-                7.0324
+            // 7.0324
             } else {
                 // Weak/new track - use larger radius but not too large
                 let unmatched_frames = cand
@@ -113,7 +95,7 @@ impl ModelState {
                     .count();
 
                 let base_radius = self.model_config.max_existing_candidate_match_dist;
-                if unmatched_frames > 5 {
+                if unmatched_frames > 5 && cand.age < 50 {
                     let expansion_factor = (unmatched_frames as f32 * 0.1).min(1.5); // Reduced cap
                     base_radius * (1.0 + expansion_factor)
                 } else {
@@ -188,7 +170,6 @@ impl ModelState {
             }
         }
 
-        // Rest of the processing logic stays the same...
         for (cand_idx, x, y, measurement_valid) in candidates_with_matches {
             let history_confidence = self.star_candidates[cand_idx].validate_against_history(
                 x,
@@ -205,7 +186,7 @@ impl ModelState {
 
             let detected_point = &curr_frame_state.detected_points_list[detected_point_idx];
             let fitted_point = detected_point.fitted.as_ref().unwrap();
-            let measurement_noise = 1.0f32;
+            let measurement_noise = 5.0f32;
 
             if measurement_valid && history_confidence > 0.3f32 {
                 if cand.detected_point_match_history.len() >= 2 {
@@ -332,6 +313,7 @@ impl StarCandidate {
         score: f32,
     ) -> Self {
         Self {
+            id: next_star_candidate_id(),
             x,
             y,
             amplitude,
@@ -360,16 +342,20 @@ impl StarCandidate {
     }
 
     // Predict step: advance state by one time step
-    pub fn kalman_predict(&mut self) {
+    pub fn kalman_predict(&mut self, disable_movement: bool) {
         let dt = 1.0f32; // 1 frame
 
         // Predicted state
-        let predicted_state = [
-            self.kalman_state[0] + self.kalman_state[2] * dt, // x + vx*dt
-            self.kalman_state[1] + self.kalman_state[3] * dt, // y + vy*dt
-            self.kalman_state[2],                             // vx unchanged
-            self.kalman_state[3],                             // vy unchanged
-        ];
+        let predicted_state = if disable_movement {
+            [self.kalman_state[0], self.kalman_state[1], 0f32, 0f32]
+        } else {
+            [
+                self.kalman_state[0] + self.kalman_state[2] * dt, // x + vx*dt
+                self.kalman_state[1] + self.kalman_state[3] * dt, // y + vy*dt
+                self.kalman_state[2],                             // vx unchanged
+                self.kalman_state[3],                             // vy unchanged
+            ]
+        };
 
         // State transition matrix F
         let f = [
@@ -514,7 +500,7 @@ impl StarCandidate {
             .count() as f32
             / 50.0.min(self.detected_point_match_history.len() as f32);
 
-        let track_confidence = (self.log_likelihood.az::<f32>() / 100.0).min(1.0).max(0.0);
+        let track_confidence = (self.log_likelihood.az::<f32>() / 200.0).min(1.0).max(0.0);
 
         // Track quality affects how much we trust our prediction vs the measurement
         let track_quality =
@@ -714,7 +700,7 @@ impl StarCandidate {
         let innovation = [measured_x - predicted[0], measured_y - predicted[1]];
 
         // Innovation covariance (simplified for position-only measurement)
-        let measurement_noise = 1.0f32; // Adjust as needed
+        let measurement_noise = 10.0f32; // Adjust as needed
         let innovation_cov = [
             [
                 self.kalman_covariance[0][0] + measurement_noise,
