@@ -248,7 +248,7 @@ impl FrameProcessor for ModelState {
 
         let frame = frame_ctx.frame.as_cpu_frame().unwrap();
 
-        tracing::info!(
+        tracing::debug!(
             curr_frame_state_len = self
                 .current_frame_state
                 .as_ref()

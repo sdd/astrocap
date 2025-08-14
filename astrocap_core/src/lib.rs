@@ -6,6 +6,7 @@ pub mod error;
 pub mod frame;
 pub mod pipeline;
 pub mod stages;
+pub mod statistics;
 pub mod structs;
 pub mod traits;
 

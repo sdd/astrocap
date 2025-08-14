@@ -20,3 +20,4 @@ astrocap_source_gstreamer = { workspace = true }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ctrlc = "3.4.7"

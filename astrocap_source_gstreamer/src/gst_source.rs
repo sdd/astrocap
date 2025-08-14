@@ -168,7 +168,7 @@ impl GstSource {
             (gst::State::Playing, "play")
         };
 
-        tracing::info!("attempting gst pipeline {action_verb}");
+        tracing::debug!("attempting gst pipeline {action_verb}");
         let state_change_result = pipeline.set_state(new_state);
 
         match state_change_result {
@@ -176,7 +176,7 @@ impl GstSource {
                 tracing::info!("gst pipeline {action_verb} succeeded");
             }
             Ok(gst::StateChangeSuccess::Async) => {
-                tracing::info!("gst pipeline {action_verb} in progress");
+                tracing::debug!("gst pipeline {action_verb} in progress");
                 let (result, current, pending) =
                     pipeline.state(Some(gst::ClockTime::from_seconds(1)));
                 match result {
@@ -408,7 +408,7 @@ fn log_gst_message(msg: Message) {
         }
 
         MessageView::Latency(latency) => {
-            tracing::info!("Received Latency msg: {:?}", latency);
+            tracing::trace!("Received Latency msg: {:?}", latency);
         }
 
         MessageView::DurationChanged(duration) => {

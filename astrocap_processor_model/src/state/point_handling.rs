@@ -219,7 +219,7 @@ impl ModelState {
             }
         }
 
-        info!(
+        debug!(
             existing_fitted_qty = match_indexes.len(),
             unmatched_cand_count
         );

@@ -570,6 +570,7 @@ dependencies = [
  "image 0.24.9",
  "imageproc",
  "inventory",
+ "once_cell",
  "paste",
  "serde",
  "thiserror 2.0.12",
@@ -591,6 +592,7 @@ dependencies = [
  "astrocap_processor_rerun_img_tee",
  "astrocap_sink_rerun",
  "astrocap_source_gstreamer",
+ "ctrlc",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1852,6 +1854,16 @@ checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "ctrlc"
+version = "3.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46f93780a459b7d656ef7f071fe699c4d3d2cb201c4b24d085b6ddc505276e73"
+dependencies = [
+ "nix 0.30.1",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

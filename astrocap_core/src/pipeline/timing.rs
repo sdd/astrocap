@@ -1,24 +1,15 @@
 const TRACING_TARGET: &str = "astrocap_timing";
 
-/// Helper function to get or create timing data from FrameContext
-pub(crate) fn get_or_create_timing_data(
-    frame_ctx: &mut crate::FrameContext,
-) -> &mut Vec<(u64, String)> {
-    // Check if timing_data already exists
-    if !frame_ctx.metadata.contains_key("timing_data") {
-        frame_ctx.metadata.insert(
-            "timing_data".to_string(),
-            Box::new(Vec::<(u64, String)>::new()),
-        );
+/// Helper function to process GStreamer timing data from frame context
+pub(crate) fn process_gst_timing_data(
+    frame_ctx: &crate::FrameContext,
+    pipeline_stats: Option<&crate::statistics::PipelineStatistics>,
+) {
+    if let Some(stats) = pipeline_stats {
+        if let Ok(timing_data) = frame_ctx.get_as::<Vec<(u64, String)>>("timing_data") {
+            stats.record_gst_timing_data(timing_data);
+        }
     }
-
-    // Get mutable reference to timing data
-    frame_ctx
-        .metadata
-        .get_mut("timing_data")
-        .unwrap()
-        .downcast_mut::<Vec<(u64, String)>>()
-        .expect("timing_data should be Vec<(u64, String)>")
 }
 
 /// Helper function to add astrocap stage timing to existing timing data (in microseconds)
@@ -50,6 +41,22 @@ pub(crate) fn add_stage_timing(
         total_timing_events = timing_data.len(),
         "astrocap_pipeline.stage_latency_us"
     );
+}
+
+pub(crate) fn get_or_create_timing_data(
+    frame_ctx: &mut crate::FrameContext,
+) -> &mut Vec<(u64, String)> {
+    if !frame_ctx.metadata.contains_key("timing_data") {
+        frame_ctx.put("timing_data", Vec::<(u64, String)>::new());
+    }
+
+    // We know this will succeed because we just created it if it didn't exist
+    frame_ctx
+        .metadata
+        .get_mut("timing_data")
+        .unwrap()
+        .downcast_mut::<Vec<(u64, String)>>()
+        .unwrap()
 }
 
 /// Helper function to log timing summary exactly like GST's print_timing_summary
@@ -107,7 +114,7 @@ pub(crate) fn log_frame_timing_summary(
         );
 
         let fps = (total_frame_duration_us as f32 / 1e6).recip();
-        tracing::info!(
+        tracing::debug!(
             target: TRACING_TARGET,
             fps,
             "Frame rate (instantaneous)"

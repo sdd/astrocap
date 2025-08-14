@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Deserialize;
@@ -11,6 +12,7 @@ pub(crate) mod wrappers;
 
 use crate::pipeline::timing::log_frame_timing_summary;
 use crate::pipeline::wrappers::{FrameProcessorWrapper, FrameSinkWrapper, FrameSourceWrapper};
+use crate::statistics::PipelineStatistics;
 use crate::traits::{FrameProcessor, FrameSink, FrameSource, StageFactory};
 use crate::{AstrocapError, FrameProcessorResult};
 
@@ -96,7 +98,6 @@ impl std::fmt::Debug for Pipeline {
     }
 }
 
-// Collect references to StageFactory trait objects
 inventory::collect!(&'static dyn StageFactory);
 
 #[macro_export]
@@ -245,12 +246,21 @@ pub fn build_pipeline(config: &PipelineConfig) -> Result<Pipeline, AstrocapError
     })
 }
 
-pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -> PipelineContext {
+pub fn run_pipeline(
+    mut pipeline_context: PipelineContext,
+    pipeline: Pipeline,
+    stats: Option<Arc<PipelineStatistics>>,
+) -> PipelineContext {
     let Pipeline {
         mut source,
         mut stages,
         mut sink,
     } = pipeline;
+
+    // Add statistics to pipeline context if provided
+    if let Some(ref stats) = stats {
+        pipeline_context.put("pipeline_statistics", stats.clone());
+    }
 
     tracing::info!("Initializing pipeline context");
     source.pipeline_ctx_init(&mut pipeline_context).unwrap();
@@ -264,6 +274,17 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
     let mut frame_count = 0u64;
 
     while let Some(mut ctx) = source.next_frame(&mut pipeline_context) {
+        // Check if we should stop (for Ctrl+C handling)
+        if let Some(ref stats) = stats {
+            if !stats.is_running() {
+                tracing::info!("Received shutdown signal, stopping pipeline gracefully");
+                break;
+            }
+        }
+
+        // Process any GStreamer timing data that came with this frame
+        crate::pipeline::timing::process_gst_timing_data(&ctx, stats.as_deref());
+
         let frame_start = Instant::now();
         frame_count += 1;
 
@@ -285,6 +306,11 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
         let total_frame_duration = frame_start.elapsed();
         let total_frame_duration_us = total_frame_duration.as_micros() as u64;
 
+        // Record statistics if available
+        if let Some(ref stats) = stats {
+            stats.record_frame(total_frame_duration_us);
+        }
+
         // Log comprehensive timing summary for this frame
         log_frame_timing_summary(&ctx, frame_count, total_frame_duration_us);
 
@@ -299,9 +325,6 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
                 fps,
                 "Pipeline throughput"
             );
-
-            // If you have a metrics library available
-            // metrics::gauge!("astrocap_pipeline.fps").set(fps);
         }
     }
 
@@ -318,12 +341,14 @@ pub fn run_pipeline(mut pipeline_context: PipelineContext, pipeline: Pipeline) -
     pipeline_context
 }
 
-pub fn run_pipeline_with_config_file_path(path: &str) -> PipelineContext {
+pub fn run_pipeline_with_config_file_path(
+    path: &str,
+    stats: Arc<PipelineStatistics>,
+) -> PipelineContext {
     let config_raw = std::fs::read_to_string(path).expect("Failed to read config file");
-
     let config: PipelineConfig = toml::from_str(&config_raw).expect("Failed to parse config file");
-
     let pipeline = build_pipeline(&config).expect("Failed to build pipeline from config");
     let pipeline_context = PipelineContext::new();
-    run_pipeline(pipeline_context, pipeline)
+
+    run_pipeline(pipeline_context, pipeline, Some(stats))
 }
