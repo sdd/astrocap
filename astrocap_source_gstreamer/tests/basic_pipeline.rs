@@ -5,7 +5,7 @@ use test_log::test;
 
 use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, PipelineContext};
 
-use astrocap_source_gstreamer::GstSource;
+use astrocap_source_gstreamer_gpu::GstSource;
 
 #[ignore]
 #[test]
@@ -147,7 +147,7 @@ stage_type = "astrocap_core::DummySink"
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline);
+    let final_context = run_pipeline(pipeline_context, pipeline, None);
     let duration = start_time.elapsed();
 
     // Assert on the statistics recorded in the pipeline context
@@ -221,7 +221,7 @@ stage_type = "astrocap_core::DummySink"
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline);
+    let final_context = run_pipeline(pipeline_context, pipeline, None);
     let duration = start_time.elapsed();
 
     // Get counters

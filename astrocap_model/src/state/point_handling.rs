@@ -616,13 +616,13 @@ where
         };
 
         // Measurement matrix H (we observe position only)
-        let h = [
+        let _h = [
             [1.0f64.az::<F>(), F::default(), F::default(), F::default()],
             [F::default(), 1.0f64.az::<F>(), F::default(), F::default()],
         ];
 
         // Measurement noise covariance R
-        let r = [
+        let _r = [
             [adjusted_noise, F::default()],
             [F::default(), adjusted_noise],
         ];
@@ -774,7 +774,7 @@ where
         let min_history_for_validation = 3;
 
         // Get the total number of frames we have (historical + current)
-        let total_frames = historical_frame_states.len() + 1; // +1 for current frame
+        let _total_frames = historical_frame_states.len() + 1; // +1 for current frame
 
         // The candidate's history should map to the most recent frames
         let history_len = self.detected_point_match_history.len();

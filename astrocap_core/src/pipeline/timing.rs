@@ -13,6 +13,7 @@ pub(crate) fn process_gst_timing_data(
 }
 
 /// Helper function to add astrocap stage timing to existing timing data (in microseconds)
+#[allow(unused)]
 pub(crate) fn add_stage_timing(
     frame_ctx: &mut crate::FrameContext,
     stage_name: &str,
@@ -43,6 +44,7 @@ pub(crate) fn add_stage_timing(
     );
 }
 
+#[allow(unused)]
 pub(crate) fn get_or_create_timing_data(
     frame_ctx: &mut crate::FrameContext,
 ) -> &mut Vec<(u64, String)> {

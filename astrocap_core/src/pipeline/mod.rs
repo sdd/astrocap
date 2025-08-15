@@ -64,19 +64,20 @@ impl PipelineContext {
 
 #[derive(Deserialize, Debug)]
 pub struct PipelineConfig {
-    pub source: StageConfig,
+    source: StageConfig,
     #[serde(default)]
-    pub stages: Vec<StageConfig>,
-    pub sink: StageConfig,
+    stages: Vec<StageConfig>,
+    sink: StageConfig,
 }
 
 #[derive(Deserialize, Debug)]
 struct StageConfig {
-    pub name: Option<String>,
-    pub stage_type: String,
+    #[allow(unused)]
+    name: Option<String>,
+    stage_type: String,
 
     #[serde(flatten)]
-    pub params: Option<Value>,
+    params: Option<Value>,
 }
 
 pub struct Pipeline {

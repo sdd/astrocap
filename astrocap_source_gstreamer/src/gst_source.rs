@@ -239,7 +239,7 @@ impl GstSource {
         pipeline: Arc<gst::Pipeline>,
         play_state: Arc<AtomicU8>,
     ) -> Result<(), GstSourceError> {
-        instrument_pipeline_with_timing_meta(pipeline.as_ref()).expect("TODO: panic message");
+        instrument_pipeline_with_timing_meta(pipeline.as_ref());
 
         pipeline.set_state(gst::State::Playing)?;
 

@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "astrocap_model",
+    #    "astrocap_model",
     "gst_rtsp_client",
     #    "opencv_load_from_file",
-    "read_mkv_metadata",
+    #    "read_mkv_metadata",
     "astrocap_core",
     "astrocap_processor_frame_stacker",
     "astrocap_processor_mask",

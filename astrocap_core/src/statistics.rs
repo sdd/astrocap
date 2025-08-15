@@ -2,7 +2,7 @@ use dashmap::DashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct StageTimingStats {
@@ -47,6 +47,7 @@ pub enum MemoryOperation {
 // Helper struct for enhanced stage data
 #[derive(Debug)]
 struct EnhancedStageData {
+    #[allow(unused)]
     name: String,
     display_name: String,
     stats: StageTimingStats,
@@ -351,6 +352,7 @@ impl PipelineStatistics {
     }
 
     /// Clean up GStreamer stage names to be consistent with astrocap naming
+    #[allow(unused)]
     fn clean_gst_stage_name(&self, stage_name: &str) -> String {
         // Remove common GST prefixes and suffixes
         let cleaned = stage_name
@@ -390,6 +392,7 @@ impl PipelineStatistics {
     }
 
     /// Separate stages into GStreamer and Astrocap categories
+    #[allow(unused)]
     fn categorize_stages(
         &self,
     ) -> (
@@ -423,143 +426,6 @@ impl PipelineStatistics {
 
         (gst_stages, astrocap_stages)
     }
-
-    fn print_stage_table(
-        &self,
-        title: &str,
-        stages: &[(String, StageTimingStats, f64)],
-        total_stage_time_us: u64,
-    ) {
-        if stages.is_empty() {
-            return;
-        }
-
-        println!("\n--- {} ---", title);
-        println!(
-            "{:<30} {:<8} {:<10} {:<10} {:<10} {:<10} {:<10} {:<12} {:<12}",
-            "Stage",
-            "Calls",
-            "Median",
-            "95% Mean",
-            "Min (ms)",
-            "Max (ms)",
-            "P95 (ms)",
-            "Total (ms)",
-            "% Pipeline"
-        );
-        println!("{}", "─".repeat(130));
-
-        for (stage_name, stats, _median_time_us) in stages {
-            let call_count = stats.call_count.load(Ordering::Relaxed);
-            let min_time_us = stats.min_time_us.load(Ordering::Relaxed);
-            let max_time_us = stats.max_time_us.load(Ordering::Relaxed);
-            let total_time_us = stats.total_time_us.load(Ordering::Relaxed);
-
-            let min_time_ms = if min_time_us == u64::MAX {
-                0.0
-            } else {
-                min_time_us as f64 / 1000.0
-            };
-            let max_time_ms = max_time_us as f64 / 1000.0;
-            let total_time_ms = total_time_us as f64 / 1000.0;
-
-            // Calculate robust statistics
-            let median_ms = stats.get_median().unwrap_or(0.0) / 1000.0;
-            let trimmed_mean_ms = stats.get_trimmed_mean(0.025, 0.975).unwrap_or(0.0) / 1000.0;
-            let p95_ms = stats.get_percentile(0.95).unwrap_or(0.0) / 1000.0;
-
-            let percentage = if total_stage_time_us > 0 {
-                (total_time_us as f64 / total_stage_time_us as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            println!(
-                "{:<30} {:<8} {:<10.2} {:<10.2} {:<10.2} {:<10.2} {:<10.2} {:<12.1} {:<11.1}%",
-                stage_name,
-                call_count,
-                median_ms,
-                trimmed_mean_ms,
-                min_time_ms,
-                max_time_ms,
-                p95_ms,
-                total_time_ms,
-                percentage
-            );
-        }
-    }
-
-    /*    pub fn print_final_stats(&self) {
-        let total_duration = self.start_time.elapsed();
-        let frames = self.frame_count.load(Ordering::Relaxed);
-        let total_processing_us = self.total_processing_time_us.load(Ordering::Relaxed);
-
-        println!("\n=== Final Pipeline Statistics ===");
-        println!("Total runtime: {:.2}s", total_duration.as_secs_f64());
-        println!("Frames processed: {}", frames);
-
-        if frames > 0 {
-            let avg_fps = frames as f64 / total_duration.as_secs_f64();
-            let avg_frame_time_us = total_processing_us / frames;
-
-            println!("Average FPS: {:.2}", avg_fps);
-            println!(
-                "Average frame processing time: {:.2}ms",
-                avg_frame_time_us as f64 / 1000.0
-            );
-
-            // Calculate processing overhead vs. total runtime
-            let processing_ratio =
-                (total_processing_us as f64 / 1_000_000.0) / total_duration.as_secs_f64();
-            println!(
-                "Processing time ratio: {:.1}% of total runtime",
-                processing_ratio * 100.0
-            );
-        }
-
-        // Print detailed stage-specific timings, separated by pipeline
-        if !self.stage_timings.is_empty() {
-            let (gst_stages, astrocap_stages) = self.categorize_stages();
-
-            let total_stage_time_us: u64 = self
-                .stage_timings
-                .iter()
-                .map(|entry| entry.value().total_time_us.load(Ordering::Relaxed))
-                .sum();
-
-            // Print GStreamer stages first
-            self.print_stage_table(
-                "GStreamer Pipeline Stages",
-                &gst_stages,
-                total_stage_time_us,
-            );
-
-            // Then print Astrocap stages
-            self.print_stage_table(
-                "Astrocap Pipeline Stages",
-                &astrocap_stages,
-                total_stage_time_us,
-            );
-
-            println!("{}", "─".repeat(130));
-            println!(
-                "Total stage processing time: {:.1}ms",
-                total_stage_time_us as f64 / 1000.0
-            );
-
-            if frames > 0 {
-                let total_wall_clock_us = (total_duration.as_secs_f64() * 1_000_000.0) as u64;
-                let pipeline_overhead_us = total_wall_clock_us.saturating_sub(total_stage_time_us);
-                let avg_overhead_per_frame = pipeline_overhead_us as f64 / frames as f64 / 1000.0;
-
-                println!(
-                    "Average pipeline overhead per frame: {:.2}ms",
-                    avg_overhead_per_frame
-                );
-            }
-        }
-        println!("=================================\n");
-    }*/
 
     /// Get memory operation summary for a stage
     fn get_memory_summary(&self, stage_name: &str) -> String {
@@ -697,7 +563,7 @@ impl PipelineStatistics {
         (gst_stages, astrocap_stages)
     }
 
-    fn print_enhanced_stage_table(
+    fn print_stage_table(
         &self,
         title: &str,
         stages: &[EnhancedStageData],
@@ -817,14 +683,14 @@ impl PipelineStatistics {
                 .sum();
 
             // Print GStreamer stages first
-            self.print_enhanced_stage_table(
+            self.print_stage_table(
                 "GStreamer Pipeline Stages",
                 &gst_stages,
                 total_stage_time_us,
             );
 
             // Then print Astrocap stages
-            self.print_enhanced_stage_table(
+            self.print_stage_table(
                 "Astrocap Pipeline Stages",
                 &astrocap_stages,
                 total_stage_time_us,

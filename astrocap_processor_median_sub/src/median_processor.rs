@@ -100,8 +100,8 @@ impl FrameProcessor for MedianProcessor {
                         *median_clone.lock().unwrap() = median;
                     }
                 } else {
-                    tracing::error!("No frame");
-                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    tracing::debug!("No frame yet");
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                 }
             });
 

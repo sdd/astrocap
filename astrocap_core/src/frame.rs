@@ -267,7 +267,7 @@ impl Frame {
     }
 
     // For future GPU operations
-    pub fn ensure_gpu(&mut self, timeout: Option<Duration>) -> Result<(), String> {
+    pub fn ensure_gpu(&mut self, _timeout: Option<Duration>) -> Result<(), String> {
         if let Frame::Cpu(c) = self {
             let bytes = (c.width() * c.height()) as usize;
             StatsContext::record_memory_operation(MemoryOperation::GpuUpload(bytes));

@@ -1,15 +1,4 @@
 use gst::prelude::*;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum TimingMetaError {
-    #[error("Failed to add timing metadata to buffer")]
-    AddMetaFailed,
-    #[error("Timing metadata not found on buffer")]
-    MetaNotFound,
-    #[error("Failed to create caps for timing metadata")]
-    CapsCreationFailed,
-}
 
 pub struct TimingMeta;
 
@@ -17,20 +6,15 @@ impl TimingMeta {
     const META_API_NAME: &'static str = "application/x-astrocap-timing";
 
     /// Create caps for a specific stage and event type
-    fn create_timing_caps(stage: &str, event: &str) -> Result<gst::Caps, TimingMetaError> {
-        let caps = gst::Caps::builder(Self::META_API_NAME)
+    fn create_timing_caps(stage: &str, event: &str) -> gst::Caps {
+        gst::Caps::builder(Self::META_API_NAME)
             .field("stage", stage)
             .field("event", event)
-            .build();
-
-        Ok(caps)
+            .build()
     }
 
     /// Record stage entry time using ReferenceTimestampMeta
-    pub fn record_stage_entry(
-        buffer: &mut gst::BufferRef,
-        stage: &str,
-    ) -> Result<(), TimingMetaError> {
+    pub fn record_stage_entry(buffer: &mut gst::BufferRef, stage: &str) {
         let now_micros = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -39,7 +23,7 @@ impl TimingMeta {
         // Convert microseconds to nanoseconds for GStreamer's ClockTime
         let now_ns = gst::ClockTime::from_nseconds(now_micros * 1000);
 
-        let caps = Self::create_timing_caps(stage, "entry")?;
+        let caps = Self::create_timing_caps(stage, "entry");
 
         gst::ReferenceTimestampMeta::add(buffer, &caps, now_ns, gst::ClockTime::NONE);
 
@@ -48,15 +32,10 @@ impl TimingMeta {
             timestamp_us = now_micros,
             "Recorded stage entry"
         );
-
-        Ok(())
     }
 
     /// Record stage exit time using ReferenceTimestampMeta
-    pub fn record_stage_exit(
-        buffer: &mut gst::BufferRef,
-        stage: &str,
-    ) -> Result<(), TimingMetaError> {
+    pub fn record_stage_exit(buffer: &mut gst::BufferRef, stage: &str) {
         let now_micros = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -65,7 +44,7 @@ impl TimingMeta {
         // Convert microseconds to nanoseconds for GStreamer's ClockTime
         let now_ns = gst::ClockTime::from_nseconds(now_micros * 1000);
 
-        let caps = Self::create_timing_caps(stage, "exit")?;
+        let caps = Self::create_timing_caps(stage, "exit");
 
         gst::ReferenceTimestampMeta::add(buffer, &caps, now_ns, gst::ClockTime::NONE);
 
@@ -74,8 +53,6 @@ impl TimingMeta {
             timestamp_us = now_micros,
             "Recorded stage exit"
         );
-
-        Ok(())
     }
 
     /// Extract all timing information from a buffer as a chronologically sorted Vec
@@ -118,6 +95,7 @@ impl TimingMeta {
     }
 
     /// Print timing summary for a buffer showing elapsed time from start and delta from previous
+    #[allow(dead_code)]
     pub fn print_timing_summary(buffer: &gst::BufferRef) {
         let timing_events = Self::extract_timing_data(buffer);
 
@@ -144,22 +122,19 @@ impl TimingMeta {
 }
 
 /// Instrument pipeline with timing metadata attached to buffers
-pub fn instrument_pipeline_with_timing_meta(
-    pipeline: &gst::Pipeline,
-) -> Result<(), TimingMetaError> {
+pub fn instrument_pipeline_with_timing_meta(pipeline: &gst::Pipeline) {
     // Cast pipeline to Element for the recursive function
     let pipeline_element = pipeline.upcast_ref::<gst::Element>();
-    instrument_element_recursive(pipeline_element)?;
+    instrument_element_recursive(pipeline_element);
 
     // Also set up dynamic instrumentation for bins like decodebin
-    setup_dynamic_instrumentation(pipeline_element)?;
+    setup_dynamic_instrumentation(pipeline_element);
 
     tracing::debug!("Pipeline instrumentation completed");
-    Ok(())
 }
 
 /// Recursively instrument an element and all its children (if it's a bin)
-fn instrument_element_recursive(element: &gst::Element) -> Result<(), TimingMetaError> {
+fn instrument_element_recursive(element: &gst::Element) {
     // First instrument this element itself
     instrument_regular_element(element);
 
@@ -176,16 +151,14 @@ fn instrument_element_recursive(element: &gst::Element) -> Result<(), TimingMeta
             for child in children {
                 tracing::debug!("Instrumenting child element: {}", child.name());
                 // Recursively instrument each child (in case it's also a bin)
-                instrument_element_recursive(&child)?;
+                instrument_element_recursive(&child);
             }
         }
-    }
-
-    Ok(())
+    };
 }
 
 /// Set up dynamic instrumentation for elements that create children later
-fn setup_dynamic_instrumentation(element: &gst::Element) -> Result<(), TimingMetaError> {
+fn setup_dynamic_instrumentation(element: &gst::Element) {
     // If this element is a bin, set up pad-added signal
     if let Ok(bin) = element.clone().downcast::<gst::Bin>() {
         tracing::debug!(
@@ -200,13 +173,7 @@ fn setup_dynamic_instrumentation(element: &gst::Element) -> Result<(), TimingMet
             ) {
                 tracing::debug!("New element added to bin: {}", element.name());
                 // Instrument the newly added element
-                if let Err(e) = instrument_element_recursive(&element) {
-                    tracing::error!(
-                        "Failed to instrument new element {}: {:?}",
-                        element.name(),
-                        e
-                    );
-                }
+                instrument_element_recursive(&element);
             }
             None
         });
@@ -215,12 +182,10 @@ fn setup_dynamic_instrumentation(element: &gst::Element) -> Result<(), TimingMet
         let elements: Result<Vec<_>, _> = bin.iterate_elements().into_iter().collect();
         if let Ok(children) = elements {
             for child in children {
-                setup_dynamic_instrumentation(&child)?;
+                setup_dynamic_instrumentation(&child);
             }
         }
-    }
-
-    Ok(())
+    };
 }
 
 /// Instrument a regular (non-bin) element
@@ -243,13 +208,7 @@ fn instrument_regular_element(element: &gst::Element) {
                 if let Some(gst::PadProbeData::Buffer(ref mut buffer)) = info.data {
                     let buffer = buffer.make_mut();
 
-                    if let Err(e) = TimingMeta::record_stage_entry(buffer, &stage_entry) {
-                        tracing::error!(
-                            stage = ?stage_entry,
-                            error = ?e,
-                            "Failed to record stage entry"
-                        );
-                    }
+                    TimingMeta::record_stage_entry(buffer, &stage_entry);
                 }
                 gst::PadProbeReturn::Ok
             });
@@ -265,13 +224,7 @@ fn instrument_regular_element(element: &gst::Element) {
                 if let Some(gst::PadProbeData::Buffer(ref mut buffer)) = info.data {
                     let buffer = buffer.make_mut();
 
-                    if let Err(e) = TimingMeta::record_stage_exit(buffer, &stage_exit) {
-                        tracing::error!(
-                            stage = ?stage_exit,
-                            error = ?e,
-                            "Failed to record stage exit"
-                        );
-                    }
+                    TimingMeta::record_stage_exit(buffer, &stage_exit);
                 }
                 gst::PadProbeReturn::Ok
             });
@@ -280,6 +233,7 @@ fn instrument_regular_element(element: &gst::Element) {
 }
 
 /// Normalize element names to readable stage names
+#[allow(dead_code)]
 fn normalize_stage_name(element_name: &str) -> String {
     element_name
         .chars()
