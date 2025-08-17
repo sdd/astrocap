@@ -258,23 +258,24 @@ pub fn run_pipeline(
         mut sink,
     } = pipeline;
 
-    // Set up global statistics context
-    if let Some(ref stats) = stats {
-        pipeline_context.put("pipeline_statistics", stats.clone());
-        StatsContext::set_global_stats(stats.clone());
+    let stats = match stats {
+        Some(stats) => stats,
+        _ => Arc::new(PipelineStatistics::new()),
+    };
 
-        // Auto-register all stage processing types
-        stats.register_stage("source", source.get_processing_type());
-        for stage in &stages {
-            stats.register_stage(stage.stage_type, stage.get_processing_type());
-        }
-        stats.register_stage("sink", sink.get_processing_type());
+    // Set up global statistics context
+    pipeline_context.put("pipeline_statistics", stats.clone());
+    StatsContext::set_global_stats(stats.clone());
+
+    // Auto-register all stage processing types
+    stats.register_stage("source", source.get_processing_type());
+    for stage in &stages {
+        stats.register_stage(stage.stage_type, stage.get_processing_type());
     }
+    stats.register_stage("sink", sink.get_processing_type());
 
     // Add statistics to pipeline context if provided
-    if let Some(ref stats) = stats {
-        pipeline_context.put("pipeline_statistics", stats.clone());
-    }
+    pipeline_context.put("pipeline_statistics", stats.clone());
 
     tracing::info!("Initializing pipeline context");
     source.pipeline_ctx_init(&mut pipeline_context).unwrap();
@@ -289,15 +290,13 @@ pub fn run_pipeline(
 
     while let Some(mut ctx) = source.next_frame(&mut pipeline_context) {
         // Check if we should stop (for Ctrl+C handling)
-        if let Some(ref stats) = stats {
-            if !stats.is_running() {
-                tracing::info!("Received shutdown signal, stopping pipeline gracefully");
-                break;
-            }
+        if !stats.is_running() {
+            tracing::info!("Received shutdown signal, stopping pipeline gracefully");
+            break;
         }
 
         // Process any GStreamer timing data that came with this frame
-        crate::pipeline::timing::process_gst_timing_data(&ctx, stats.as_deref());
+        crate::pipeline::timing::process_gst_timing_data(&ctx, Some(stats.as_ref()));
 
         let frame_start = Instant::now();
         frame_count += 1;
@@ -321,9 +320,7 @@ pub fn run_pipeline(
         let total_frame_duration_us = total_frame_duration.as_micros() as u64;
 
         // Record statistics if available
-        if let Some(ref stats) = stats {
-            stats.record_frame(total_frame_duration_us);
-        }
+        stats.record_frame(total_frame_duration_us);
 
         // Log comprehensive timing summary for this frame
         log_frame_timing_summary(&ctx, frame_count, total_frame_duration_us);

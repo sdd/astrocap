@@ -23,6 +23,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 astrocap_source_gstreamer = { path = "." }
+gst-app = { package = "gstreamer-app", version = "0.21", features = ["v1_24"] }
 test-log = { version = "0.2", features = ["trace"] }
 
 [package.metadata.system-deps.gstreamer_1_0]

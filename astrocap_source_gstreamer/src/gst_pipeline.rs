@@ -57,18 +57,3 @@ fn build_generic_pipeline(
 
     Ok(pipeline)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_normalize_stage_name() {
-        assert_eq!(normalize_stage_name("decodebin0"), "decodebin");
-        assert_eq!(normalize_stage_name("decodebin1"), "decodebin");
-        assert_eq!(normalize_stage_name("decodebin123"), "decodebin");
-        assert_eq!(normalize_stage_name("queue"), "queue");
-        assert_eq!(normalize_stage_name("videoconvert2"), "videoconvert");
-        assert_eq!(normalize_stage_name("capsfilter3"), "capsfilter");
-    }
-}

@@ -14,19 +14,21 @@ impl DummySink {
 }
 
 impl FrameSink for DummySink {
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        ctx.entry("frames_sunk".to_string())
+            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
+
+        Ok(())
+    }
+
     fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
-        tracing::debug!(
+        tracing::trace!(
             "Sink received frame with metadata keys: {:?}",
             frame_ctx.metadata.keys().collect::<Vec<_>>()
         );
 
-        // Track frames sunk in pipeline context
-        let counter = ctx
-            .entry("frames_sunk".to_string())
-            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
-
-        if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
-            atomic_counter.fetch_add(1, Ordering::SeqCst);
+        if let Ok(counter) = ctx.get_as::<AtomicUsize>("frames_sunk") {
+            counter.fetch_add(1, Ordering::SeqCst);
         }
     }
 

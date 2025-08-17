@@ -24,10 +24,6 @@ impl DummyProcessor {
 }
 
 impl FrameProcessor for DummyProcessor {
-    fn processing_type(&self) -> ProcessingType {
-        ProcessingType::Cpu
-    }
-
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         ctx.entry("frames_processed".to_string())
             .or_insert_with(|| Box::new(AtomicUsize::new(0)));
@@ -51,20 +47,19 @@ impl FrameProcessor for DummyProcessor {
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
 
-        // Track frames processed in pipeline context
-        let counter = ctx
-            .entry("frames_processed".to_string())
-            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
-
-        if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
-            atomic_counter.fetch_add(1, Ordering::SeqCst);
+        if let Ok(counter) = ctx.get_as::<AtomicUsize>("frames_processed") {
+            counter.fetch_add(1, Ordering::SeqCst);
         }
 
-        FrameProcessorResult::Skip
+        FrameProcessorResult::Continue
     }
 
     fn name(&self) -> &str {
         "dummy_processor"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
     }
 }
 

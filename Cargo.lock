@@ -745,6 +745,29 @@ dependencies = [
  "bytes",
  "gstreamer",
  "gstreamer-allocators",
+ "gstreamer-app",
+ "gstreamer-base",
+ "gstreamer-video",
+ "http",
+ "image 0.24.9",
+ "metrics",
+ "once_cell",
+ "test-log",
+ "thiserror 2.0.12",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_source_gstreamer_gpu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "astrocap_core",
+ "astrocap_source_gstreamer_gpu",
+ "bytes",
+ "gstreamer",
+ "gstreamer-allocators",
  "gstreamer-base",
  "gstreamer-video",
  "http",
@@ -1156,12 +1179,6 @@ dependencies = [
  "bytemuck",
  "serde",
 ]
-
-[[package]]
-name = "bitstream-io"
-version = "2.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6099cdc01846bc367c4e7dd630dc5966dccf36b652fae7a74e17b640411a91b2"
 
 [[package]]
 name = "block"
@@ -4132,16 +4149,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "matroska"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a74b20fbb7d45e44b85bc85be7738f84bf058976707bbfbb22c1c903bed659d0"
-dependencies = [
- "bitstream-io",
- "phf",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6592,15 +6599,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
-]
-
-[[package]]
-name = "read_mkv_metadata"
-version = "0.1.0"
-dependencies = [
- "clap",
- "clap-verbosity-flag",
- "matroska",
 ]
 
 [[package]]

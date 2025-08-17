@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use test_log::test;
 
 use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, PipelineContext};
-
-use astrocap_source_gstreamer_gpu::GstSource;
+#[allow(unused)]
+use astrocap_source_gstreamer::GstSource;
 
 #[ignore]
 #[test]
@@ -84,7 +84,7 @@ stage_type = "astrocap_core::DummySink"
 
     // Run the pipeline - this should process all frames from the dummy source
     // The dummy source produces 5 frames, so this should process all of them
-    let final_context = run_pipeline(pipeline_context, pipeline);
+    let final_context = run_pipeline(pipeline_context, pipeline, None);
 
     println!("Pipeline execution completed successfully!");
 
@@ -132,7 +132,7 @@ pseudo_live = true
 
 [[stages]]
 stage_type = "astrocap_core::DummyProcessor"
-# processing_delay_ms = 200
+processing_delay_ms = 200
 
 [sink]
 stage_type = "astrocap_core::DummySink"
