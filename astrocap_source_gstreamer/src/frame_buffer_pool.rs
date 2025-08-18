@@ -162,6 +162,14 @@ impl FrameBufferPool {
     pub fn buffer_count(&self) -> usize {
         self.buffer_count
     }
+
+    /// Check if a pointer points to memory within this pool's arena
+    pub fn is_from_pool(&self, ptr: *const u8) -> bool {
+        let arena_start = self.memory_arena.as_ptr();
+        let arena_end = unsafe { arena_start.add(self.memory_arena.len()) };
+
+        ptr >= arena_start && ptr < arena_end
+    }
 }
 
 // Safety: FrameBufferPool is safe to send between threads
