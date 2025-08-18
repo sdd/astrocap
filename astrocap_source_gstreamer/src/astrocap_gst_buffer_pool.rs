@@ -36,8 +36,6 @@ mod imp {
     pub struct AstrocapGstBufferPool {
         /// Reference to the frame buffer pool that manages our memory
         pub(crate) pool: Mutex<Option<SharedFrameBufferPool>>,
-        /// Configured buffer size from set_config
-        buffer_size: Mutex<Option<usize>>,
     }
 
     #[glib::object_subclass]
@@ -61,16 +59,28 @@ mod imp {
                 return false;
             };
 
-            // Store the configured size
-            *self.buffer_size.lock().unwrap() = Some(size as usize);
-
             tracing::debug!(
                 size,
                 min_buffers,
                 max_buffers,
                 caps = ?caps,
-                "Buffer pool configured"
+                "Buffer pool config change requested"
             );
+
+            // If we have a frame buffer pool, check if we need to recreate it for the new size
+            if let Some(existing_pool) = self.pool.lock().unwrap().as_ref() {
+                let pool_guard = existing_pool.lock().unwrap();
+                if pool_guard.buffer_size() != size as usize {
+                    tracing::error!(
+                        "Buffer size changed from {} to {}, will need new frame buffer pool",
+                        pool_guard.buffer_size(),
+                        size
+                    );
+                    // Note: We'd need a way to recreate the pool here, or require the caller to do it
+
+                    return false;
+                }
+            }
 
             true
         }
@@ -85,26 +95,12 @@ mod imp {
                 return Err(gst::FlowError::Error);
             };
 
-            let configured_size = { *self.buffer_size.lock().unwrap() };
-            let Some(size) = configured_size else {
-                tracing::error!("Acquire attempt without configured size");
-                return Err(gst::FlowError::Error);
-            };
-
             let mut pool_guard = pool.lock().unwrap();
-
-            if size != pool_guard.buffer_size() {
-                tracing::error!(
-                    requested_size = size,
-                    pool_buffer_size = pool_guard.buffer_size(),
-                    "Size mismatch - configured size doesn't match pool buffer size"
-                );
-                return Err(gst::FlowError::Error);
-            }
+            let frame_pool_buffer_size = pool_guard.buffer_size(); // Just use the frame pool's size
 
             let Some(handle) = pool_guard.alloc() else {
                 tracing::error!(
-                    size,
+                    frame_pool_buffer_size,
                     buffer_count = pool_guard.buffer_count(),
                     "Pool exhausted - no available buffers"
                 );
@@ -112,7 +108,7 @@ mod imp {
             };
 
             tracing::trace!(
-                size,
+                frame_pool_buffer_size,
                 available_slots = pool_guard.available_count(),
                 in_use_slots = pool_guard.in_use_count(),
                 "acquired buffer from pool"
@@ -133,9 +129,9 @@ mod imp {
                 gst::glib::translate::from_glib_full(gst::ffi::gst_memory_new_wrapped(
                     0,                                                 // flags
                     buffer_ptr as *mut std::ffi::c_void,               // data
-                    size,                                              // maxsize
+                    frame_pool_buffer_size,                            // maxsize
                     0,                                                 // offset
-                    size,                                              // size
+                    frame_pool_buffer_size,                            // size
                     Box::into_raw(user_data) as *mut std::ffi::c_void, // user_data
                     Some(pool_deallocator),                            // notify function
                 ))
@@ -309,11 +305,9 @@ mod tests {
         // Configure with wrong size
         let mut config = buffer_pool.config();
         config.set_params(None, 2048, 0, 2); // Wrong size
-        buffer_pool.set_config(config).unwrap();
-        buffer_pool.set_active(true).unwrap();
 
-        // Should fail with wrong size
-        let result = buffer_pool.acquire_buffer(None);
+        let result = buffer_pool.set_config(config);
+
         assert!(result.is_err());
     }
 
