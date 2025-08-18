@@ -1,55 +1,103 @@
-use gst::glib;
-use std::sync::{Arc, Mutex, Weak};
-
-/// Data passed to the drop callback for memory cleanup
-struct PoolMemoryUserData {
-    /// Weak reference to the pool to avoid circular references
-    pool: Weak<Mutex<FrameBufferPool>>,
-    /// Index of the slot in the pool
-    slot_index: usize,
-}
+use bytes::{Bytes, BytesMut};
+use std::sync::{Arc, Mutex};
+use tracing;
 
 /// A memory slot in the frame buffer pool
 #[derive(Debug)]
 struct MemorySlot {
-    /// Raw memory buffer for this slot
-    buffer: Vec<u8>,
+    /// Bytes slice for this slot (view into the arena)
+    buffer: Bytes,
     /// Whether this slot is currently in use
     in_use: bool,
+    /// Slot index for debugging
+    slot_index: usize,
 }
 
-/// A pool that manages pre-allocated memory buffers for zero-copy operation with GStreamer.
-///
-/// This pool contains fixed-size memory slots that can be allocated
-/// to GStreamer elements and then reused without copying when passed to the astrocap pipeline.
+/// Handle that represents ownership of a buffer from the pool
+pub struct BufferHandle {
+    /// The buffer data as a mutable slice
+    buffer: *mut [u8],
+    /// Pointer to identify this buffer when returning it
+    buffer_ptr: *const u8,
+    /// Store the length to avoid dereferencing
+    len: usize,
+}
+
+impl BufferHandle {
+    /// Get a mutable slice to the buffer data
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        unsafe { &mut *self.buffer }
+    }
+
+    /// Get the buffer pointer for returning to the pool
+    pub fn as_ptr(&self) -> *const u8 {
+        self.buffer_ptr
+    }
+
+    /// Get the length of the buffer
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Check if the buffer is empty
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+// Safety: BufferHandle contains a valid pointer that we control
+unsafe impl Send for BufferHandle {}
+
+/// Frame buffer pool that manages pre-allocated memory buffers for zero-copy operations
 #[derive(Debug)]
 pub struct FrameBufferPool {
+    /// All memory slots
     slots: Vec<MemorySlot>,
+    /// Size of each buffer slot
     buffer_size: usize,
+    /// Total number of buffer slots
     buffer_count: usize,
+    /// The underlying memory arena
+    #[allow(unused)]
+    memory_arena: Bytes,
+    /// Arena bounds for fast address checking
+    arena_start: *const u8,
+    arena_end: *const u8,
 }
 
 impl FrameBufferPool {
-    /// Create a new frame buffer pool with the specified configuration
+    /// Creates a new frame buffer pool with the specified buffer size and count
     pub fn new(buffer_size: usize, buffer_count: usize) -> Self {
-        tracing::debug!(buffer_size, buffer_count, "Creating FrameBufferPool");
+        let total_size = buffer_size * buffer_count;
 
-        // Pre-allocate all memory slots with raw buffers
+        // Create zeroed arena
+        let arena = BytesMut::zeroed(total_size);
+        let memory_arena = arena.freeze();
+
+        // Get arena bounds for fast address checking
+        let arena_start = memory_arena.as_ptr();
+        let arena_end = unsafe { arena_start.add(total_size) };
+
+        // Create slots as views into the arena
         let mut slots = Vec::with_capacity(buffer_count);
         for i in 0..buffer_count {
-            let buffer = vec![0u8; buffer_size];
-            tracing::trace!(slot_index = i, buffer_size, "Pre-allocated memory slot");
+            let start = i * buffer_size;
+            let end = start + buffer_size;
+            let slot_buffer = memory_arena.slice(start..end);
 
             slots.push(MemorySlot {
-                buffer,
+                buffer: slot_buffer,
                 in_use: false,
+                slot_index: i,
             });
         }
 
-        tracing::info!(
+        let total_allocated_bytes = total_size;
+
+        tracing::debug!(
             buffer_count,
             buffer_size,
-            total_allocated_bytes = buffer_count * buffer_size,
+            total_allocated_bytes,
             "FrameBufferPool created successfully"
         );
 
@@ -57,140 +105,179 @@ impl FrameBufferPool {
             slots,
             buffer_size,
             buffer_count,
+            memory_arena,
+            arena_start,
+            arena_end,
         }
     }
 
-    /// Get the configured buffer size
-    pub fn buffer_size(&self) -> usize {
-        self.buffer_size
-    }
-
-    /// Get the configured buffer count
-    pub fn buffer_count(&self) -> usize {
-        self.buffer_count
-    }
-
-    /// Allocate a memory slot from the pool and create GStreamer memory with custom cleanup
-    ///
+    /// Gets a buffer handle for an available buffer slot
     /// Returns None if no slots are available
-    pub fn allocate(&mut self, pool_ref: &SharedFrameBufferPool) -> Option<gst::Memory> {
-        for (index, slot) in self.slots.iter_mut().enumerate() {
+    pub fn get_buffer_handle(&mut self) -> Option<BufferHandle> {
+        for slot in &mut self.slots {
             if !slot.in_use {
                 slot.in_use = true;
+                // Convert Bytes to mutable slice
+                // Safety: We control the lifecycle and ensure exclusive access
+                let ptr = slot.buffer.as_ptr() as *mut u8;
+                let len = slot.buffer.len();
+                let slice_ptr = std::ptr::slice_from_raw_parts_mut(ptr, len);
 
-                // Create user data for the drop callback
-                let user_data = Box::new(PoolMemoryUserData {
-                    pool: Arc::downgrade(pool_ref),
-                    slot_index: index,
+                return Some(BufferHandle {
+                    buffer: slice_ptr,
+                    buffer_ptr: ptr,
+                    len,
                 });
-
-                // Create GStreamer memory with our custom drop function
-                let memory = unsafe {
-                    let size = slot.buffer.len();
-                    let data = slot.buffer.as_mut_ptr();
-                    let user_data_ptr = Box::into_raw(user_data);
-
-                    gst::Memory::from_glib_full(gst::ffi::gst_memory_new_wrapped(
-                        0, // flags
-                        data as glib::ffi::gpointer,
-                        size,
-                        0, // offset
-                        size,
-                        user_data_ptr as glib::ffi::gpointer,
-                        Some(Self::drop_pool_memory), // destructor
-                    ))
-                };
-
-                tracing::trace!(
-                    slot_index = index,
-                    available_slots = self.available_count(),
-                    "Allocated memory slot from pool"
-                );
-
-                return Some(memory);
             }
         }
-
-        tracing::warn!(
-            buffer_count = self.buffer_count,
-            "No available memory slots in pool"
-        );
         None
     }
 
-    /// Custom destructor function called when GStreamer memory is freed
-    unsafe extern "C" fn drop_pool_memory(user_data: glib::ffi::gpointer) {
-        let user_data: Box<PoolMemoryUserData> =
-            Box::from_raw(user_data as *mut PoolMemoryUserData);
-
-        if let Some(pool) = user_data.pool.upgrade() {
-            if let Ok(mut pool_guard) = pool.lock() {
-                if user_data.slot_index < pool_guard.slots.len() {
-                    pool_guard.slots[user_data.slot_index].in_use = false;
-
-                    tracing::trace!(
-                        slot_index = user_data.slot_index,
-                        available_slots = pool_guard.available_count(),
-                        "Returned memory slot to pool via drop callback"
-                    );
-                } else {
-                    tracing::warn!(
-                        slot_index = user_data.slot_index,
-                        pool_size = pool_guard.slots.len(),
-                        "Invalid slot index in drop callback"
-                    );
-                }
-            } else {
-                tracing::warn!("Failed to lock pool in drop callback");
+    /// Legacy method for backward compatibility - gets a mutable slice to an available buffer slot
+    /// Returns None if no slots are available
+    /// Note: This method has borrowing limitations - prefer get_buffer_handle() for new code
+    pub fn get_buffer_mut(&mut self) -> Option<&mut [u8]> {
+        for slot in &mut self.slots {
+            if !slot.in_use {
+                slot.in_use = true;
+                // Convert Bytes to mutable slice
+                // Safety: We control the lifecycle and ensure exclusive access
+                let ptr = slot.buffer.as_ptr() as *mut u8;
+                let slice = unsafe { std::slice::from_raw_parts_mut(ptr, slot.buffer.len()) };
+                return Some(slice);
             }
-        } else {
-            tracing::debug!("Pool was already dropped when memory destructor called");
         }
+        None
     }
 
-    /// Deallocate a memory slot back to the pool (fallback method, not needed with custom destructor)
-    ///
-    /// This finds the slot by comparing the memory address
-    pub fn deallocate(&mut self, memory: &gst::Memory) -> bool {
-        let memory_ptr = memory.as_ptr();
-
-        // Find the slot by comparing memory pointers
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            if slot.in_use && slot.buffer.as_ptr() == memory_ptr as *const u8 {
-                slot.in_use = false;
-
-                tracing::trace!(
-                    slot_index = index,
-                    available_slots = self.available_count(),
-                    "Deallocated memory slot back to pool"
-                );
-
-                return true;
+    /// Returns a buffer to the pool by pointer
+    /// The pointer must be the same as returned by get_buffer_mut or BufferHandle::as_ptr()
+    pub fn return_buffer(&mut self, buffer_ptr: *const u8) -> bool {
+        for slot in &mut self.slots {
+            if slot.buffer.as_ptr() == buffer_ptr {
+                if slot.in_use {
+                    slot.in_use = false;
+                    // Zero out the buffer for next use
+                    let ptr = slot.buffer.as_ptr() as *mut u8;
+                    let slice = unsafe { std::slice::from_raw_parts_mut(ptr, slot.buffer.len()) };
+                    slice.fill(0);
+                    return true;
+                }
+                break;
             }
         }
-
-        tracing::warn!("Attempted to deallocate memory not from this pool");
         false
     }
 
+    /// Super fast ownership check - just two comparisons!
+    pub fn contains_address(&self, ptr: *const u8) -> bool {
+        ptr >= self.arena_start && ptr < self.arena_end
+    }
+
+    /// Get slot index from memory address
+    fn address_to_slot(&self, ptr: *const u8) -> Option<usize> {
+        if !self.contains_address(ptr) {
+            return None;
+        }
+
+        let offset = unsafe { ptr.offset_from(self.arena_start) } as usize;
+        let slot_index = offset / self.buffer_size;
+
+        if slot_index < self.buffer_count {
+            Some(slot_index)
+        } else {
+            None
+        }
+    }
+
+    /// Allocate a buffer handle from the pool
+    pub fn alloc(&mut self) -> Option<BufferHandle> {
+        self.get_buffer_handle()
+    }
+
+    /// Free a buffer handle back to the pool by pointer
+    pub fn free(&mut self, buffer_ptr: *const u8) -> bool {
+        self.return_buffer(buffer_ptr)
+    }
+
+    /// Check if the pool is full (all slots in use)
+    pub fn is_full(&self) -> bool {
+        self.available_count() == 0
+    }
+
+    /// Returns the number of available (unused) buffer slots
     pub fn available_count(&self) -> usize {
         self.slots.iter().filter(|slot| !slot.in_use).count()
     }
 
+    /// Returns the number of buffer slots currently in use
     pub fn in_use_count(&self) -> usize {
         self.slots.iter().filter(|slot| slot.in_use).count()
     }
 
-    /// Check if the pool is full (no available slots)
-    pub fn is_full(&self) -> bool {
-        self.available_count() == 0
+    /// Returns the size of each buffer slot
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+
+    /// Returns the total number of buffer slots
+    pub fn buffer_count(&self) -> usize {
+        self.buffer_count
+    }
+
+    /// Get a Bytes view of a specific slot (useful for sharing across threads)
+    pub fn get_slot_bytes(&self, slot_index: usize) -> Option<Bytes> {
+        if slot_index < self.slots.len() {
+            Some(self.slots[slot_index].buffer.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Check if a specific slot is in use
+    pub fn is_slot_in_use(&self, slot_index: usize) -> bool {
+        self.slots
+            .get(slot_index)
+            .map(|slot| slot.in_use)
+            .unwrap_or(false)
+    }
+
+    /// Mark a specific slot as in use (for allocator integration)
+    pub fn mark_slot_in_use(&mut self, slot_index: usize) -> bool {
+        if let Some(slot) = self.slots.get_mut(slot_index) {
+            if !slot.in_use {
+                slot.in_use = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Mark a specific slot as available (for allocator integration)
+    pub fn mark_slot_available(&mut self, slot_index: usize) -> bool {
+        if let Some(slot) = self.slots.get_mut(slot_index) {
+            if slot.in_use {
+                slot.in_use = false;
+                // Zero out the buffer
+                let ptr = slot.buffer.as_ptr() as *mut u8;
+                let slice = unsafe { std::slice::from_raw_parts_mut(ptr, slot.buffer.len()) };
+                slice.fill(0);
+                return true;
+            }
+        }
+        false
     }
 }
+
+// Safety: FrameBufferPool is safe to send between threads
+// The Bytes type is already Send + Sync, and we manage slot state appropriately
+unsafe impl Send for FrameBufferPool {}
+unsafe impl Sync for FrameBufferPool {}
 
 /// Thread-safe wrapper around the frame buffer pool
 pub type SharedFrameBufferPool = Arc<Mutex<FrameBufferPool>>;
 
-/// Helper function to create a shared frame buffer pool
+/// Creates a new shared frame buffer pool
 pub fn create_shared_pool(buffer_size: usize, buffer_count: usize) -> SharedFrameBufferPool {
     Arc::new(Mutex::new(FrameBufferPool::new(buffer_size, buffer_count)))
 }
@@ -201,56 +288,219 @@ mod tests {
 
     #[test]
     fn test_pool_creation() {
-        gst::init().unwrap();
-
-        let buffer_size = 1920 * 1080;
-        let buffer_count = 4;
-        let pool = FrameBufferPool::new(buffer_size, buffer_count);
-
-        assert_eq!(pool.buffer_size(), buffer_size);
-        assert_eq!(pool.buffer_count(), buffer_count);
-        assert_eq!(pool.available_count(), buffer_count);
+        let pool = FrameBufferPool::new(1024, 4);
+        assert_eq!(pool.buffer_size(), 1024);
+        assert_eq!(pool.buffer_count(), 4);
+        assert_eq!(pool.available_count(), 4);
         assert_eq!(pool.in_use_count(), 0);
-        assert!(!pool.is_full());
     }
 
     #[test]
-    fn test_allocation_and_automatic_deallocation() {
-        gst::init().unwrap();
+    fn test_buffer_allocation_and_return() {
+        let mut pool = FrameBufferPool::new(1024, 2);
 
-        let buffer_size = 1024;
-        let buffer_count = 2;
-        let pool = create_shared_pool(buffer_size, buffer_count);
+        // Store pointers first to avoid borrowing issues
+        let (buffer1_ptr, buffer2_ptr) = {
+            // Get first buffer
+            let buffer1 = pool.get_buffer_mut().unwrap();
+            assert_eq!(buffer1.len(), 1024);
+            let ptr1 = buffer1.as_ptr();
 
-        // Test allocation and automatic cleanup through scope
+            // Get second buffer
+            let buffer2 = pool.get_buffer_mut().unwrap();
+            assert_eq!(buffer2.len(), 1024);
+            let ptr2 = buffer2.as_ptr();
+
+            // No more buffers available
+            assert!(pool.get_buffer_mut().is_none());
+
+            (ptr1, ptr2)
+        };
+
+        // Now we can check counts without borrowing conflicts
+        assert_eq!(pool.available_count(), 0);
+        assert_eq!(pool.in_use_count(), 2);
+
+        // Return first buffer
+        assert!(pool.return_buffer(buffer1_ptr));
+        assert_eq!(pool.available_count(), 1);
+        assert_eq!(pool.in_use_count(), 1);
+
+        // Return second buffer
+        assert!(pool.return_buffer(buffer2_ptr));
+        assert_eq!(pool.available_count(), 2);
+        assert_eq!(pool.in_use_count(), 0);
+    }
+
+    #[test]
+    fn test_buffer_handle_approach() {
+        let mut pool = FrameBufferPool::new(1024, 2);
+
+        // Get first buffer handle
+        let mut handle1 = pool.get_buffer_handle().unwrap();
+        assert_eq!(handle1.len(), 1024);
+
+        // We can check pool status while handle is alive!
+        assert_eq!(pool.available_count(), 1);
+        assert_eq!(pool.in_use_count(), 1);
+
+        // Get second buffer handle
+        let mut handle2 = pool.get_buffer_handle().unwrap();
+        assert_eq!(handle2.len(), 1024);
+        assert_eq!(pool.available_count(), 0);
+        assert_eq!(pool.in_use_count(), 2);
+
+        // No more buffers available
+        assert!(pool.get_buffer_handle().is_none());
+
+        // We can modify buffer contents
+        let slice1 = handle1.as_mut_slice();
+        slice1[0] = 42;
+
+        let slice2 = handle2.as_mut_slice();
+        slice2[0] = 24;
+
+        // Return handles
+        let ptr1 = handle1.as_ptr();
+        let ptr2 = handle2.as_ptr();
+
+        assert!(pool.return_buffer(ptr1));
+        assert_eq!(pool.available_count(), 1);
+        assert_eq!(pool.in_use_count(), 1);
+
+        assert!(pool.return_buffer(ptr2));
+        assert_eq!(pool.available_count(), 2);
+        assert_eq!(pool.in_use_count(), 0);
+    }
+
+    #[test]
+    fn test_address_checking() {
+        let pool = FrameBufferPool::new(1024, 3);
+
+        // Test with slot bytes
+        let slot0_bytes = pool.get_slot_bytes(0).unwrap();
+        let slot1_bytes = pool.get_slot_bytes(1).unwrap();
+        let slot2_bytes = pool.get_slot_bytes(2).unwrap();
+
+        // All slots should be within our arena
+        assert!(pool.contains_address(slot0_bytes.as_ptr()));
+        assert!(pool.contains_address(slot1_bytes.as_ptr()));
+        assert!(pool.contains_address(slot2_bytes.as_ptr()));
+
+        // Check slot index calculation
+        assert_eq!(pool.address_to_slot(slot0_bytes.as_ptr()), Some(0));
+        assert_eq!(pool.address_to_slot(slot1_bytes.as_ptr()), Some(1));
+        assert_eq!(pool.address_to_slot(slot2_bytes.as_ptr()), Some(2));
+
+        // Test with external pointer
+        let external_data = vec![0u8; 1024];
+        assert!(!pool.contains_address(external_data.as_ptr()));
+        assert_eq!(pool.address_to_slot(external_data.as_ptr()), None);
+    }
+
+    #[test]
+    fn test_slot_management() {
+        let mut pool = FrameBufferPool::new(512, 2);
+
+        // Initially no slots in use
+        assert!(!pool.is_slot_in_use(0));
+        assert!(!pool.is_slot_in_use(1));
+
+        // Mark slot 0 as in use
+        assert!(pool.mark_slot_in_use(0));
+        assert!(pool.is_slot_in_use(0));
+        assert!(!pool.is_slot_in_use(1));
+        assert_eq!(pool.available_count(), 1);
+        assert_eq!(pool.in_use_count(), 1);
+
+        // Can't mark same slot as in use again
+        assert!(!pool.mark_slot_in_use(0));
+
+        // Mark slot 0 as available
+        assert!(pool.mark_slot_available(0));
+        assert!(!pool.is_slot_in_use(0));
+        assert_eq!(pool.available_count(), 2);
+        assert_eq!(pool.in_use_count(), 0);
+    }
+
+    #[test]
+    fn test_shared_pool() {
+        let shared_pool = create_shared_pool(256, 3);
+
         {
-            let mem1 = {
-                let mut pool_guard = pool.lock().unwrap();
-                pool_guard.allocate(&pool)
-            };
-
-            assert!(mem1.is_some());
-            let memory = mem1.unwrap();
-            assert_eq!(memory.size(), buffer_size);
-
-            // Pool should reflect allocation
-            {
-                let pool_guard = pool.lock().unwrap();
-                assert_eq!(pool_guard.in_use_count(), 1);
-                assert_eq!(pool_guard.available_count(), buffer_count - 1);
-            }
-
-            // Memory goes out of scope here and should trigger our custom destructor
+            let pool = shared_pool.lock().unwrap();
+            assert_eq!(pool.buffer_size(), 256);
+            assert_eq!(pool.buffer_count(), 3);
+            assert_eq!(pool.available_count(), 3);
         }
 
-        // Give GStreamer a moment to call the destructor
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Test that we can access from multiple scopes using handles
+        let buffer_ptr = {
+            let mut pool = shared_pool.lock().unwrap();
+            let handle = pool.get_buffer_handle().unwrap();
+            let ptr = handle.as_ptr();
+            assert_eq!(pool.available_count(), 2);
+            ptr
+        };
 
-        // Check if automatic cleanup worked
         {
-            let pool_guard = pool.lock().unwrap();
-            assert_eq!(pool_guard.in_use_count(), 0);
-            assert_eq!(pool_guard.available_count(), buffer_count);
+            let pool = shared_pool.lock().unwrap();
+            assert_eq!(pool.in_use_count(), 1);
         }
+
+        // Return the buffer
+        {
+            let mut pool = shared_pool.lock().unwrap();
+            assert!(pool.return_buffer(buffer_ptr));
+            assert_eq!(pool.in_use_count(), 0);
+        }
+    }
+
+    #[test]
+    fn test_allocate_deallocate_interface() {
+        let shared_pool = create_shared_pool(1024, 2);
+        let mut pool = shared_pool.lock().unwrap();
+
+        // Test allocation
+        let handle = pool.alloc();
+        assert!(handle.is_some());
+
+        assert_eq!(pool.available_count(), 1);
+        assert_eq!(pool.in_use_count(), 1);
+
+        // Test deallocation
+        let handle = handle.unwrap();
+        let deallocated = pool.free(handle.as_ptr());
+        assert!(deallocated);
+        assert_eq!(pool.available_count(), 2);
+        assert_eq!(pool.in_use_count(), 0);
+    }
+
+    #[test]
+    fn test_is_full() {
+        let mut pool = FrameBufferPool::new(256, 1);
+
+        assert!(!pool.is_full());
+        assert_eq!(pool.available_count(), 1);
+
+        // Allocate the only slot using handle approach
+        let _handle = pool.get_buffer_handle().unwrap();
+        assert!(pool.is_full());
+        assert_eq!(pool.available_count(), 0);
+    }
+
+    #[test]
+    fn test_buffer_handle_len_and_empty() {
+        let mut pool = FrameBufferPool::new(512, 1);
+
+        let handle = pool.get_buffer_handle().unwrap();
+        assert_eq!(handle.len(), 512);
+        assert!(!handle.is_empty());
+
+        // Test with zero-size pool (edge case)
+        let mut zero_pool = FrameBufferPool::new(0, 1);
+        let zero_handle = zero_pool.get_buffer_handle().unwrap();
+        assert_eq!(zero_handle.len(), 0);
+        assert!(zero_handle.is_empty());
     }
 }

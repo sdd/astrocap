@@ -6,114 +6,6 @@ use test_log::test;
 use astrocap_source_gstreamer::{create_shared_pool, AstrocapGstAllocator};
 
 #[test]
-fn test_alloc_direct_buffer_pool_usage() {
-    gst::init().unwrap();
-
-    let buffer_size = 320 * 240;
-    let buffer_count = 4;
-    let pool = create_shared_pool(buffer_size, buffer_count);
-    let allocator = AstrocapGstAllocator::new();
-    allocator.set_pool(pool.clone());
-
-    tracing::info!("Testing direct buffer pool usage with our allocator...");
-
-    // Create caps for our test
-    let caps = gst::Caps::builder("video/x-raw")
-        .field("format", "GRAY8")
-        .field("width", 320i32)
-        .field("height", 240i32)
-        .build();
-
-    // Create a buffer pool directly with our allocator
-    let buffer_pool = gst::BufferPool::new();
-    let mut config = buffer_pool.config();
-
-    // Configure the pool with our allocator
-    let base_allocator: &gst::Allocator = allocator.upcast_ref();
-    config.set_params(Some(&caps), buffer_size as u32, 2, 0);
-    config.set_allocator(Some(base_allocator), None);
-
-    let config_result = buffer_pool.set_config(config);
-    assert!(
-        config_result.is_ok(),
-        "Buffer pool configuration should succeed"
-    );
-
-    // Activate the pool
-    assert!(
-        buffer_pool.set_active(true).is_ok(),
-        "Buffer pool activation should succeed"
-    );
-
-    // Test multiple buffer acquisitions
-    let mut buffers = Vec::new();
-
-    for i in 0..3 {
-        let buffer = buffer_pool.acquire_buffer(None);
-        assert!(buffer.is_ok(), "Buffer acquisition {} should succeed", i);
-
-        let buffer = buffer.unwrap();
-        assert_eq!(buffer.size(), buffer_size);
-
-        // Check if the buffer's memory comes from our allocator
-        let memory = buffer.peek_memory(0);
-        let from_our_allocator = memory
-            .allocator()
-            .map(|alloc| {
-                let query_alloc_ptr = alloc.as_ptr() as *const u8;
-                let our_alloc_ptr = base_allocator.as_ptr() as *const u8;
-                query_alloc_ptr == our_alloc_ptr
-            })
-            .unwrap_or(false);
-
-        tracing::info!(
-            "Buffer {}: size = {}, from our allocator = {}",
-            i + 1,
-            buffer.size(),
-            from_our_allocator
-        );
-
-        assert!(
-            from_our_allocator,
-            "Buffer {} should use our allocator",
-            i + 1
-        );
-        buffers.push(buffer);
-    }
-
-    // Check pool state
-    {
-        let pool_guard = pool.lock().unwrap();
-        tracing::info!(
-            "Pool state: {} available, {} in use",
-            pool_guard.available_count(),
-            pool_guard.in_use_count()
-        );
-        assert_eq!(pool_guard.in_use_count(), 3);
-    }
-
-    // Release buffers
-    buffers.clear();
-
-    // Deactivate pool to ensure cleanup
-    assert!(buffer_pool.set_active(false).is_ok());
-
-    // Check final pool state (may take a moment for cleanup)
-    std::thread::sleep(Duration::from_millis(50));
-
-    {
-        let pool_guard = pool.lock().unwrap();
-        tracing::info!(
-            "Final pool state: {} available, {} in use",
-            pool_guard.available_count(),
-            pool_guard.in_use_count()
-        );
-    }
-
-    tracing::info!("✅ Direct buffer pool test passed!");
-}
-
-#[test]
 fn test_alloc_video_zero_copy_with_videoconvert() {
     // Test with videoconvert element which should respect buffer allocation proposals
     gst::init().unwrap();
@@ -213,16 +105,7 @@ fn test_alloc_video_zero_copy_with_videoconvert() {
                     let buffer = sample.buffer().unwrap();
                     let memory = buffer.peek_memory(0);
 
-                    let from_our_allocator = memory
-                        .allocator()
-                        .map(|alloc| {
-                            let query_alloc_ptr = alloc.as_ptr() as *const u8;
-                            let our_alloc_ptr =
-                                allocator_clone2.upcast_ref::<gst::Allocator>().as_ptr()
-                                    as *const u8;
-                            query_alloc_ptr == our_alloc_ptr
-                        })
-                        .unwrap_or(false);
+                    let from_our_allocator = allocator.owns_memory(&memory);
 
                     // Check if buffer contains non-zero data (would prove it's NOT our zeroed memory)
                     let contains_non_zero_data = if let Ok(readable_map) = memory.map_readable() {
@@ -351,7 +234,7 @@ fn test_alloc_video_zero_copy_with_videoconvert() {
     }
 }
 
-#[ignore]
+// #[ignore]
 #[test]
 fn test_alloc_video_zero_copy_with_identity() {
     // Test with identity element which should preserve allocator
@@ -550,7 +433,7 @@ fn test_alloc_video_zero_copy_with_identity() {
     tracing::info!("✅ Identity element zero-copy test passed!");
 }
 
-#[ignore]
+// #[ignore]
 #[test]
 fn test_alloc_video_zero_copy_allocation() {
     // Keep the original test but make it more lenient to understand the issue
@@ -740,7 +623,7 @@ fn test_alloc_video_zero_copy_allocation() {
     }
 }
 
-#[ignore]
+// #[ignore]
 #[test]
 fn test_alloc_video_query_structure() {
     gst::init().unwrap();

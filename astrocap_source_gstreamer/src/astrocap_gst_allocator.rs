@@ -25,6 +25,25 @@ impl AstrocapGstAllocator {
         let imp = self.imp();
         imp.pool.lock().unwrap().clone()
     }
+
+    /// Check if the given memory was allocated from our pool
+    pub fn owns_memory(&self, memory: &gst::MemoryRef) -> bool {
+        let pool_opt = { self.imp().pool.lock().unwrap().clone() };
+
+        let Some(pool) = pool_opt else {
+            return false;
+        };
+
+        let pool_guard = pool.lock().unwrap();
+
+        // Map the memory to get its pointer
+        if let Ok(map) = memory.map_readable() {
+            let memory_ptr = map.as_ptr();
+            pool_guard.contains_address(memory_ptr)
+        } else {
+            false
+        }
+    }
 }
 
 impl Default for AstrocapGstAllocator {
@@ -36,7 +55,7 @@ impl Default for AstrocapGstAllocator {
 mod imp {
     use super::*;
     use gst::glib::{bool_error, BoolError};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex, Weak};
 
     #[derive(Default)]
     pub struct AstrocapGstAllocator {
@@ -61,24 +80,16 @@ mod imp {
             size: usize,
             _params: Option<&gst::AllocationParams>,
         ) -> Result<gst::Memory, BoolError> {
-            tracing::info!(
-                size,
-                "🔥 AstrocapGstAllocator::alloc() called - our allocator is being used!"
-            );
-
-            // Check if we have a pool configured
             let pool_opt = { self.pool.lock().unwrap().clone() };
-
             let Some(pool) = pool_opt else {
-                tracing::warn!("AstrocapGstAllocator allocation attempt without configured pool");
+                tracing::error!("Allocation attempt without configured pool");
                 return Err(bool_error!("AstrocapGstAllocator: no pool configured"));
             };
 
             let mut pool_guard = pool.lock().unwrap();
 
-            // Validate that the requested size matches our pool configuration
             if size != pool_guard.buffer_size() {
-                tracing::warn!(
+                tracing::error!(
                     requested_size = size,
                     pool_buffer_size = pool_guard.buffer_size(),
                     "Size mismatch - requested size doesn't match pool buffer size"
@@ -90,8 +101,8 @@ mod imp {
                 ));
             }
 
-            let Some(memory) = pool_guard.allocate(&pool) else {
-                tracing::warn!(
+            let Some(handle) = pool_guard.alloc() else {
+                tracing::error!(
                     size,
                     buffer_count = pool_guard.buffer_count(),
                     "Pool exhausted - no available buffers"
@@ -99,42 +110,73 @@ mod imp {
                 return Err(bool_error!("No available buffers in pool"));
             };
 
-            tracing::info!(
+            tracing::trace!(
                 size,
                 available_slots = pool_guard.available_count(),
                 in_use_slots = pool_guard.in_use_count(),
-                "✅ Successfully allocated memory from pool"
+                "allocated memory from pool"
             );
+
+            // Create a weak reference to the pool for the deallocator
+            let pool_weak = Arc::downgrade(&pool);
+            let buffer_ptr = handle.as_ptr();
+
+            // Box the weak reference for the user_data
+            let user_data = Box::new(PoolDeallocatorData {
+                pool: pool_weak,
+                buffer_ptr,
+            });
+
+            // Create memory using FFI with our custom deallocator
+            let memory = unsafe {
+                gst::glib::translate::from_glib_full(gst::ffi::gst_memory_new_wrapped(
+                    0,                                                 // flags
+                    buffer_ptr as *mut std::ffi::c_void,               // data
+                    size,                                              // maxsize
+                    0,                                                 // offset
+                    size,                                              // size
+                    Box::into_raw(user_data) as *mut std::ffi::c_void, // user_data
+                    Some(pool_deallocator),                            // notify function
+                ))
+            };
 
             Ok(memory)
         }
 
-        fn free(&self, memory: gst::Memory) {
-            // Get a reference to the pool
-            let pool_opt = { self.pool.lock().unwrap().clone() };
+        fn free(&self, _memory: gst::Memory) {
+            // This method should not be called - gst should use the notify function instead
+            tracing::warn!("AstrocapGstAllocator::free called - unexpected");
+        }
+    }
 
-            let Some(pool) = pool_opt else {
-                tracing::warn!(
-                    "Memory deallocation attempt without configured pool - memory will be dropped"
-                );
-                // Memory will be dropped normally by GStreamer since we don't have a pool
-                return;
-            };
+    // Data structure for the deallocator
+    struct PoolDeallocatorData {
+        pool: Weak<Mutex<crate::FrameBufferPool>>,
+        buffer_ptr: *const u8,
+    }
 
-            let mut pool_guard = pool.lock().unwrap();
+    // Custom deallocator function that will be called when GStreamer memory is freed
+    unsafe extern "C" fn pool_deallocator(data: *mut std::ffi::c_void) {
+        if data.is_null() {
+            return;
+        }
 
-            if pool_guard.deallocate(&memory) {
-                tracing::debug!(
-                    available_slots = pool_guard.available_count(),
-                    in_use_slots = pool_guard.in_use_count(),
-                    "Successfully returned memory to pool"
-                );
-            } else {
-                tracing::warn!(
-                    "Failed to return memory to pool - memory not recognized as belonging to this pool"
+        // Reconstruct the box from the raw pointer
+        let deallocator_data = Box::from_raw(data as *mut PoolDeallocatorData);
+
+        // Try to upgrade the weak reference
+        if let Some(pool_arc) = deallocator_data.pool.upgrade() {
+            if let Ok(mut pool_guard) = pool_arc.lock() {
+                let success = pool_guard.free(deallocator_data.buffer_ptr);
+                tracing::trace!(
+                    success,
+                    buffer_ptr = ?deallocator_data.buffer_ptr,
+                    "Custom deallocator returned buffer to pool"
                 );
             }
         }
+
+        // Box is automatically dropped here, cleaning up the PoolDeallocatorData
     }
 }
 
@@ -292,5 +334,32 @@ mod tests {
             let pool_guard = pool.lock().unwrap();
             assert_eq!(pool_guard.available_count(), 0);
         }
+    }
+
+    #[test]
+    fn test_owns_memory() {
+        gst::init().unwrap();
+
+        let allocator = AstrocapGstAllocator::new();
+        let buffer_size = 1024;
+        let pool = create_shared_pool(buffer_size, 2);
+        allocator.set_pool(pool.clone());
+
+        let params = gst::AllocationParams::new(gst::MemoryFlags::empty(), 0, 0, 0);
+
+        // Test with no pool configured
+        let allocator_no_pool = AstrocapGstAllocator::new();
+
+        // Create external memory
+        let external_memory = gst::Memory::from_slice(vec![0u8; 1024]);
+        assert!(!allocator_no_pool.owns_memory(&external_memory));
+
+        // Test with memory from our pool
+        let our_memory = allocator.alloc(buffer_size, Some(&params)).unwrap();
+        assert!(allocator.owns_memory(&our_memory));
+        assert!(!allocator_no_pool.owns_memory(&our_memory));
+
+        // Test with external memory
+        assert!(!allocator.owns_memory(&external_memory));
     }
 }

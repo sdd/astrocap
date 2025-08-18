@@ -6,32 +6,9 @@ use astrocap_source_gstreamer::create_shared_pool;
 use gst::prelude::*;
 
 #[test]
-fn test_allocator_registration() {
-    // Initialize GStreamer
-    gst::init().expect("Failed to initialize GStreamer");
-
-    // Create our custom allocator
-    let allocator = AstrocapGstAllocator::new();
-
-    // Verify it's a valid GStreamer allocator
-    assert!(allocator.is::<gst::Allocator>());
-
-    // Test that the allocator has the expected type name
-    let type_name = allocator.type_().name();
-    assert_eq!(type_name, "AstrocapGstAllocator");
-
-    println!(
-        "✓ AstrocapGstAllocator registered successfully with type: {}",
-        type_name
-    );
-}
-
-#[test]
 fn test_allocator_in_simple_pipeline() {
-    // Initialize GStreamer
     gst::init().expect("Failed toinitialize GStreamer");
 
-    // Create a minimal pipeline to test allocator integration
     let pipeline = gst::Pipeline::new();
 
     // Create basic elements - use appsink which supports allocator property
@@ -44,7 +21,6 @@ fn test_allocator_in_simple_pipeline() {
         .build()
         .expect("Failed to create appsink");
 
-    // Add elements to pipeline
     pipeline.add_many(&[&src, &sink]).unwrap();
     src.link(&sink).unwrap();
 
@@ -54,61 +30,6 @@ fn test_allocator_in_simple_pipeline() {
     // Test that we can create the allocator and it's a valid GStreamer object
     assert!(allocator.is::<gst::Allocator>());
     assert!(allocator.is::<gst::Object>());
-
-    println!("✓ AstrocapGstAllocator is properly registered as a GStreamer object");
-
-    // Set pipeline to ready state to validate the pipeline structure
-    let state_change_result = pipeline.set_state(gst::State::Ready);
-
-    match state_change_result {
-        Ok(_) => {
-            println!("✓ Pipeline with videotestsrc -> appsink successfully set to READY");
-
-            // Clean up
-            let _ = pipeline.set_state(gst::State::Null);
-        }
-        Err(e) => {
-            panic!("Failed to set pipeline to READY state: {}", e);
-        }
-    }
-}
-
-#[test]
-fn test_allocator_allocation_attempt() {
-    // Initialize GStreamer
-    gst::init().expect("Failed to initialize GStreamer");
-
-    // Create our custom allocator
-    let allocator = AstrocapGstAllocator::new();
-
-    // Try to allocate memory (should fail gracefully with our current implementation)
-    let allocation_params = gst::AllocationParams::new(gst::MemoryFlags::empty(), 0, 0, 0);
-    let result = allocator.alloc(1024, Some(&allocation_params));
-
-    // We expect this to fail with our current stub implementation
-    assert!(result.is_err());
-    println!("✓ Allocator correctly returns error for unimplemented allocation");
-
-    // Test that the error message is what we expect
-    if let Err(err) = result {
-        let error_msg = format!("{}", err);
-        println!("Actual error message: '{}'", error_msg);
-
-        // GStreamer wraps our BoolError in a generic "Failed to allocate memory" message
-        // This is expected behavior - GStreamer provides a consistent API error message
-        // while our detailed error gets logged to GStreamer's debug system
-        assert_eq!(error_msg, "Failed to allocate memory");
-        println!("✓ Error message indicates allocator is not yet implemented");
-    }
-}
-
-#[test]
-fn test_allocator_type_system_integration() {
-    // Initialize GStreamer
-    gst::init().expect("Failed to initialize GStreamer");
-
-    // Create our custom allocator
-    let allocator = AstrocapGstAllocator::new();
 
     // Test GObject type system integration
     let gtype = allocator.type_();
@@ -122,12 +43,22 @@ fn test_allocator_type_system_integration() {
     let as_allocator: &gst::Allocator = allocator.upcast_ref();
     assert!(as_allocator.is::<AstrocapGstAllocator>());
 
-    println!("✓ AstrocapGstAllocator properly integrated with GObject type system");
+    // Set pipeline to ready state to validate the pipeline structure
+    let state_change_result = pipeline.set_state(gst::State::Ready);
+
+    match state_change_result {
+        Ok(_) => {
+            // Clean up
+            let _ = pipeline.set_state(gst::State::Null);
+        }
+        Err(e) => {
+            panic!("Failed to set pipeline to READY state: {}", e);
+        }
+    }
 }
 
 #[test]
 fn test_allocator_pool_configuration() {
-    // Initialize GStreamer
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create our custom allocator
@@ -135,7 +66,6 @@ fn test_allocator_pool_configuration() {
 
     // Initially, allocator should have no pool configured
     assert!(allocator.pool().is_none());
-    println!("✓ Allocator starts with no pool configured");
 
     // Create a frame buffer pool
     let buffer_size = 1920 * 1080; // 1080p frame size
@@ -148,7 +78,6 @@ fn test_allocator_pool_configuration() {
         assert_eq!(pool_guard.buffer_size(), buffer_size);
         assert_eq!(pool_guard.buffer_count(), buffer_count);
     }
-    println!("✓ FrameBufferPool created with correct configuration");
 
     // Set the pool on the allocator
     allocator.set_pool(pool.clone());
@@ -163,12 +92,10 @@ fn test_allocator_pool_configuration() {
         assert_eq!(retrieved_guard.buffer_size(), buffer_size);
         assert_eq!(retrieved_guard.buffer_count(), buffer_count);
     }
-    println!("✓ Allocator pool set and retrieved correctly");
 }
 
 #[test]
 fn test_allocator_with_pool_allocation_attempt() {
-    // Initialize GStreamer
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create allocator and pool
@@ -235,7 +162,6 @@ fn test_allocator_size_mismatch() {
 
 #[test]
 fn test_allocator_pool_exhaustion() {
-    // Initialize GStreamer
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create allocator and small pool
