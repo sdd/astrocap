@@ -25,25 +25,6 @@ impl AstrocapGstAllocator {
         let imp = self.imp();
         imp.pool.lock().unwrap().clone()
     }
-
-    /// Check if the given memory was allocated from our pool
-    pub fn owns_memory(&self, memory: &gst::MemoryRef) -> bool {
-        let pool_opt = { self.imp().pool.lock().unwrap().clone() };
-
-        let Some(pool) = pool_opt else {
-            return false;
-        };
-
-        let pool_guard = pool.lock().unwrap();
-
-        // Map the memory to get its pointer
-        if let Ok(map) = memory.map_readable() {
-            let memory_ptr = map.as_ptr();
-            pool_guard.contains_address(memory_ptr)
-        } else {
-            false
-        }
-    }
 }
 
 impl Default for AstrocapGstAllocator {
@@ -334,32 +315,5 @@ mod tests {
             let pool_guard = pool.lock().unwrap();
             assert_eq!(pool_guard.available_count(), 0);
         }
-    }
-
-    #[test]
-    fn test_owns_memory() {
-        gst::init().unwrap();
-
-        let allocator = AstrocapGstAllocator::new();
-        let buffer_size = 1024;
-        let pool = create_shared_pool(buffer_size, 2);
-        allocator.set_pool(pool.clone());
-
-        let params = gst::AllocationParams::new(gst::MemoryFlags::empty(), 0, 0, 0);
-
-        // Test with no pool configured
-        let allocator_no_pool = AstrocapGstAllocator::new();
-
-        // Create external memory
-        let external_memory = gst::Memory::from_slice(vec![0u8; 1024]);
-        assert!(!allocator_no_pool.owns_memory(&external_memory));
-
-        // Test with memory from our pool
-        let our_memory = allocator.alloc(buffer_size, Some(&params)).unwrap();
-        assert!(allocator.owns_memory(&our_memory));
-        assert!(!allocator_no_pool.owns_memory(&our_memory));
-
-        // Test with external memory
-        assert!(!allocator.owns_memory(&external_memory));
     }
 }
