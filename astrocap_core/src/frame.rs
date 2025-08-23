@@ -32,6 +32,16 @@ pub enum FrameError {
         height: u32,
         data_len: usize,
     },
+
+    #[error("GPU conversion required")]
+    GpuConversionRequired,
+}
+
+/// GPU pixel formats supported by the pipeline
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuPixelFormat {
+    Nv12,
+    Luma8,
 }
 
 /// The unified Frame type.
@@ -284,6 +294,7 @@ pub trait GpuFrame: Send + Sync + fmt::Debug {
     /// Image dimensions
     fn width(&self) -> u32;
     fn height(&self) -> u32;
+    fn pixel_format(&self) -> GpuPixelFormat;
 
     /// Blocking download of GPU memory to a CPU frame.
     /// If possible, this should be implemented efficiently (zero-copy fallback where possible).
@@ -300,6 +311,18 @@ pub trait GpuFrame: Send + Sync + fmt::Debug {
     fn sync_and_download(&self, timeout: Option<Duration>) -> Result<CpuFrame, FrameError> {
         self.sync_gpu()?;
         self.download_to_cpu(timeout)
+    }
+
+    /// Get platform-specific texture handle for OpenGL
+    #[cfg(target_os = "macos")]
+    fn as_gl_texture(&self) -> Option<u32> {
+        None // Default implementation - override in concrete types
+    }
+
+    /// Get platform-specific texture handle for Metal  
+    #[cfg(target_os = "macos")]
+    fn as_metal_texture(&self) -> Option<*mut std::ffi::c_void> {
+        None // Default implementation - override in concrete types
     }
 
     /// For downcasts if caller needs backend-specific access.

@@ -59,11 +59,7 @@ impl FrameProcessor for PointFitterProcessor {
         if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
             rec.log(
                 "model/fitted_points".to_string(),
-                &rerun::Points2D::new(
-                    detected_points_list
-                        .iter()
-                        .map(|cand| (cand.x as f32, cand.y as f32)),
-                ),
+                &rerun::Points2D::new(detected_points_list.iter().map(|cand| (cand.x, cand.y))),
             )
             .unwrap();
         }

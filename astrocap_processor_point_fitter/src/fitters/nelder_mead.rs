@@ -8,7 +8,7 @@ use ndarray::Array1;
 use tracing::{debug, warn};
 
 const INITIAL_GAUSSIAN_ALPHA: f32 = 1.0; // was 2.5;
-const MAX_ITERATIONS: u64 = 100;
+const MAX_ITERATIONS: u64 = 20;
 const SD_TOLERANCE: f32 = 1.0;
 const PATCH_SIZE: u32 = 4;
 const MIN_SIGMA: f32 = 0.8; // Prevent unrealistically narrow fits
