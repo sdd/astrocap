@@ -70,7 +70,10 @@ impl PipelineContext {
         F: FnOnce() -> T,
     {
         match self.metadata.entry(key.to_string()) {
-            Entry::Occupied(entry) => entry.into_mut().downcast_mut::<T>().unwrap(),
+            Entry::Occupied(entry) => entry.into_mut().downcast_mut::<T>().expect(&format!(
+                "Could not downcast metadata value to requested type '{}'",
+                core::any::type_name::<T>()
+            )),
             Entry::Vacant(entry) => {
                 let value = default();
                 entry.insert(Box::new(value)).downcast_mut::<T>().unwrap()

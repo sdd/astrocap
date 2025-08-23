@@ -7,7 +7,6 @@ use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::Luma;
 use serde::Deserialize;
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use toml::Value;
 
@@ -33,6 +32,39 @@ impl Default for FrameStackerConfig {
         Self {
             stack_depth: DEFAULT_STACK_DEPTH,
             renormalize: DEFAULT_RENORMALIZE,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct CircularFrameBuffer {
+    frames: Vec<Option<CpuFrame>>,
+    write_index: usize,
+    count: usize,
+    capacity: usize,
+}
+
+impl CircularFrameBuffer {
+    fn new(capacity: usize) -> Self {
+        Self {
+            frames: vec![None; capacity],
+            write_index: 0,
+            count: 0,
+            capacity,
+        }
+    }
+
+    fn add_frame(&mut self, frame: CpuFrame) -> Option<CpuFrame> {
+        let old_frame = self.frames[self.write_index].take();
+        self.frames[self.write_index] = Some(frame);
+
+        self.write_index = (self.write_index + 1) % self.capacity;
+
+        if self.count < self.capacity {
+            self.count += 1;
+            None // No frame to subtract during fill phase
+        } else {
+            old_frame // Return the frame that was just replaced
         }
     }
 }
@@ -70,6 +102,8 @@ impl FrameProcessor for FrameStackerProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
+        let start = std::time::Instant::now();
+
         let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
             tracing::warn!("could not get CPU Frame");
             return Skip;
@@ -78,14 +112,18 @@ impl FrameProcessor for FrameStackerProcessor {
         let frame = frame.to_shared();
 
         let frame_stack = ctx
-            .entry("frame_stacker/frame_stack")
-            .or_insert_with(|| Box::new(Arc::new(Mutex::new(VecDeque::<CpuFrame>::new()))))
-            .downcast_ref::<Arc<Mutex<VecDeque<CpuFrame>>>>()
-            .unwrap()
+            .get_as_or_insert::<Arc<Mutex<CircularFrameBuffer>>, _>(
+                "frame_stacker/frame_stack",
+                || {
+                    Arc::new(Mutex::new(CircularFrameBuffer::new(
+                        self.config.stack_depth,
+                    )))
+                },
+            )
             .clone();
 
         let integration_frame = ctx
-            .get_as_or_insert("video/integrated", || {
+            .get_as_or_insert::<CpuFrame, _>("video/integrated", || {
                 CpuFrame::from_shared(
                     frame.width(),
                     frame.height(),
@@ -95,86 +133,148 @@ impl FrameProcessor for FrameStackerProcessor {
             })
             .clone();
 
-        // add frame to stack and remove oldest if stack is full
+        // Add frame to circular buffer and get the frame to subtract (if any)
         let old_frame = {
             let mut frame_stack = frame_stack.lock().unwrap();
-            frame_stack.push_back(frame.clone());
-
-            if frame_stack.len() > self.config.stack_depth {
-                Some(frame_stack.pop_front().unwrap())
-            } else {
-                None
-            }
+            frame_stack.add_frame(frame.clone())
         };
 
-        let add_fn = match (self.config.stack_depth, &self.config.renormalize) {
-            (4, Renormalize::Full) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0] >> 2)])
-            }
-            (8, Renormalize::Full) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0] >> 3)])
-            }
-            (4, Renormalize::None) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0])])
-            }
-            (8, Renormalize::None) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0])])
-            }
-            (4, Renormalize::Sqrt) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_add(q[0] >> 1)])
-            }
-            (8, Renormalize::Sqrt) => |p: Luma<u8>, q: Luma<u8>| {
-                let tmp: u16 = (q[0] as u16) >> 1;
-                let scaled: u16 = (tmp * 181) >> 8;
-                Luma([(p[0]).saturating_add(scaled as u8)])
-            },
-            _ => {
-                tracing::error!("Unexpected combination of stack depth and renormalize");
-                return Skip;
-            }
-        };
+        let elapsed = start.elapsed();
+        tracing::debug!("Frame Stack setup took {:?}", elapsed);
+        let start = std::time::Instant::now();
 
-        let integration_frame = map_colors(&integration_frame.img, &frame.img, add_fn);
+        // Get raw slices for iterator-based processing
+        let integration_pixels = integration_frame.img.as_raw();
+        let new_pixels = frame.img.as_raw();
+        let pixel_count = integration_pixels.len();
 
-        let sub_fn = match (self.config.stack_depth, &self.config.renormalize) {
-            (4, Renormalize::Full) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0] >> 2)])
-            }
-            (8, Renormalize::Full) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0] >> 3)])
-            }
-            (4, Renormalize::None) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0])])
-            }
-            (8, Renormalize::None) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0])])
-            }
-            (4, Renormalize::Sqrt) => {
-                |p: Luma<u8>, q: Luma<u8>| Luma([(p[0]).saturating_sub(q[0] >> 1)])
-            }
-            (8, Renormalize::Sqrt) => |p: Luma<u8>, q: Luma<u8>| {
-                let tmp: u16 = (q[0] as u16) >> 1;
-                let scaled: u16 = (tmp * 181) >> 8;
-                Luma([(p[0]).saturating_sub(scaled as u8)])
-            },
-            _ => {
-                tracing::error!("Unexpected combination of stack depth and renormalize");
-                return Skip;
-            }
-        };
+        // Pre-allocate Vec with uninitialized memory - we'll write to every location
+        let mut result_data = Vec::with_capacity(pixel_count);
+        unsafe {
+            result_data.set_len(pixel_count);
+        }
 
-        let img = match old_frame {
-            None => integration_frame,
-            Some(old_frame) => map_colors(&integration_frame, &old_frame.img, sub_fn),
-        };
+        // Simplified processing without complex scaling for debugging
+        match (&self.config.renormalize, old_frame.as_ref()) {
+            (Renormalize::None, Some(old_frame)) => {
+                let old_pixels = old_frame.img.as_raw();
+                result_data
+                    .iter_mut()
+                    .zip(integration_pixels.iter())
+                    .zip(new_pixels.iter())
+                    .zip(old_pixels.iter())
+                    .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
+                        *result = integration
+                            .saturating_add(new_pixel)
+                            .saturating_sub(old_pixel);
+                    });
+            }
+            (Renormalize::None, None) => {
+                result_data
+                    .iter_mut()
+                    .zip(integration_pixels.iter())
+                    .zip(new_pixels.iter())
+                    .for_each(|((result, &integration), &new_pixel)| {
+                        *result = integration.saturating_add(new_pixel);
+                    });
+            }
+            (Renormalize::Full, Some(old_frame)) => {
+                let old_pixels = old_frame.img.as_raw();
+                let shift = match self.config.stack_depth {
+                    4 => 2u32,
+                    8 => 3u32,
+                    _ => 0u32,
+                };
+                result_data
+                    .iter_mut()
+                    .zip(integration_pixels.iter())
+                    .zip(new_pixels.iter())
+                    .zip(old_pixels.iter())
+                    .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
+                        let after_add = integration.saturating_add(new_pixel.wrapping_shr(shift));
+                        *result = after_add.saturating_sub(old_pixel.wrapping_shr(shift));
+                    });
+            }
+            (Renormalize::Full, None) => {
+                let shift = match self.config.stack_depth {
+                    4 => 2u32,
+                    8 => 3u32,
+                    _ => 0u32,
+                };
+                result_data
+                    .iter_mut()
+                    .zip(integration_pixels.iter())
+                    .zip(new_pixels.iter())
+                    .for_each(|((result, &integration), &new_pixel)| {
+                        *result = integration.saturating_add(new_pixel.wrapping_shr(shift));
+                    });
+            }
+            (Renormalize::Sqrt, Some(old_frame)) => {
+                let old_pixels = old_frame.img.as_raw();
+                if self.config.stack_depth == 8 {
+                    // Special case for sqrt(8): multiply by 181, divide by 512
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .zip(old_pixels.iter())
+                        .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
+                            // More readable: (x * 181) / 512
+                            let new_scaled = ((new_pixel as u16 * 181) >> 9) as u8; // 512 = 2^9
+                            let old_scaled = ((old_pixel as u16 * 181) >> 9) as u8;
+                            *result = integration
+                                .saturating_add(new_scaled)
+                                .saturating_sub(old_scaled);
+                        });
+                } else {
+                    // stack_depth == 4, just halve
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .zip(old_pixels.iter())
+                        .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
+                            *result = integration
+                                .saturating_add(new_pixel >> 1)
+                                .saturating_sub(old_pixel >> 1);
+                        });
+                }
+            }
+            (Renormalize::Sqrt, None) => {
+                if self.config.stack_depth == 8 {
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .for_each(|((result, &integration), &new_pixel)| {
+                            let new_scaled = ((new_pixel as u16 * 181) >> 9) as u8;
+                            *result = integration.saturating_add(new_scaled);
+                        });
+                } else {
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .for_each(|((result, &integration), &new_pixel)| {
+                            *result = integration.saturating_add(new_pixel >> 1);
+                        });
+                }
+            }
+        }
 
-        let cpu_storage: Arc<[u8]> = Arc::from(img.into_raw());
+        let elapsed = start.elapsed();
+        tracing::debug!("Frame Stacking took {:?}", elapsed);
+        let start = std::time::Instant::now();
+
+        let cpu_storage: Arc<[u8]> = Arc::from(result_data);
         let integration_frame =
             CpuFrame::from_shared(frame.width(), frame.height(), cpu_storage).unwrap();
 
         ctx.put("video/integrated", integration_frame.clone());
-
         frame_ctx.frame = Frame::Cpu(integration_frame);
+
+        let elapsed = start.elapsed();
+        tracing::debug!("Frame Stacking post-processing took {:?}", elapsed);
 
         FrameProcessorResult::Continue
     }

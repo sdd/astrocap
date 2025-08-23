@@ -15,7 +15,7 @@ use crate::gst_buffer_timing_meta::instrument_pipeline_with_timing_meta;
 use crate::gst_pipeline::*;
 use astrocap_core::statistics::{PipelineStatistics, ProcessingType};
 use astrocap_core::traits::FrameSource;
-use astrocap_core::{pipeline::PipelineContext, FrameContext};
+use astrocap_core::{pipeline::PipelineContext, AstrocapError, FrameContext};
 use thiserror::Error;
 
 const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
