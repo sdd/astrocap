@@ -151,6 +151,7 @@ impl FrameProcessor for FrameStackerProcessor {
         // Pre-allocate Vec with uninitialized memory - we'll write to every location
         let mut result_data = Vec::with_capacity(pixel_count);
         unsafe {
+            #[allow(clippy::uninit_vec)]
             result_data.set_len(pixel_count);
         }
 

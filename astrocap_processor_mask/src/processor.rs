@@ -1,11 +1,9 @@
-use crate::map_colors::map_colors;
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
-use image::Luma;
 use std::sync::Arc;
 use toml::Value;
 
@@ -20,7 +18,7 @@ impl MaskProcessor {
             .and_then(|d| d.as_str())
         else {
             return Err(AstrocapError::PluginInvalidConfigError(
-                "missing file_ath in MaskProcessor Config".to_string(),
+                "missing file_path in MaskProcessor Config".to_string(),
             ));
         };
 
@@ -57,6 +55,8 @@ impl FrameProcessor for MaskProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
+        let start = std::time::Instant::now();
+
         let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
             tracing::warn!("could not get CPU Frame");
             return Skip;
@@ -71,15 +71,41 @@ impl FrameProcessor for MaskProcessor {
             }
         };
 
-        let masked_frame = map_colors(&frame.img, &mask.img, |p, q| {
-            Luma([(p[0]) * (q[0] != 0) as u8])
-        });
+        // Get raw pixel slices for high-performance processing
+        let frame_pixels = frame.img.as_raw();
+        let mask_pixels = mask.img.as_raw();
+        let pixel_count = frame_pixels.len();
 
-        let cpu_storage: Arc<[u8]> = Arc::from(masked_frame.into_raw());
-        let integration_frame =
-            CpuFrame::from_shared(frame.width(), frame.height(), cpu_storage).unwrap();
+        // Pre-allocate Vec with uninitialized memory
+        #[allow(clippy::uninit_vec)]
+        let mut result_data = Vec::with_capacity(pixel_count);
+        unsafe {
+            result_data.set_len(pixel_count);
+        }
 
-        frame_ctx.frame = Frame::Cpu(integration_frame);
+        let elapsed = start.elapsed();
+        tracing::debug!("Mask setup took {:?}", elapsed);
+        let start = std::time::Instant::now();
+
+        // Ultra-fast iterator-based masking
+        // Apply mask: pixel * (mask != 0) as u8
+        result_data
+            .iter_mut()
+            .zip(frame_pixels.iter())
+            .zip(mask_pixels.iter())
+            .for_each(|((result, &frame_pixel), &mask_pixel)| {
+                *result = frame_pixel * (mask_pixel != 0) as u8;
+            });
+
+        let elapsed = start.elapsed();
+        tracing::debug!("Mask processing took {:?}", elapsed);
+        let start = std::time::Instant::now();
+
+        let masked_frame = CpuFrame::from_vec(frame.width(), frame.height(), result_data).unwrap();
+        frame_ctx.frame = Frame::Cpu(masked_frame);
+
+        let elapsed = start.elapsed();
+        tracing::debug!("Mask post-processing took {:?}", elapsed);
 
         FrameProcessorResult::Continue
     }

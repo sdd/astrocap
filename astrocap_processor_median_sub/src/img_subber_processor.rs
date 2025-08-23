@@ -1,10 +1,9 @@
-use crate::map_colors::map_colors;
+use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
-use image::Luma;
 use std::sync::Arc;
 use toml::Value;
 
@@ -35,12 +34,14 @@ impl FrameProcessor for ImgSubberProcessor {
         frame_ctx: &mut FrameContext,
         _ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
+        let start = std::time::Instant::now();
+
         tracing::trace!(
-            "MedianSubberProcessor received frame with metadata keys: {:?}",
+            "ImgSubberProcessor received frame with metadata keys: {:?}",
             frame_ctx.metadata.keys().collect::<Vec<_>>()
         );
 
-        let Ok(frame) = frame_ctx.frame.get_image(None) else {
+        let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
             tracing::warn!("No frame to process");
             return Skip;
         };
@@ -52,21 +53,50 @@ impl FrameProcessor for ImgSubberProcessor {
         };
 
         let Some(subtractand) = subtractand.downcast_ref::<Arc<Frame>>() else {
-            tracing::error!("{metadata_key} not downcastable to Frame::Imguf!");
+            tracing::error!("{metadata_key} not downcastable to Frame!");
             return Skip;
         };
 
-        let Some(subtractand) = subtractand.as_cpu_image() else {
+        let Some(subtractand_img) = subtractand.as_cpu_image() else {
             tracing::error!("{metadata_key} not CPU Frame!");
             return Skip;
         };
 
-        // subtract frame from sub_from
-        let subtracted = map_colors(frame, subtractand, |p, q| {
-            Luma([(p[0]).saturating_sub(q[0])])
-        });
+        // Get raw pixel slices for high-performance processing
+        let frame_pixels = frame.img.as_raw();
+        let subtractand_pixels = subtractand_img.as_raw();
+        let pixel_count = frame_pixels.len();
 
-        frame_ctx.frame = Frame::from(subtracted);
+        // Pre-allocate Vec with uninitialized memory
+        let mut result_data = Vec::with_capacity(pixel_count);
+        unsafe {
+            result_data.set_len(pixel_count);
+        }
+
+        let elapsed = start.elapsed();
+        tracing::debug!("ImgSubber setup took {:?}", elapsed);
+        let start = std::time::Instant::now();
+
+        // Ultra-fast iterator-based subtraction with saturation
+        result_data
+            .iter_mut()
+            .zip(frame_pixels.iter())
+            .zip(subtractand_pixels.iter())
+            .for_each(|((result, &frame_pixel), &subtractand_pixel)| {
+                *result = frame_pixel.saturating_sub(subtractand_pixel);
+            });
+
+        let elapsed = start.elapsed();
+        tracing::debug!("ImgSubber processing took {:?}", elapsed);
+        let start = std::time::Instant::now();
+
+        // Direct Vec to CpuFrame - avoid Arc overhead
+        let subtracted_frame =
+            CpuFrame::from_vec(frame.width(), frame.height(), result_data).unwrap();
+        frame_ctx.frame = Frame::Cpu(subtracted_frame);
+
+        let elapsed = start.elapsed();
+        tracing::debug!("ImgSubber post-processing took {:?}", elapsed);
 
         FrameProcessorResult::Continue
     }

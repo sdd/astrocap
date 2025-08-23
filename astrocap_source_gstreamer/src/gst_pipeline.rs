@@ -45,6 +45,10 @@ fn build_generic_pipeline(
     if let Some(pool) = pool {
         astrocapsink.set_frame_buffer_pool(pool);
     }
+
+    // Set sync=false for maximum speed processing
+    astrocapsink.set_property("sync", false);
+
     astrocapsink.set_astrocap_frame_queue(ring_buffer.clone());
 
     // Add both elements to pipeline

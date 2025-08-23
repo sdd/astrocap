@@ -58,47 +58,52 @@ impl PointDetector for PointDetectLocalMaxima {
             None
         };
 
-        let img_w = img.width();
-        let img_h = img.height();
+        let img_w = img.width() as usize;
+        let img_h = img.height() as usize;
+
+        let img_data: &[u8] = img.as_raw().as_ref();
+        let mask_data = mask.map(|m| m.as_raw());
 
         // First pass: find local maxima
-        for y in 1..(img_h - 1) {
-            for x in 1..(img_w - 1) {
+        for y in
+            (self.config.centroid_window as usize)..(img_h - self.config.centroid_window as usize)
+        {
+            for x in (self.config.centroid_window as usize)
+                ..(img_w - self.config.centroid_window as usize)
+            {
                 // Check mask
-                if let Some(ref mask) = mask {
-                    if mask.get_pixel(x, y).channels()[0] == 0 {
+                if let Some(mask_data) = mask_data {
+                    if mask_data[y * img_w + x] == 0 {
                         continue;
                     }
                 }
 
-                let center_val: u8 = img.get_pixel(x, y).channels()[0];
+                let center_val: u8 = img_data[y * img_w + x];
 
                 if center_val < self.config.point_threshold {
                     continue;
                 }
 
-                // Check if this is a local maximum in 3x3 neighborhood
-                let mut is_local_max = true;
-                'outer: for dy in -1..=1i32 {
-                    for dx in -1..=1i32 {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
-
-                        let nx = (x as i32 + dx) as u32;
-                        let ny = (y as i32 + dy) as u32;
-
-                        if img.get_pixel(nx, ny).channels()[0] > center_val {
-                            is_local_max = false;
-                            break 'outer;
-                        }
-                    }
-                }
+                // Optimized 3x3 neighborhood check - explicit comparisons
+                let is_local_max = center_val > img_data[(y - 1) * img_w + (x - 1)]
+                    && center_val > img_data[(y - 1) * img_w + x]
+                    && center_val > img_data[(y - 1) * img_w + (x + 1)]
+                    && center_val > img_data[y * img_w + (x - 1)]
+                    && center_val > img_data[y * img_w + (x + 1)]
+                    && center_val > img_data[(y + 1) * img_w + (x - 1)]
+                    && center_val > img_data[(y + 1) * img_w + x]
+                    && center_val > img_data[(y + 1) * img_w + (x + 1)];
 
                 if is_local_max {
                     // Calculate centroid in larger window for sub-pixel accuracy
-                    let (centroid_x, centroid_y, peak_intensity) =
-                        calculate_centroid(&*img, x, y, self.config.centroid_window);
+                    let (centroid_x, centroid_y, peak_intensity) = calculate_centroid(
+                        img,
+                        x,
+                        y,
+                        self.config.centroid_window as isize,
+                        img_w,
+                        img_h,
+                    );
 
                     points.push(DetectedPoint {
                         x: centroid_x.round(),
@@ -131,10 +136,12 @@ impl PointDetector for PointDetectLocalMaxima {
 }
 
 fn calculate_centroid(
-    img: &CpuImgBuf,
-    center_x: u32,
-    center_y: u32,
-    window: i32,
+    img: &[u8],
+    center_x: usize,
+    center_y: usize,
+    window: isize,
+    img_w: usize,
+    img_h: usize,
 ) -> (f32, f32, f32) {
     let mut sum_intensity = 0.0;
     let mut sum_x_weighted = 0.0;
@@ -143,20 +150,18 @@ fn calculate_centroid(
 
     for dy in -window..=window {
         for dx in -window..=window {
-            let x = center_x as i32 + dx;
-            let y = center_y as i32 + dy;
+            let x = ((center_x as isize) + dx) as usize;
+            let y = ((center_y as isize) + dy) as usize;
 
-            if x >= 0 && y >= 0 && x < img.width() as i32 && y < img.height() as i32 {
-                let intensity = img.get_pixel(x as u32, y as u32).channels()[0] as f32;
+            let intensity = img[y * img_w + x] as f32;
 
-                if intensity > peak_intensity {
-                    peak_intensity = intensity;
-                }
-
-                sum_intensity += intensity;
-                sum_x_weighted += intensity * x as f32;
-                sum_y_weighted += intensity * y as f32;
+            if intensity > peak_intensity {
+                peak_intensity = intensity;
             }
+
+            sum_intensity += intensity;
+            sum_x_weighted += intensity * x as f32;
+            sum_y_weighted += intensity * y as f32;
         }
     }
 
