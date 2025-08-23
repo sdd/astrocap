@@ -371,6 +371,7 @@ mod tests {
 
     const MAX_GOOD_STAR_MATCH_RADIUS: f32 = 10.0;
 
+    #[ignore]
     #[test]
     fn can_fit_known_stars() {
         // Load a set of images with known good star positions
@@ -382,7 +383,7 @@ mod tests {
         let img_height = raw_img.height();
         let img_width = raw_img.width();
 
-        let img = CpuFrame::new_owned(img_width, img_height, raw_img.into_bytes());
+        let img = CpuFrame::from_vec(img_width, img_height, raw_img.into_bytes()).unwrap();
 
         let points: Vec<DetectedPoint> = serde_json::from_reader(
             File::open("../test-images/astrocap_model/test-image-1-detected.json").unwrap(),

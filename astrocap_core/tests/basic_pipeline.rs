@@ -20,7 +20,7 @@ stage_type = "astrocap_core::DummySink"
         toml::from_str(toml_config).expect("Failed to parse TOML configuration");
 
     // Build the pipeline from the configuration
-    let pipeline = build_pipeline(&config);
+    let pipeline = build_pipeline(&config).unwrap();
 
     // Verify that the pipeline components were created correctly
     assert_eq!(
@@ -88,23 +88,23 @@ stage_type = "astrocap_core::DummySink"
 
     // Run the pipeline - this should process all frames from the dummy source
     // The dummy source produces 5 frames, so this should process all of them
-    let final_context = run_pipeline(pipeline_context, pipeline);
+    let final_context = run_pipeline(pipeline_context, pipeline, None);
 
     println!("Pipeline execution completed successfully!");
 
     // Assert on the statistics recorded in the pipeline context
     let frames_sourced = final_context
-        .get_as::<AtomicUsize>("frames_sourced")
+        .try_get_as::<AtomicUsize>("frames_sourced")
         .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get_as::<AtomicUsize>("frames_processed")
+        .try_get_as::<AtomicUsize>("frames_processed")
         .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get_as::<AtomicUsize>("frames_sunk")
+        .try_get_as::<AtomicUsize>("frames_sunk")
         .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 
@@ -142,21 +142,21 @@ stage_type = "astrocap_core::DummySink"
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline);
+    let final_context = run_pipeline(pipeline_context, pipeline, None);
 
     // With 2 processors, frames_processed should be 10 (5 frames × 2 processors)
     let frames_sourced = final_context
-        .get_as::<AtomicUsize>("frames_sourced")
+        .try_get_as::<AtomicUsize>("frames_sourced")
         .expect("frames_sourced should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_processed = final_context
-        .get_as::<AtomicUsize>("frames_processed")
+        .try_get_as::<AtomicUsize>("frames_processed")
         .expect("frames_processed should be AtomicUsize")
         .load(Ordering::SeqCst);
 
     let frames_sunk = final_context
-        .get_as::<AtomicUsize>("frames_sunk")
+        .try_get_as::<AtomicUsize>("frames_sunk")
         .expect("frames_sunk should be AtomicUsize")
         .load(Ordering::SeqCst);
 

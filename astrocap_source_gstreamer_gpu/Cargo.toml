@@ -1,0 +1,33 @@
+[package]
+name = "astrocap_source_gstreamer_gpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+astrocap_core = { path = "../astrocap_core" }
+
+bytes = { workspace = true }
+gst = { package = "gstreamer", version = "0.21", features = ["v1_20"] }
+gst-allocators = { package = "gstreamer-allocators", version = "0.21.2" }
+gst-base = { package = "gstreamer-base", version = "0.21.2" }
+gst-video = { package = "gstreamer-video", version = "0.21.2" }
+
+http = { workspace = true }
+image = { workspace = true }
+metrics = { workspace = true }
+once_cell = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+astrocap_source_gstreamer_gpu = { path = "." }
+test-log = { version = "0.2", features = ["trace"] }
+
+[package.metadata.system-deps.gstreamer_1_0]
+name = "gstreamer-1.0"
+version = "1.0"
+
+[lib]
+name = "astrocap_source_gstreamer_gpu"

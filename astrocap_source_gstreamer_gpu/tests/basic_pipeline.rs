@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use test_log::test;
 
 use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, PipelineContext};
-#[allow(unused)]
-use astrocap_source_gstreamer::GstSource;
+
+use astrocap_source_gstreamer_gpu::GstGpuSource;
 
 #[ignore]
 #[test]
@@ -115,7 +115,7 @@ stage_type = "astrocap_core::DummySink"
     println!("  Frames sunk: {}", frames_sunk);
 }
 
-// #[ignore]
+#[ignore]
 #[test]
 fn test_pseudo_live_drops_frames() {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -132,7 +132,7 @@ pseudo_live = true
 
 [[stages]]
 stage_type = "astrocap_core::DummyProcessor"
-processing_delay_ms = 200
+# processing_delay_ms = 200
 
 [sink]
 stage_type = "astrocap_core::DummySink"

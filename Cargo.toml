@@ -14,6 +14,7 @@ members = [
     "astrocap_processor_rerun_img_tee",
     "astrocap_sink_rerun",
     "astrocap_source_gstreamer",
+    "astrocap_source_gstreamer_gpu",
     "astrocap_main",
 ]
 resolver = "2"

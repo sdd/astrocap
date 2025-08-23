@@ -6,7 +6,6 @@ use astrocap_core::{
     AstrocapError, Frame, FrameContext, FrameProcessorResult, register_astrocap_frame_processor,
 };
 use rerun::RecordingStream;
-use rerun::external::arrow::array::Datum;
 use std::sync::Arc;
 use toml::Value;
 
@@ -38,7 +37,7 @@ impl FrameProcessor for RerunTeeProcessor {
             Box::new(
                 rerun::RecordingStreamBuilder::new("astrocap")
                     .connect_grpc()
-                    .inspect(|res| {
+                    .inspect(|_| {
                         tracing::info!("Initialized Rerun connection");
                     })
                     .map_err(|err| {
@@ -59,10 +58,10 @@ impl FrameProcessor for RerunTeeProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let rec = ctx.get_as::<RecordingStream>("rerun").unwrap();
+        let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
 
         let pixels = match &self.key {
-            Some(key) => match frame_ctx.get_as::<Arc<Frame>>(key) {
+            Some(key) => match frame_ctx.try_get_as::<Arc<Frame>>(key) {
                 Ok(frame) => {
                     let Some(pixels) = frame.as_cpu_image() else {
                         tracing::warn!("No frame to process");

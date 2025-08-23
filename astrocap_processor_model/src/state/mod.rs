@@ -209,7 +209,8 @@ impl FrameProcessor for ModelState {
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
         // pull detected_points from frame context
-        let Ok(detected_points_list) = frame_ctx.get_as::<Vec<DetectedPoint>>("detected_points")
+        let Ok(detected_points_list) =
+            frame_ctx.try_get_as::<Vec<DetectedPoint>>("detected_points")
         else {
             tracing::error!("Detected points not found");
             return FrameProcessorResult::Skip;
@@ -230,16 +231,16 @@ impl FrameProcessor for ModelState {
         self.current_frame_state = Some(new_frame_state);
 
         // pull tracked_objects from pipeline context
-        let Ok(tracked_objects) = ctx.get_as::<Vec<StarCandidate>>("tracked_objects") else {
+        let Ok(tracked_objects) = ctx.try_get_as::<Vec<StarCandidate>>("tracked_objects") else {
             tracing::error!("Tracked objects not found");
             return FrameProcessorResult::Skip;
         };
 
         // pull rerun from pipeline context
-        let rec = ctx.get_as::<RecordingStream>("rerun").ok();
+        let rec = ctx.try_get_as::<RecordingStream>("rerun").ok();
 
         // pull rerun from pipeline context
-        let Ok(point_fitter) = ctx.get_as::<Arc<dyn PointFitter>>("point_fitter") else {
+        let Ok(point_fitter) = ctx.try_get_as::<Arc<dyn PointFitter>>("point_fitter") else {
             tracing::error!("Point fitter not found");
             return FrameProcessorResult::Skip;
         };

@@ -31,18 +31,25 @@ impl FrameContext {
         }
     }
 
-    pub fn get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
+    pub fn try_get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
         let Some(value) = self.metadata.get(key) else {
             tracing::error!("key \"{}\" not present in frame context metadata", key);
             return Err(AstrocapError::FrameMetadataNotFoundError);
         };
 
         let Some(downcasted) = value.downcast_ref::<T>() else {
-            tracing::error!("Could not downcast metadata value to requested type");
+            tracing::error!(
+                "Could not downcast metadata value to requested type {}",
+                core::any::type_name::<T>()
+            );
             return Err(AstrocapError::FrameMetadataTypeError);
         };
 
         Ok(downcasted)
+    }
+
+    pub fn get_as<'a, T: 'static>(&'a self, key: &str) -> &'a T {
+        self.try_get_as(key).unwrap()
     }
 
     pub fn put<T: Any + Send + Sync + 'static>(&mut self, key: &str, value: T) {

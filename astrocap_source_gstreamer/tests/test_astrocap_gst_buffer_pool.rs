@@ -79,7 +79,7 @@ fn test_buffer_pool_pool_configuration() {
     }
 
     // Set the pool on the buffer pool
-    buffer_pool.set_pool(pool.clone());
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
     // Configure the GStreamer buffer pool
     let mut config = buffer_pool.config();
@@ -104,7 +104,7 @@ fn test_buffer_pool_with_pool_acquisition_attempt() {
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
-    buffer_pool.set_pool(pool.clone());
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
     // Configure buffer pool
     let mut config = buffer_pool.config();
@@ -149,7 +149,7 @@ fn test_buffer_pool_size_mismatch() {
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
-    buffer_pool.set_pool(pool);
+    buffer_pool.set_frame_buffer_pool(pool);
 
     // Configure with WRONG size - should be detected during acquisition
     let wrong_size = 1024; // Different from pool buffer_size
@@ -182,7 +182,7 @@ fn test_buffer_pool_pool_exhaustion() {
     let buffer_size = 1920 * 1080;
     let buffer_count = 2; // Small pool for testing exhaustion
     let pool = create_shared_pool(buffer_size, buffer_count);
-    buffer_pool.set_pool(pool.clone());
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
     // Configure buffer pool
     let mut config = buffer_pool.config();
@@ -242,7 +242,7 @@ fn test_buffer_pool_direct_usage_with_caps_negotiation() {
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
     let buffer_pool = AstrocapGstBufferPool::new();
-    buffer_pool.set_pool(pool.clone());
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
     tracing::info!("Testing direct BufferPool usage with caps negotiation...");
 
@@ -345,7 +345,7 @@ fn test_buffer_pool_exhaustion_and_recovery() {
     let buffer_count = 2; // Small pool for testing exhaustion
     let pool = create_shared_pool(buffer_size, buffer_count);
     let buffer_pool = AstrocapGstBufferPool::new();
-    buffer_pool.set_pool(pool.clone());
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
     tracing::info!("Testing BufferPool exhaustion and recovery...");
 

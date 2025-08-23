@@ -45,7 +45,8 @@ impl FrameProcessor for PointFitterProcessor {
             return FrameProcessorResult::Skip;
         };
 
-        let Ok(detected_points_list) = frame_ctx.get_as::<Vec<DetectedPoint>>("detected_points")
+        let Ok(detected_points_list) =
+            frame_ctx.try_get_as::<Vec<DetectedPoint>>("detected_points")
         else {
             return FrameProcessorResult::Skip;
         };
@@ -55,7 +56,7 @@ impl FrameProcessor for PointFitterProcessor {
             .map(|detected_point| self.point_fitter.fit(frame, detected_point))
             .collect();
 
-        if let Ok(rec) = ctx.get_as::<RecordingStream>("rerun") {
+        if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
             rec.log(
                 "model/fitted_points".to_string(),
                 &rerun::Points2D::new(

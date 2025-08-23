@@ -1,11 +1,8 @@
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameSink;
-use astrocap_core::{AstrocapError, Frame, FrameContext, register_astrocap_frame_sink};
+use astrocap_core::{AstrocapError, FrameContext, register_astrocap_frame_sink};
 use rerun::RecordingStream;
-use std::any;
-use std::any::TypeId;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use toml::Value;
 
 pub struct RerunSink;
@@ -40,7 +37,7 @@ impl FrameSink for RerunSink {
     }
 
     fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
-        let rec = ctx.get_as::<RecordingStream>("rerun").unwrap();
+        let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
 
         let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
             tracing::warn!("No frame to process");

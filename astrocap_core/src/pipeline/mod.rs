@@ -43,7 +43,7 @@ impl PipelineContext {
         self.metadata.entry(key.into())
     }
 
-    pub fn get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
+    pub fn try_get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
         let Some(value) = self.metadata.get(key) else {
             tracing::error!("key \"{}\" not present in frame context metadata", key);
             return Err(AstrocapError::FrameMetadataNotFoundError);
@@ -55,6 +55,27 @@ impl PipelineContext {
         };
 
         Ok(downcasted)
+    }
+
+    pub fn get_as<'a, T: 'static>(&'a self, key: &str) -> &'a T {
+        self.try_get_as(key).unwrap()
+    }
+
+    pub fn get_as_or_insert<'a, T: Send + Sync + 'static, F>(
+        &'a mut self,
+        key: &str,
+        default: F,
+    ) -> &'a T
+    where
+        F: FnOnce() -> T,
+    {
+        match self.metadata.entry(key.to_string()) {
+            Entry::Occupied(entry) => entry.into_mut().downcast_mut::<T>().unwrap(),
+            Entry::Vacant(entry) => {
+                let value = default();
+                entry.insert(Box::new(value)).downcast_mut::<T>().unwrap()
+            }
+        }
     }
 
     pub fn put<T: Any + Send + Sync + 'static>(&mut self, key: &str, value: T) {

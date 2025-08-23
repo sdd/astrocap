@@ -7,7 +7,6 @@ use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::Luma;
 use serde::Deserialize;
-use std::cmp::max;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use toml::Value;
@@ -71,11 +70,6 @@ impl FrameProcessor for FrameStackerProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let Ok(frame) = frame_ctx.frame.get_image(None) else {
-            tracing::warn!("No frame to process");
-            return Skip;
-        };
-
         let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
             tracing::warn!("could not get CPU Frame");
             return Skip;
@@ -91,16 +85,14 @@ impl FrameProcessor for FrameStackerProcessor {
             .clone();
 
         let integration_frame = ctx
-            .entry("video/integrated")
-            .or_insert_with(|| {
-                Box::new(CpuFrame::new_shared(
+            .get_as_or_insert("video/integrated", || {
+                CpuFrame::from_shared(
                     frame.width(),
                     frame.height(),
                     Arc::from(vec![0u8; (frame.width() * frame.height()) as usize]),
-                ))
+                )
+                .expect("Could not create frame to integrate into")
             })
-            .downcast_ref::<CpuFrame>()
-            .unwrap()
             .clone();
 
         // add frame to stack and remove oldest if stack is full
@@ -177,7 +169,8 @@ impl FrameProcessor for FrameStackerProcessor {
         };
 
         let cpu_storage: Arc<[u8]> = Arc::from(img.into_raw());
-        let integration_frame = CpuFrame::new_shared(frame.width(), frame.height(), cpu_storage);
+        let integration_frame =
+            CpuFrame::from_shared(frame.width(), frame.height(), cpu_storage).unwrap();
 
         ctx.put("video/integrated", integration_frame.clone());
 

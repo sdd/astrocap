@@ -2,19 +2,20 @@
 stage_type = "astrocap_source_gstreamer::GstSource"
 file_path = "tests/test.mkv"
 pseudo_live = false
+# zc_enabled = false
 
-#[[stages]]
-#stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
-#tag = "original"
+[[stages]]
+stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
+tag = "original"
 
 [[stages]]
 stage_type = "astrocap_processor_median_sub::MedianProcessor"
 async = true
 
-#[[stages]]
-#stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
-#key = "video/median"
-#tag = "median"
+[[stages]]
+stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
+key = "video/median"
+tag = "median"
 
 [[stages]]
 stage_type = "astrocap_processor_mask::MaskProcessor"
@@ -24,9 +25,9 @@ file_path = "mask-2.png"
 stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
 subtractand_key = "median"
 
-#[[stages]]
-#stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
-#tag = "median_subbed"
+[[stages]]
+stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
+tag = "median_subbed"
 
 [[stages]]
 stage_type = "astrocap_processor_frame_stacker::FrameStackerProcessor"

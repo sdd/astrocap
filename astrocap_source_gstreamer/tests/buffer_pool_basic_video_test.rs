@@ -14,7 +14,7 @@ fn test_buffer_pool_video_zero_copy_with_videoconvert() {
     let buffer_count = 8;
     let pool = create_shared_pool(buffer_size, buffer_count);
     let buffer_pool = AstrocapGstBufferPool::new();
-    buffer_pool.set_pool(pool.clone());
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
     tracing::info!(
         "Testing zero-copy with videotestsrc ! videoconvert ! appsink pipeline using BufferPool..."

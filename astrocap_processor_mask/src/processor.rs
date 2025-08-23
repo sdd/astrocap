@@ -5,7 +5,7 @@ use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
-use image::{GenericImageView, Luma};
+use image::Luma;
 use std::sync::Arc;
 use toml::Value;
 
@@ -37,7 +37,7 @@ impl FrameProcessor for MaskProcessor {
 
         let gray_img = img.to_luma8();
         let storage: Arc<[u8]> = Arc::from(gray_img.into_raw());
-        let mask = CpuFrame::new_shared(img.width(), img.height(), storage);
+        let mask = CpuFrame::from_shared(img.width(), img.height(), storage).unwrap();
 
         tracing::info!(
             width = mask.img.width(),
@@ -57,17 +57,12 @@ impl FrameProcessor for MaskProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let Ok(frame) = frame_ctx.frame.get_image(None) else {
-            tracing::warn!("No frame to process");
-            return Skip;
-        };
-
         let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
             tracing::warn!("could not get CPU Frame");
             return Skip;
         };
 
-        let mask = ctx.get_as::<Frame>("image/mask").unwrap();
+        let mask = ctx.try_get_as::<Frame>("image/mask").unwrap();
         let mask = match mask {
             Frame::Cpu(mask) => mask,
             _ => {
@@ -81,7 +76,8 @@ impl FrameProcessor for MaskProcessor {
         });
 
         let cpu_storage: Arc<[u8]> = Arc::from(masked_frame.into_raw());
-        let integration_frame = CpuFrame::new_shared(frame.width(), frame.height(), cpu_storage);
+        let integration_frame =
+            CpuFrame::from_shared(frame.width(), frame.height(), cpu_storage).unwrap();
 
         frame_ctx.frame = Frame::Cpu(integration_frame);
 

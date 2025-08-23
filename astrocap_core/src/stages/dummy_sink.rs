@@ -27,7 +27,7 @@ impl FrameSink for DummySink {
             frame_ctx.metadata.keys().collect::<Vec<_>>()
         );
 
-        if let Ok(counter) = ctx.get_as::<AtomicUsize>("frames_sunk") {
+        if let Ok(counter) = ctx.try_get_as::<AtomicUsize>("frames_sunk") {
             counter.fetch_add(1, Ordering::SeqCst);
         }
     }

@@ -3,19 +3,18 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gst::prelude::*;
 use gst::{Message, MessageView};
 
-use crate::astrocap_frame_queue::*;
 use crate::config::*;
-use crate::create_shared_pool;
+use crate::frame_buffer::*;
 use crate::gst_buffer_timing_meta::instrument_pipeline_with_timing_meta;
 use crate::gst_pipeline::*;
 use astrocap_core::statistics::{PipelineStatistics, ProcessingType};
 use astrocap_core::traits::FrameSource;
-use astrocap_core::{pipeline::PipelineContext, FrameContext};
+use astrocap_core::{pipeline::PipelineContext, Frame, FrameContext};
 use thiserror::Error;
 
 const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
@@ -72,16 +71,18 @@ impl From<u8> for PlayState {
 /// or from a file. When sourcing frames from a file,
 /// pseudo_live flag can be set to mimic the frame dropping
 /// that happens when using RTSP to process a live feed.
-pub struct GstSource {
+pub struct GstGpuSource {
     #[allow(unused)]
     config: Config,
-    frames_out_queue: Arc<AstrocapFrameQueue>,
+
+    ring_buffer: Arc<FrameBuffer>,
+
     pipeline: Arc<gst::Pipeline>,
     producer_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     play_state: Arc<AtomicU8>, // Store as u8 for atomic operations
 }
 
-impl GstSource {
+impl GstGpuSource {
     pub fn new(params: Option<&toml::Value>) -> Result<Self, GstSourceError> {
         let Some(params) = params else {
             return Err(GstSourceError::ConfigError(
@@ -102,7 +103,7 @@ impl GstSource {
         };
 
         let live_mode = config.input.is_live_mode();
-        let output_frame_queue = Arc::new(AstrocapFrameQueue::new(frame_info, 10, live_mode));
+        let ring_buffer = Arc::new(FrameBuffer::new(frame_info, 10, live_mode));
 
         // See https://lib.rs/crates/tracing-gstreamer
         // See also https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=rust
@@ -111,25 +112,9 @@ impl GstSource {
         gst::init()?;
         // tracing_gstreamer::integrate_spans();
 
-        let pool = if config.zc_enabled {
-            let buffer_size = output_frame_queue.frame_info().frame_size;
-            Some(create_shared_pool(
-                buffer_size,
-                config.buffer_pool_slot_count,
-            ))
-        } else {
-            None
-        };
-
         let pipeline = match &config.input {
-            InputConfig::File { path, .. } => {
-                build_file_pipeline(path, output_frame_queue.clone(), pool)
-            }
-            InputConfig::Rtsp { uri } => {
-                // Convert Uri to string for the pipeline builder
-                let uri_str = uri.to_string();
-                build_rtsp_client_pipeline(&uri_str, output_frame_queue.clone(), pool)
-            }
+            InputConfig::File { path, .. } => build_file_pipeline(path, ring_buffer.clone()),
+            InputConfig::Rtsp { uri } => build_rtsp_client_pipeline(uri, ring_buffer.clone()),
         }
         .expect("Failed to build pipeline");
 
@@ -140,14 +125,14 @@ impl GstSource {
         if !live_mode {
             Self::start_flow_control_thread(
                 pipeline.clone(),
-                output_frame_queue.clone(),
+                ring_buffer.clone(),
                 play_state.clone(),
             );
         }
 
         Ok(Self {
             config,
-            frames_out_queue: output_frame_queue,
+            ring_buffer,
             pipeline,
             producer_handle: Arc::new(Mutex::new(None)),
             play_state,
@@ -156,7 +141,7 @@ impl GstSource {
 
     fn start_flow_control_thread(
         pipeline: Arc<gst::Pipeline>,
-        ring_buffer: Arc<AstrocapFrameQueue>,
+        ring_buffer: Arc<FrameBuffer>,
         play_state: Arc<AtomicU8>,
     ) {
         let (tx, rx) = std::sync::mpsc::channel::<bool>();
@@ -254,7 +239,7 @@ impl GstSource {
         pipeline: Arc<gst::Pipeline>,
         play_state: Arc<AtomicU8>,
     ) -> Result<(), GstSourceError> {
-        instrument_pipeline_with_timing_meta(pipeline.as_ref());
+        instrument_pipeline_with_timing_meta(pipeline.as_ref()).expect("TODO: panic message");
 
         pipeline.set_state(gst::State::Playing)?;
 
@@ -309,46 +294,67 @@ impl GstSource {
 
     fn create_frame_ctx(
         &self,
-        frame_data: FrameWithTiming,
+        frame_data: FrameData,
         ctx: &mut PipelineContext,
     ) -> Option<FrameContext> {
+        use std::time::Instant;
+
+        // Time the actual frame processing work
         let processing_start = Instant::now();
 
-        let FrameWithTiming { frame, timing_data } = frame_data;
+        let width = 1920u32;
+        let height = 1080u32;
 
-        Self::inc_frame_counter(ctx);
-        let mut frame_ctx = FrameContext::new(frame);
+        // TODO: ref rather than copy
+        if let Ok(frame) = Frame::from_raw(width, height, frame_data.bytes.to_vec()) {
+            Self::inc_frame_counter(ctx);
 
-        if let Some(timing_data) = timing_data {
-            frame_ctx.put("timing_data", timing_data);
+            let mut frame_ctx = FrameContext::new(frame);
 
-            tracing::trace!(
-                "Added timing metadata to frame context with {} fields",
-                frame_ctx.get_as::<Vec<(u64, String)>>("timing_data").len()
-            );
+            // Add timing data to frame context metadata if available
+            if let Some(timing_data) = frame_data.timing_data {
+                frame_ctx.put("timing_data", timing_data);
+                tracing::trace!(
+                    "Added timing metadata to frame context with {} fields",
+                    frame_ctx
+                        .metadata
+                        .get("timing_data")
+                        .and_then(|data| data.downcast_ref::<Vec<(u64, String)>>())
+                        .map(|map| map.len())
+                        .unwrap_or(0)
+                );
+            }
+
+            let processing_duration = processing_start.elapsed();
+            let duration_us = processing_duration.as_micros() as u64;
+
+            // Record timing to pipeline statistics if available
+            if let Ok(stats) = ctx.try_get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
+                stats.record_stage_timing("GstSource", duration_us);
+            }
+
+            tracing::trace!(duration_us, "GstSource frame processing completed");
+
+            tracing::trace!("Emitting frame");
+            Some(frame_ctx)
+        } else {
+            tracing::warn!("Null frame emitted");
+            None
         }
-
-        let processing_duration = processing_start.elapsed();
-        let duration_us = processing_duration.as_micros() as u64;
-
-        ctx.get_as::<Arc<PipelineStatistics>>("pipeline_statistics")
-            .record_stage_timing("GstSource", duration_us);
-
-        tracing::trace!(
-            duration_us,
-            "GstSource frame processing completed, emitting frame"
-        );
-
-        Some(frame_ctx)
     }
 
     fn inc_frame_counter(ctx: &mut PipelineContext) {
-        ctx.get_as_or_insert("frames_sourced", || AtomicUsize::new(0))
-            .fetch_add(1, Ordering::SeqCst);
+        let counter = ctx
+            .entry("frames_sourced".to_string())
+            .or_insert_with(|| Box::new(AtomicUsize::new(0)));
+
+        if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
+            atomic_counter.fetch_add(1, Ordering::SeqCst);
+        }
     }
 }
 
-impl FrameSource for GstSource {
+impl FrameSource for GstGpuSource {
     fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
         let frame_data = match self.get_play_state() {
             PlayState::Initializing => {
@@ -357,7 +363,7 @@ impl FrameSource for GstSource {
             }
 
             PlayState::Playing => loop {
-                if let Some(frame_data) = self.frames_out_queue.read_frame(FRAME_BLOCKING_TIMEOUT) {
+                if let Some(frame_data) = self.ring_buffer.read_frame(FRAME_BLOCKING_TIMEOUT) {
                     break Some(frame_data);
                 }
 
@@ -369,12 +375,10 @@ impl FrameSource for GstSource {
                 tracing::info!("timeout waiting for a frame");
             },
 
-            _ => self.frames_out_queue.try_read_frame(),
+            _ => self.ring_buffer.try_read_frame(),
         };
 
-        let frame_ctx = frame_data.and_then(|frame_data| self.create_frame_ctx(frame_data, ctx));
-        tracing::trace!("Emitting frame");
-        frame_ctx
+        frame_data.and_then(|frame_data| self.create_frame_ctx(frame_data, ctx))
     }
 
     fn name(&self) -> &str {

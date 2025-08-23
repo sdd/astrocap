@@ -59,7 +59,6 @@ impl FrameBuffer {
         *state_sender = Some(sender);
     }
 
-    #[allow(unused)]
     pub fn write_frame(&self, frame_data: &[u8]) -> Result<(), &'static str> {
         self.write_frame_with_timing(frame_data, None)
     }

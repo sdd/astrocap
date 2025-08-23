@@ -6,7 +6,7 @@ pub(crate) fn process_gst_timing_data(
     pipeline_stats: Option<&crate::statistics::PipelineStatistics>,
 ) {
     if let Some(stats) = pipeline_stats {
-        if let Ok(timing_data) = frame_ctx.get_as::<Vec<(u64, String)>>("timing_data") {
+        if let Ok(timing_data) = frame_ctx.try_get_as::<Vec<(u64, String)>>("timing_data") {
             stats.record_gst_timing_data(timing_data);
         }
     }

@@ -94,7 +94,7 @@ impl FrameProcessor for MedianProcessor {
                 if let Some(img) = frame.as_cpu_image() {
                     let img_median: GrayImage = median_filter(img, window_size, window_size);
 
-                    let median = Arc::new(Frame::shared_from_img(img_median));
+                    let median = Arc::new(Frame::from_img(img_median));
 
                     {
                         *median_clone.lock().unwrap() = median;

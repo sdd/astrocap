@@ -16,7 +16,7 @@ impl AstrocapGstBufferPool {
     }
 
     /// Set the frame buffer pool for this buffer pool to use
-    pub fn set_pool(&self, pool: SharedFrameBufferPool) {
+    pub fn set_frame_buffer_pool(&self, pool: SharedFrameBufferPool) {
         let imp = self.imp();
         *imp.pool.lock().unwrap() = Some(pool);
     }
@@ -76,8 +76,9 @@ mod imp {
                         pool_guard.buffer_size(),
                         size
                     );
-                    // Note: We'd need a way to recreate the pool here, or require the caller to do it
 
+                    // TODO: ideally recreate the pool here, or require the caller to do it,
+                    //       but for now we just return false to indicate failure
                     return false;
                 }
             }
@@ -96,7 +97,7 @@ mod imp {
             };
 
             let mut pool_guard = pool.lock().unwrap();
-            let frame_pool_buffer_size = pool_guard.buffer_size(); // Just use the frame pool's size
+            let frame_pool_buffer_size = pool_guard.buffer_size();
 
             let Some(handle) = pool_guard.alloc() else {
                 tracing::error!(
@@ -114,6 +115,7 @@ mod imp {
                 "acquired buffer from pool"
             );
 
+            // TODO: do we need a weak reference here?
             // Create a weak reference to the pool for the deallocator
             let pool_weak = Arc::downgrade(&pool);
             let buffer_ptr = handle.as_ptr();
@@ -127,17 +129,16 @@ mod imp {
             // Create memory using FFI with our custom deallocator
             let memory = unsafe {
                 gst::glib::translate::from_glib_full(gst::ffi::gst_memory_new_wrapped(
-                    0,                                                 // flags
-                    buffer_ptr as *mut std::ffi::c_void,               // data
-                    frame_pool_buffer_size,                            // maxsize
-                    0,                                                 // offset
-                    frame_pool_buffer_size,                            // size
-                    Box::into_raw(user_data) as *mut std::ffi::c_void, // user_data
-                    Some(pool_deallocator),                            // notify function
+                    0,
+                    buffer_ptr as *mut std::ffi::c_void,
+                    frame_pool_buffer_size,
+                    0,
+                    frame_pool_buffer_size,
+                    Box::into_raw(user_data) as *mut std::ffi::c_void,
+                    Some(pool_deallocator),
                 ))
             };
 
-            // Create a buffer containing our memory
             let mut buffer = gst::Buffer::new();
             buffer.get_mut().unwrap().append_memory(memory);
 
@@ -154,13 +155,12 @@ mod imp {
         }
     }
 
-    // Data structure for the deallocator
     struct PoolDeallocatorData {
         pool: Weak<Mutex<crate::FrameBufferPool>>,
         buffer_ptr: *const u8,
     }
 
-    // Custom deallocator function that will be called when GStreamer memory is freed
+    // Custom deallocator called when GStreamer memory is freed
     unsafe extern "C" fn pool_deallocator(data: *mut std::ffi::c_void) {
         if data.is_null() {
             return;
@@ -212,7 +212,7 @@ mod tests {
         let pool = create_shared_pool(buffer_size, buffer_count);
 
         // Set underlying pool
-        buffer_pool.set_pool(pool.clone());
+        buffer_pool.set_frame_buffer_pool(pool.clone());
 
         // Configure buffer pool
         let mut config = buffer_pool.config();
@@ -251,7 +251,7 @@ mod tests {
         let buffer_size = 1024;
         let buffer_count = 2;
         let pool = create_shared_pool(buffer_size, buffer_count);
-        buffer_pool.set_pool(pool.clone());
+        buffer_pool.set_frame_buffer_pool(pool.clone());
 
         // Configure buffer pool
         let mut config = buffer_pool.config();
@@ -300,7 +300,7 @@ mod tests {
         let buffer_pool = AstrocapGstBufferPool::new();
         let buffer_size = 1024;
         let pool = create_shared_pool(buffer_size, 2);
-        buffer_pool.set_pool(pool);
+        buffer_pool.set_frame_buffer_pool(pool);
 
         // Configure with wrong size
         let mut config = buffer_pool.config();
@@ -319,7 +319,7 @@ mod tests {
         let buffer_size = 1024;
         let buffer_count = 1; // Only one slot
         let pool = create_shared_pool(buffer_size, buffer_count);
-        buffer_pool.set_pool(pool.clone());
+        buffer_pool.set_frame_buffer_pool(pool.clone());
 
         // Configure buffer pool
         let mut config = buffer_pool.config();

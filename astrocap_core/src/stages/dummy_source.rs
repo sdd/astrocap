@@ -31,11 +31,9 @@ impl FrameSource for DummySource {
                 atomic_counter.fetch_add(1, Ordering::SeqCst);
             }
 
-            Some(FrameContext::new(Frame::Cpu(CpuFrame::new_owned(
-                10,
-                10,
-                vec![0; 100],
-            ))))
+            Some(FrameContext::new(Frame::Cpu(
+                CpuFrame::from_vec(10, 10, vec![0; 100]).expect("Failed to create dummy frame"),
+            )))
         }
     }
 

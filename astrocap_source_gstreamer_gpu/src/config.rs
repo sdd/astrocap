@@ -23,8 +23,6 @@ impl InputConfig {
 pub(crate) struct Config {
     pub(crate) input: InputConfig,
     pub(crate) _mask_path: Option<String>,
-    pub(crate) buffer_pool_slot_count: usize,
-    pub(crate) zc_enabled: bool,
 }
 
 impl TryFrom<&Value> for Config {
@@ -34,27 +32,6 @@ impl TryFrom<&Value> for Config {
         let Some(table) = value.as_table() else {
             return Err("Expected config to be a toml table".to_string());
         };
-
-        let zc_enabled = if let Some(zc_enabled) = table.get("zc_enabled") {
-            if let Some(zc_enabled) = zc_enabled.as_bool() {
-                zc_enabled
-            } else {
-                return Err("zc_enabled must be a boolean".to_string());
-            }
-        } else {
-            true
-        };
-
-        let buffer_pool_slot_count =
-            if let Some(buffer_pool_slot_count) = table.get("buffer_pool_slot_count") {
-                if let Some(buffer_pool_slot_count) = buffer_pool_slot_count.as_integer() {
-                    buffer_pool_slot_count as usize
-                } else {
-                    return Err("buffer_pool_slot_count must be an integer".to_string());
-                }
-            } else {
-                16
-            };
 
         let rtsp_url = table.get("rtsp_url");
         let file_path = table.get("file_path");
@@ -113,8 +90,6 @@ impl TryFrom<&Value> for Config {
         Ok(Self {
             input,
             _mask_path: mask_path,
-            buffer_pool_slot_count,
-            zc_enabled,
         })
     }
 }

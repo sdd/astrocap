@@ -111,13 +111,13 @@ mod imp {
             // Create memory using FFI with our custom deallocator
             let memory = unsafe {
                 gst::glib::translate::from_glib_full(gst::ffi::gst_memory_new_wrapped(
-                    0,                                                 // flags
-                    buffer_ptr as *mut std::ffi::c_void,               // data
-                    size,                                              // maxsize
-                    0,                                                 // offset
-                    size,                                              // size
-                    Box::into_raw(user_data) as *mut std::ffi::c_void, // user_data
-                    Some(pool_deallocator),                            // notify function
+                    0,
+                    buffer_ptr as *mut std::ffi::c_void,
+                    size,
+                    0,
+                    size,
+                    Box::into_raw(user_data) as *mut std::ffi::c_void,
+                    Some(pool_deallocator),
                 ))
             };
 
@@ -136,7 +136,7 @@ mod imp {
         buffer_ptr: *const u8,
     }
 
-    // Custom deallocator function that will be called when GStreamer memory is freed
+    // Custom deallocator function called when GStreamer memory is freed
     unsafe extern "C" fn pool_deallocator(data: *mut std::ffi::c_void) {
         if data.is_null() {
             return;
@@ -190,7 +190,6 @@ mod tests {
         let buffer_count = 4;
         let pool = create_shared_pool(buffer_size, buffer_count);
 
-        // Set pool
         allocator.set_pool(pool.clone());
 
         // Verify pool is set

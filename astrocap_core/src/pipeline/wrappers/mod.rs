@@ -59,7 +59,7 @@ impl FrameProcessorWrapper {
         let duration_us = start_time.elapsed().as_micros() as u64;
 
         // Record timing if statistics are available
-        if let Ok(stats) = ctx.get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
+        if let Ok(stats) = ctx.try_get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
             stats.record_stage_timing(self.stage_type, duration_us);
         }
 
@@ -95,7 +95,7 @@ impl FrameSinkWrapper {
         let duration_us = start_time.elapsed().as_micros() as u64;
 
         // Record timing if statistics are available
-        if let Ok(stats) = ctx.get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
+        if let Ok(stats) = ctx.try_get_as::<Arc<PipelineStatistics>>("pipeline_statistics") {
             stats.record_stage_timing(self.stage_type, duration_us);
         }
 

@@ -47,7 +47,7 @@ impl FrameProcessor for DummyProcessor {
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
 
-        if let Ok(counter) = ctx.get_as::<AtomicUsize>("frames_processed") {
+        if let Ok(counter) = ctx.try_get_as::<AtomicUsize>("frames_processed") {
             counter.fetch_add(1, Ordering::SeqCst);
         }
 
