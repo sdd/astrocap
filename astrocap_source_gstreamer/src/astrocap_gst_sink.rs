@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use gst::glib;
 use gst::prelude::BufferPoolExtManual;
+use gst::prelude::{ElementExt, PadExt};
 use gst::subclass::prelude::*;
 use gst_base::subclass::prelude::*;
 use once_cell::sync::Lazy;
@@ -50,9 +51,27 @@ mod imp {
     }
 
     impl AstrocapGstSink {
+        /// Extract video dimensions from caps
+        fn get_video_dimensions_from_caps(&self) -> Option<(u32, u32)> {
+            let binding = self.obj();
+            let element: &super::AstrocapGstSink = binding.as_ref();
+            let sink_pad = element.static_pad("sink")?;
+            let caps = sink_pad.current_caps()?;
+            let video_info = gst_video::VideoInfo::from_caps(&caps).ok()?;
+            Some((video_info.width(), video_info.height()))
+        }
+
         fn render(&self, buffer: &gst::Buffer) -> Result<gst::FlowSuccess, gst::FlowError> {
             let mut timing_data = TimingMeta::extract_timing_data(buffer);
             timing_data.push((TimingMeta::now(), "gst_astrocapsink_entry".to_string()));
+
+            // Get dimensions from caps instead of hardcoding
+            let (width, height) = self.get_video_dimensions_from_caps().unwrap_or_else(|| {
+                tracing::warn!(
+                    "Could not determine video dimensions from caps, using fallback 1920x1080"
+                );
+                (1920, 1080)
+            });
 
             // non-ZC fallback if memory count is not 1
             let memory_count = buffer.n_memory();
@@ -61,6 +80,8 @@ mod imp {
                     buffer,
                     timing_data,
                     "Buffer has unexpected memory count",
+                    width,
+                    height,
                 );
             }
 
@@ -70,6 +91,8 @@ mod imp {
                     buffer,
                     timing_data,
                     "No frame buffer pool configured",
+                    width,
+                    height,
                 );
             };
 
@@ -80,10 +103,6 @@ mod imp {
                 };
                 map.as_ptr()
             };
-
-            // TODO: determine width and height from caps
-            let width = 1920;
-            let height = 1080;
 
             // Where the ZC magic happens - acquire a Frame from our pool from
             // the slot that corresponds to the memory pointer
@@ -98,6 +117,8 @@ mod imp {
                     buffer,
                     timing_data,
                     "Memory pointer not from our pool",
+                    width,
+                    height,
                 );
             };
 
@@ -115,13 +136,15 @@ mod imp {
             buffer: &gst::Buffer,
             timing_data: Vec<(u64, String)>,
             reason: &str,
+            width: u32,
+            height: u32,
         ) -> Result<gst::FlowSuccess, gst::FlowError> {
             tracing::trace!(?reason, "non-ZC render");
 
             let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
             let data = map.as_slice();
 
-            let Ok(frame) = Frame::from_raw(1920, 1080, data.to_vec()) else {
+            let Ok(frame) = Frame::from_raw(width, height, data.to_vec()) else {
                 tracing::error!("Failed to create Frame from buffer");
                 return Err(gst::FlowError::Error);
             };

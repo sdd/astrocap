@@ -232,6 +232,59 @@ impl FrameBufferPool {
         }
     }
 
+    /// Recreates the pool with new buffer size and count
+    /// This will invalidate all existing buffers and reset the pool
+    pub fn reconfigure(&mut self, new_buffer_size: usize, new_buffer_count: usize) {
+        tracing::info!(
+            old_size = self.buffer_size,
+            new_size = new_buffer_size,
+            old_count = self.buffer_count,
+            new_count = new_buffer_count,
+            "Reconfiguring frame buffer pool with new dimensions"
+        );
+
+        // Create new memory arena
+        let total_size = new_buffer_size * new_buffer_count;
+
+        // Create zeroed arena
+        let arena = BytesMut::zeroed(total_size);
+        let memory_arena = arena.freeze();
+
+        let arena_base = memory_arena.as_ptr() as usize;
+        let arena_top = arena_base + total_size;
+
+        // Create new slots
+        let mut new_slots = Vec::with_capacity(new_buffer_count);
+        for i in 0..new_buffer_count {
+            let start = i * new_buffer_size;
+            let end = start + new_buffer_size;
+            let buffer = memory_arena.slice(start..end);
+
+            new_slots.push(MemorySlot {
+                buffer,
+                usage: SlotUsage::Free,
+                ref_count: 0,
+            });
+        }
+
+        // Update the state
+        let mut state = self.state.lock().unwrap();
+        *state = FrameBufferPoolState {
+            slots: new_slots,
+            buffer_size: new_buffer_size,
+            buffer_count: new_buffer_count,
+            memory_arena,
+        };
+
+        // Update the pool's cached values
+        self.arena_base = arena_base;
+        self.arena_top = arena_top;
+        self.buffer_size = new_buffer_size;
+        self.buffer_count = new_buffer_count;
+
+        tracing::info!("Frame buffer pool reconfiguration complete");
+    }
+
     /// Allocate a buffer handle from the pool
     pub fn alloc(&mut self) -> Option<BufferHandle> {
         self.state.lock().unwrap().alloc()

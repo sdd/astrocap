@@ -93,12 +93,13 @@ impl GstSource {
             .try_into()
             .map_err(|e| GstSourceError::ConfigError(format!("Failed to parse config: {}", e)))?;
 
+        // Use default frame info - will be updated when we get actual caps
         let frame_info = FrameInfo {
-            width: 1920,
-            height: 1080,
-            stride: 1920,
+            width: 1920,  // Default - will be updated
+            height: 1080, // Default - will be updated
+            stride: 1920, // Default - will be updated
             timestamp: 0,
-            frame_size: 1920 * 1080,
+            frame_size: 1920 * 1080, // Default - will be updated
         };
 
         let live_mode = config.input.is_live_mode();
@@ -112,6 +113,7 @@ impl GstSource {
         // tracing_gstreamer::integrate_spans();
 
         let pool = if config.zc_enabled {
+            // Use default buffer size - the pool will handle different sizes
             let buffer_size = output_frame_queue.frame_info().frame_size;
             Some(create_shared_pool(
                 buffer_size,
@@ -134,7 +136,6 @@ impl GstSource {
         .expect("Failed to build pipeline");
 
         let play_state = Arc::new(AtomicU8::new(PlayState::Initializing as u8));
-
         let pipeline = Arc::new(pipeline);
 
         if !live_mode {

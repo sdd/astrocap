@@ -73,14 +73,6 @@ impl AstrocapFrameQueue {
         frame: Frame,
         timing_data: Option<Vec<(u64, String)>>,
     ) -> Result<(), &'static str> {
-        let Some(dimensions) = frame.dimensions() else {
-            return Err("Frame dimensions not set");
-        };
-
-        if (dimensions.0 * dimensions.1) as usize != self.frame_info.frame_size {
-            return Err("Frame size mismatch");
-        }
-
         let mut buffer = self.buffer.lock().unwrap();
         let buffer_len = buffer.len();
 

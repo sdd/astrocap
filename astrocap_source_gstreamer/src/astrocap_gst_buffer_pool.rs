@@ -69,18 +69,30 @@ mod imp {
 
             // If we have a frame buffer pool, check if we need to recreate it for the new size
             if let Some(existing_pool) = self.pool.lock().unwrap().as_ref() {
-                let pool_guard = existing_pool.lock().unwrap();
+                let mut pool_guard = existing_pool.lock().unwrap();
                 if pool_guard.buffer_size() != size as usize {
-                    tracing::error!(
-                        "Buffer size changed from {} to {}, will need new frame buffer pool",
+                    tracing::info!(
+                        "Buffer size changed from {} to {}, reconfiguring frame buffer pool",
                         pool_guard.buffer_size(),
                         size
                     );
 
-                    // TODO: ideally recreate the pool here, or require the caller to do it,
-                    //       but for now we just return false to indicate failure
-                    return false;
+                    // Use the larger of min_buffers or max_buffers for buffer count
+                    // If max_buffers is 0, it means unlimited, so use min_buffers or a reasonable default
+                    let buffer_count = if max_buffers > 0 {
+                        max_buffers as usize
+                    } else if min_buffers > 0 {
+                        std::cmp::max(min_buffers as usize, 16) // Use at least 16 buffers
+                    } else {
+                        16 // Default buffer count
+                    };
+
+                    // Reconfigure the pool with new dimensions
+                    pool_guard.reconfigure(size as usize, buffer_count);
                 }
+            } else {
+                tracing::error!("No frame buffer pool configured");
+                return false;
             }
 
             true

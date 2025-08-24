@@ -60,6 +60,11 @@ impl FrameProcessor for RerunTeeProcessor {
     ) -> FrameProcessorResult {
         let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
 
+        let Some((width, height)) = frame_ctx.frame.dimensions() else {
+            tracing::warn!("No frame dimensions");
+            return Skip;
+        };
+
         let pixels = match &self.key {
             Some(key) => match frame_ctx.try_get_as::<Arc<Frame>>(key) {
                 Ok(frame) => {
@@ -86,7 +91,7 @@ impl FrameProcessor for RerunTeeProcessor {
 
         if let Err(err) = rec.log(
             format!("video/{}", self.tag),
-            &rerun::Image::from_l8(pixels, [1920, 1080]),
+            &rerun::Image::from_l8(pixels, [width, height]),
         ) {
             tracing::error!("Failed to log frame: {}", err);
             return Skip;

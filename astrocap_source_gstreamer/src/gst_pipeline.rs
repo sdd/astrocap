@@ -57,8 +57,6 @@ fn build_generic_pipeline(
     // Link videoconvert to astrocapsink with explicit caps
     let caps = gst::Caps::builder("video/x-raw")
         .field("format", "GRAY8")
-        .field("width", ring_buffer.frame_info().width as i32)
-        .field("height", ring_buffer.frame_info().height as i32)
         .build();
 
     videoconvert.link_filtered(&astrocapsink, &caps)?;

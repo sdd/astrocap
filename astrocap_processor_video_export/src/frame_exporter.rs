@@ -220,8 +220,10 @@ impl FrameExporter {
                 "libx264",
                 "-preset",
                 "medium",
-                "-crf",
-                "18", // Changed from -qp 0 for better compatibility
+                // "-crf",
+                // "18", // Changed from -qp 0 for better compatibility
+                "-qp",
+                "0", // Back to lossless
                 "-pix_fmt",
                 "yuv420p",
                 "-movflags",
