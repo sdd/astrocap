@@ -11,6 +11,7 @@ members = [
     "astrocap_processor_model",
     "astrocap_processor_point_detector",
     "astrocap_processor_point_fitter",
+    "astrocap_processor_video_export",
     "astrocap_processor_rerun_img_tee",
     "astrocap_sink_rerun",
     "astrocap_source_gstreamer",
@@ -37,6 +38,7 @@ astrocap_processor_median_sub = { path = "./astrocap_processor_median_sub" }
 astrocap_processor_model = { path = "./astrocap_processor_model" }
 astrocap_processor_point_detector = { path = "./astrocap_processor_point_detector" }
 astrocap_processor_point_fitter = { path = "./astrocap_processor_point_fitter" }
+astrocap_processor_video_export = { path = "astrocap_processor_video_export" }
 astrocap_processor_rerun_img_tee = { path = "./astrocap_processor_rerun_img_tee" }
 astrocap_sink_rerun = { path = "astrocap_sink_rerun" }
 astrocap_source_gstreamer = { path = "./astrocap_source_gstreamer" }

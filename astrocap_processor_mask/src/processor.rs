@@ -87,8 +87,6 @@ impl FrameProcessor for MaskProcessor {
         tracing::debug!("Mask setup took {:?}", elapsed);
         let start = std::time::Instant::now();
 
-        // Ultra-fast iterator-based masking
-        // Apply mask: pixel * (mask != 0) as u8
         result_data
             .iter_mut()
             .zip(frame_pixels.iter())

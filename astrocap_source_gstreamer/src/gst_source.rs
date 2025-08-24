@@ -316,8 +316,8 @@ impl GstSource {
 
         let FrameWithTiming { frame, timing_data } = frame_data;
 
-        Self::inc_frame_counter(ctx);
-        let mut frame_ctx = FrameContext::new(frame);
+        let frame_index = Self::inc_frame_counter(ctx);
+        let mut frame_ctx = FrameContext::new(frame, frame_index);
 
         if let Some(timing_data) = timing_data {
             frame_ctx.put("timing_data", timing_data);
@@ -342,9 +342,9 @@ impl GstSource {
         Some(frame_ctx)
     }
 
-    fn inc_frame_counter(ctx: &mut PipelineContext) {
+    fn inc_frame_counter(ctx: &mut PipelineContext) -> usize {
         ctx.get_as_or_insert("frames_sourced", || AtomicUsize::new(0))
-            .fetch_add(1, Ordering::SeqCst);
+            .fetch_add(1, Ordering::SeqCst)
     }
 }
 

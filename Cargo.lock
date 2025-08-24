@@ -590,6 +590,7 @@ dependencies = [
  "astrocap_processor_point_detector",
  "astrocap_processor_point_fitter",
  "astrocap_processor_rerun_img_tee",
+ "astrocap_processor_video_export",
  "astrocap_sink_rerun",
  "astrocap_source_gstreamer",
  "ctrlc",
@@ -721,6 +722,16 @@ version = "0.1.0"
 dependencies = [
  "astrocap_core",
  "rerun",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_processor_video_export"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "serde",
  "toml 0.9.5",
  "tracing",
 ]

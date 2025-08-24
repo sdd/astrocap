@@ -10,6 +10,7 @@ use astrocap_processor_model::ModelState;
 use astrocap_processor_point_detector::PointDetectorProcessor;
 use astrocap_processor_point_fitter::PointFitterProcessor;
 use astrocap_processor_rerun_img_tee::RerunTeeProcessor;
+use astrocap_processor_video_export::VideoExportProcessor;
 use astrocap_sink_rerun::RerunSink;
 use astrocap_source_gstreamer::GstSource;
 

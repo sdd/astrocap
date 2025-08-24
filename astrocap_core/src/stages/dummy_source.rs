@@ -27,13 +27,18 @@ impl FrameSource for DummySource {
                 .entry("frames_sourced".to_string())
                 .or_insert_with(|| Box::new(AtomicUsize::new(0)));
 
-            if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
-                atomic_counter.fetch_add(1, Ordering::SeqCst);
-            }
+            let frame_index = if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
+                atomic_counter.fetch_add(1, Ordering::SeqCst)
+            } else {
+                0
+            };
 
-            Some(FrameContext::new(Frame::Cpu(
-                CpuFrame::from_vec(10, 10, vec![0; 100]).expect("Failed to create dummy frame"),
-            )))
+            Some(FrameContext::new(
+                Frame::Cpu(
+                    CpuFrame::from_vec(10, 10, vec![0; 100]).expect("Failed to create dummy frame"),
+                ),
+                frame_index,
+            ))
         }
     }
 

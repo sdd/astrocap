@@ -21,13 +21,15 @@ pub use paste;
 pub struct FrameContext {
     pub metadata: HashMap<String, Box<dyn Any + Send + Sync>>,
     pub frame: Frame,
+    pub frame_index: usize,
 }
 
 impl FrameContext {
-    pub fn new(frame: Frame) -> Self {
+    pub fn new(frame: Frame, frame_index: usize) -> Self {
         Self {
             metadata: HashMap::new(),
             frame,
+            frame_index,
         }
     }
 

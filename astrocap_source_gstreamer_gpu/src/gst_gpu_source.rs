@@ -305,11 +305,9 @@ impl GstGpuSource {
         let width = 1920u32;
         let height = 1080u32;
 
-        // TODO: ref rather than copy
         if let Ok(frame) = Frame::from_raw(width, height, frame_data.bytes.to_vec()) {
-            Self::inc_frame_counter(ctx);
-
-            let mut frame_ctx = FrameContext::new(frame);
+            let frame_index = Self::inc_frame_counter(ctx);
+            let mut frame_ctx = FrameContext::new(frame, frame_index);
 
             // Add timing data to frame context metadata if available
             if let Some(timing_data) = frame_data.timing_data {
@@ -343,14 +341,16 @@ impl GstGpuSource {
         }
     }
 
-    fn inc_frame_counter(ctx: &mut PipelineContext) {
+    fn inc_frame_counter(ctx: &mut PipelineContext) -> usize {
         let counter = ctx
             .entry("frames_sourced".to_string())
             .or_insert_with(|| Box::new(AtomicUsize::new(0)));
 
         if let Some(atomic_counter) = counter.downcast_ref::<AtomicUsize>() {
-            atomic_counter.fetch_add(1, Ordering::SeqCst);
+            return atomic_counter.fetch_add(1, Ordering::SeqCst);
         }
+
+        0
     }
 }
 
