@@ -5,6 +5,9 @@ edition = "2021"
 
 [dependencies]
 astrocap_core = { path = "../astrocap_core" }
+astrocap_source_gstreamer = { path = "../astrocap_source_gstreamer" }
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
 image = { workspace = true }
 imageproc = { workspace = true }
 ordered-float = "5"
@@ -12,6 +15,7 @@ rerun = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 toml = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 kiddo = { workspace = true }

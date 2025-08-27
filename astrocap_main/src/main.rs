@@ -1,4 +1,7 @@
 #![allow(unused_imports)]
+
+mod config;
+
 use std::sync::Arc;
 
 use astrocap_core::pipeline::run_pipeline_with_config_file_path;
@@ -11,8 +14,11 @@ use astrocap_processor_point_detector::PointDetectorProcessor;
 use astrocap_processor_point_fitter::PointFitterProcessor;
 use astrocap_processor_rerun_img_tee::RerunTeeProcessor;
 use astrocap_processor_video_export::VideoExportProcessor;
+use astrocap_sink_point_detector_evaluator::PointDetectorEvaluatorSink;
 use astrocap_sink_rerun::RerunSink;
 use astrocap_source_gstreamer::GstSource;
+
+use crate::config::Config;
 
 fn main() {
     tracing_subscriber::fmt()
@@ -24,6 +30,9 @@ fn main() {
         .with_thread_names(false)
         .compact()
         .init();
+
+    // Parse command line arguments
+    let config = Config::parse_args();
 
     // Create shared statistics
     let stats = Arc::new(PipelineStatistics::new());
@@ -44,7 +53,7 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    run_pipeline_with_config_file_path("astrocap.toml", stats.clone());
+    run_pipeline_with_config_file_path(&config.config, stats.clone());
 
     // If we reach here, the pipeline completed naturally
     stats.print_final_stats();

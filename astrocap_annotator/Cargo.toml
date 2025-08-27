@@ -1,0 +1,33 @@
+[package]
+name = "astrocap_annotator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.32"
+eframe = { version = "0.32" }
+
+astrocap_core = { workspace = true }
+
+gst = { package = "gstreamer", version = "0.21", features = ["v1_20"] }
+gst-app = { package = "gstreamer-app", version = "0.21.2" }
+gst-base = { package = "gstreamer-base", version = "0.21.2" }
+gst-video = { package = "gstreamer-video", version = "0.21.2" }
+
+image = "0.25"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "1"
+anyhow = "1"
+rfd = "0.14"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+nalgebra = "0.34"
+signal-hook = "0.3.18"
+
+[[bin]]
+name = "astrocap_annotator"
+path = "src/main.rs"

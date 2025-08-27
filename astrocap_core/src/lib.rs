@@ -2,6 +2,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::mem::swap;
 
+pub mod annotations;
 pub mod error;
 pub mod frame;
 pub mod pipeline;

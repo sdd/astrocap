@@ -1,0 +1,16 @@
+[source]
+stage_type = "astrocap_source_gstreamer::GstSource"
+file_path = "tests/processed_crop_1_lossless.mkv"
+
+[[stages]]
+stage_type = "astrocap_processor_point_detector::PointDetectorProcessor"
+algorithm = "AdaptiveCentroid"
+centroid_window = 3
+min_separation = 10
+point_threshold = 60
+
+[sink]
+stage_type = "astrocap_sink_point_detector_evaluator::PointDetectorEvaluatorSink"
+annotations_file = "tests/processed_crop_1_lossless-annotations.json"
+distance_threshold = 3.0
+output_path = "evaluation_results_local_maxima.json"

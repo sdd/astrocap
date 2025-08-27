@@ -4,6 +4,7 @@ members = [
     "gst_rtsp_client",
     #    "opencv_load_from_file",
     #    "read_mkv_metadata",
+    "astrocap_annotator",
     "astrocap_core",
     "astrocap_processor_frame_stacker",
     "astrocap_processor_mask",
@@ -13,6 +14,8 @@ members = [
     "astrocap_processor_point_fitter",
     "astrocap_processor_video_export",
     "astrocap_processor_rerun_img_tee",
+    "astrocap_processor_tracker",
+    "astrocap_sink_point_detector_evaluator",
     "astrocap_sink_rerun",
     "astrocap_source_gstreamer",
     "astrocap_source_gstreamer_gpu",
@@ -40,12 +43,16 @@ astrocap_processor_point_detector = { path = "./astrocap_processor_point_detecto
 astrocap_processor_point_fitter = { path = "./astrocap_processor_point_fitter" }
 astrocap_processor_video_export = { path = "astrocap_processor_video_export" }
 astrocap_processor_rerun_img_tee = { path = "./astrocap_processor_rerun_img_tee" }
+astrocap_processor_tracker = { path = "./astrocap_processor_tracker" }
+astrocap_sink_point_detector_evaluator = { path = "astrocap_sink_point_detector_evaluator" }
 astrocap_sink_rerun = { path = "astrocap_sink_rerun" }
 astrocap_source_gstreamer = { path = "./astrocap_source_gstreamer" }
 
 anyhow = "1"
 az = "1"
 bytes = "1"
+chrono = { version = "0.4.40", features = ["serde"] }
+clap = { version = "4.0", features = ["derive"] }
 http = "1"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 imageproc = { version = "0.23" }

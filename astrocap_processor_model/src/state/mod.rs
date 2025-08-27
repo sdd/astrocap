@@ -286,6 +286,8 @@ impl ModelState {
         point_fitter: Arc<dyn PointFitter>,
         rec: Option<&RecordingStream>,
     ) -> Result<(), Box<dyn Error>> {
+        self.update_state_positions(self.model_config.disable_kalman_velocity);
+
         // Now fit existing points and get match information
         let (matched_point_indices, candidate_matches) =
             self.fit_existing_points(frame, point_fitter.clone());
@@ -307,9 +309,6 @@ impl ModelState {
         if let Some(ref current_frame_state) = self.current_frame_state {
             self.fit_strong_unmatched_new_points(point_fitter, frame);
         }
-
-        // Update state positions (Kalman predictions, etc.)
-        self.update_state_positions(self.model_config.disable_kalman_velocity);
 
         // Clean up poor candidates
         self.clean_up_state();

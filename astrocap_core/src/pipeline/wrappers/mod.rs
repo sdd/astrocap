@@ -85,8 +85,10 @@ impl FrameSinkWrapper {
     pub fn new(inner: Box<dyn FrameSink>, stage_type: &'static str) -> Self {
         Self { inner, stage_type }
     }
+}
 
-    pub fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
+impl FrameSink for FrameSinkWrapper {
+    fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
         let start_time = Instant::now();
 
         StatsContext::set_current_stage(self.stage_type.to_string());
@@ -102,11 +104,19 @@ impl FrameSinkWrapper {
         StatsContext::clear_current_stage();
     }
 
-    pub fn get_processing_type(&self) -> ProcessingType {
-        self.inner.processing_type()
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        self.inner.pipeline_ctx_init(ctx)
     }
 
-    pub fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        self.inner.pipeline_ctx_init(ctx)
+    fn pipeline_finished(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        self.inner.pipeline_finished(ctx)
+    }
+
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        self.inner.processing_type()
     }
 }

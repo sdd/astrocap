@@ -46,6 +46,11 @@ pub trait FrameSink: Send + Sync {
     fn pipeline_ctx_init(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         Ok(())
     }
+
+    fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        Ok(())
+    }
+
     fn name(&self) -> &str;
     fn processing_type(&self) -> ProcessingType;
 }

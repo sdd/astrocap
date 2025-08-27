@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -296,7 +297,7 @@ pub fn run_pipeline(
     for stage in &stages {
         stats.register_stage(stage.stage_type, stage.get_processing_type());
     }
-    stats.register_stage("sink", sink.get_processing_type());
+    stats.register_stage("sink", sink.processing_type());
 
     // Add statistics to pipeline context if provided
     pipeline_context.put("pipeline_statistics", stats.clone());
@@ -373,6 +374,10 @@ pub fn run_pipeline(
         "Pipeline completed"
     );
 
+    if let Err(err) = sink.pipeline_finished(&mut pipeline_context) {
+        tracing::error!("Error while running pipeline sink: {}", err);
+    }
+
     // Clean up global stats when pipeline completes
     StatsContext::clear_global_stats();
 
@@ -380,7 +385,7 @@ pub fn run_pipeline(
 }
 
 pub fn run_pipeline_with_config_file_path(
-    path: &str,
+    path: &PathBuf,
     stats: Arc<PipelineStatistics>,
 ) -> PipelineContext {
     let config_raw = std::fs::read_to_string(path).expect("Failed to read config file");

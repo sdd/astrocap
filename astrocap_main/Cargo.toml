@@ -16,9 +16,11 @@ astrocap_processor_median_sub = { workspace = true }
 astrocap_processor_model = { workspace = true }
 astrocap_processor_rerun_img_tee = { workspace = true }
 astrocap_processor_video_export = { workspace = true }
+astrocap_sink_point_detector_evaluator = { workspace = true }
 astrocap_sink_rerun = { workspace = true }
 astrocap_source_gstreamer = { workspace = true }
 
+clap = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ctrlc = "3.4.7"

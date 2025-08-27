@@ -330,8 +330,8 @@ impl StarCandidate {
     }
 
     fn initial_covariance() -> [[f32; 4]; 4] {
-        let position_variance = 2.0f32; // 2 pixel uncertainty
-        let velocity_variance = 50f32; // 50 pixel/frame uncertainty
+        let position_variance = 1f32; // 2 pixel uncertainty
+        let velocity_variance = 0.1f32; // 50 pixel/frame uncertainty
 
         [
             [position_variance, 0f32, 0f32, 0f32],
@@ -376,20 +376,20 @@ impl StarCandidate {
             .count() as f32
             / 50.0.min(self.detected_point_match_history.len() as f32);
 
-        let track_confidence = (self.log_likelihood.az::<f32>() / 100.0).min(1.0).max(0.0);
+        let track_confidence = (self.log_likelihood / 100.0).clamp(0.0, 1.0);
         let track_quality =
             (track_maturity * 0.3 + recent_matches * 0.5 + track_confidence * 0.2).min(1.0);
 
         // Much more conservative process noise, especially for high-quality tracks
         let (position_noise, velocity_noise) = if track_quality > 0.8 {
             // Very established tracks: minimal process noise
-            (0.1f32, 0.02f32) // Even smaller than before
+            (0.5f32, 0.15f32) // Even smaller than before
         } else if track_quality > 0.5 {
             // Medium-quality tracks: moderate process noise
-            (0.3f32, 0.05f32)
+            (0.6f32, 0.15f32)
         } else {
             // New or poor tracks: higher process noise to allow for uncertainty
-            (0.8f32, 0.2f32)
+            (0.6f32, 0.15f32)
         };
 
         let position_noise = position_noise;
@@ -486,6 +486,9 @@ impl StarCandidate {
             // First measurement - just initialize
             self.kalman_state[0] = measured_x;
             self.kalman_state[1] = measured_y;
+            self.kalman_state[2] = 0.0;
+            self.kalman_state[3] = 0.0;
+
             return;
         }
 
@@ -591,12 +594,12 @@ impl StarCandidate {
         // Innovation covariance: S = H*P*H^T + R
         let s = [
             [
-                self.kalman_covariance[0][0] + adjusted_noise,
+                self.kalman_covariance[0][0] + adjusted_noise + 1e-6, // Add small regularization
                 self.kalman_covariance[0][1],
             ],
             [
                 self.kalman_covariance[1][0],
-                self.kalman_covariance[1][1] + adjusted_noise,
+                self.kalman_covariance[1][1] + adjusted_noise + 1e-6, // Add small regularization
             ],
         ];
 
@@ -665,8 +668,8 @@ impl StarCandidate {
         let mut k = [[0f32; 2]; 4];
         for i in 0..4 {
             for j in 0..2 {
-                k[i][j] = self.kalman_covariance[i][j] * s_inv[j][0]
-                    + self.kalman_covariance[i][j] * s_inv[j][1];
+                k[i][j] = self.kalman_covariance[i][0] * s_inv[0][j]
+                    + self.kalman_covariance[i][1] * s_inv[1][j];
             }
         }
         k
