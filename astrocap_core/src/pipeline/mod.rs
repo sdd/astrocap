@@ -46,7 +46,7 @@ impl PipelineContext {
 
     pub fn try_get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
         let Some(value) = self.metadata.get(key) else {
-            tracing::error!("key \"{}\" not present in frame context metadata", key);
+            tracing::trace!("key \"{}\" not present in frame context metadata", key);
             return Err(AstrocapError::FrameMetadataNotFoundError);
         };
 
@@ -374,8 +374,14 @@ pub fn run_pipeline(
         "Pipeline completed"
     );
 
+    for stage in stages.iter_mut() {
+        if let Err(err) = stage.pipeline_finished(&mut pipeline_context) {
+            tracing::error!("Error while running pipeline stage finalizer: {}", err);
+        }
+    }
+
     if let Err(err) = sink.pipeline_finished(&mut pipeline_context) {
-        tracing::error!("Error while running pipeline sink: {}", err);
+        tracing::error!("Error while running pipeline sink finalizer: {}", err);
     }
 
     // Clean up global stats when pipeline completes

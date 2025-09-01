@@ -1,11 +1,9 @@
-use crate::map_colors::map_colors;
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
-use image::Luma;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use toml::Value;
@@ -86,11 +84,11 @@ impl FrameStackerProcessor {
             ))
         })?;
 
-        if config.stack_depth != 4 && config.stack_depth != 8 {
-            return Err(AstrocapError::PluginInvalidConfigError(
-                "stack_depth must be either 4 or 8 FrameStackerProcessor Config".to_string(),
-            ));
-        }
+        // if config.stack_depth != 4 && config.stack_depth != 8 {
+        //     return Err(AstrocapError::PluginInvalidConfigError(
+        //         "stack_depth must be either 4 or 8 FrameStackerProcessor Config".to_string(),
+        //     ));
+        // }
 
         Ok(Self { config })
     }
@@ -184,6 +182,10 @@ impl FrameProcessor for FrameStackerProcessor {
                 let shift = match self.config.stack_depth {
                     4 => 2u32,
                     8 => 3u32,
+                    16 => 4u32,
+                    32 => 5u32,
+                    64 => 6u32,
+                    128 => 7u32,
                     _ => 0u32,
                 };
                 result_data
@@ -200,6 +202,10 @@ impl FrameProcessor for FrameStackerProcessor {
                 let shift = match self.config.stack_depth {
                     4 => 2u32,
                     8 => 3u32,
+                    16 => 4u32,
+                    32 => 5u32,
+                    64 => 6u32,
+                    128 => 7u32,
                     _ => 0u32,
                 };
                 result_data
@@ -220,14 +226,13 @@ impl FrameProcessor for FrameStackerProcessor {
                         .zip(new_pixels.iter())
                         .zip(old_pixels.iter())
                         .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
-                            // More readable: (x * 181) / 512
                             let new_scaled = ((new_pixel as u16 * 181) >> 9) as u8; // 512 = 2^9
                             let old_scaled = ((old_pixel as u16 * 181) >> 9) as u8;
                             *result = integration
                                 .saturating_add(new_scaled)
                                 .saturating_sub(old_scaled);
                         });
-                } else {
+                } else if self.config.stack_depth == 4 {
                     // stack_depth == 4, just halve
                     result_data
                         .iter_mut()
@@ -239,6 +244,33 @@ impl FrameProcessor for FrameStackerProcessor {
                                 .saturating_add(new_pixel >> 1)
                                 .saturating_sub(old_pixel >> 1);
                         });
+                } else if self.config.stack_depth == 16 {
+                    // stack_depth == 16, >>2
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .zip(old_pixels.iter())
+                        .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
+                            *result = integration
+                                .saturating_add(new_pixel >> 2)
+                                .saturating_sub(old_pixel >> 2);
+                        });
+                } else if self.config.stack_depth == 64 {
+                    // stack_depth == 64, >> 3
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .zip(old_pixels.iter())
+                        .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
+                            *result = integration
+                                .saturating_add(new_pixel >> 3)
+                                .saturating_sub(old_pixel >> 3);
+                        });
+                } else {
+                    // 32 or 128? todo
+                    unimplemented!();
                 }
             }
             (Renormalize::Sqrt, None) => {
@@ -251,7 +283,7 @@ impl FrameProcessor for FrameStackerProcessor {
                             let new_scaled = ((new_pixel as u16 * 181) >> 9) as u8;
                             *result = integration.saturating_add(new_scaled);
                         });
-                } else {
+                } else if self.config.stack_depth == 4 {
                     result_data
                         .iter_mut()
                         .zip(integration_pixels.iter())
@@ -259,6 +291,25 @@ impl FrameProcessor for FrameStackerProcessor {
                         .for_each(|((result, &integration), &new_pixel)| {
                             *result = integration.saturating_add(new_pixel >> 1);
                         });
+                } else if self.config.stack_depth == 16 {
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .for_each(|((result, &integration), &new_pixel)| {
+                            *result = integration.saturating_add(new_pixel >> 2);
+                        });
+                } else if self.config.stack_depth == 64 {
+                    result_data
+                        .iter_mut()
+                        .zip(integration_pixels.iter())
+                        .zip(new_pixels.iter())
+                        .for_each(|((result, &integration), &new_pixel)| {
+                            *result = integration.saturating_add(new_pixel >> 3);
+                        });
+                } else {
+                    // 32 or 218? TODO
+                    unimplemented!();
                 }
             }
         }

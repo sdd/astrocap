@@ -36,7 +36,7 @@ impl FrameContext {
 
     pub fn try_get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
         let Some(value) = self.metadata.get(key) else {
-            tracing::error!("key \"{}\" not present in frame context metadata", key);
+            tracing::trace!("key \"{}\" not present in frame context metadata", key);
             return Err(AstrocapError::FrameMetadataNotFoundError);
         };
 

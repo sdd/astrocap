@@ -1,4 +1,5 @@
 pub mod config;
+pub mod elements;
 pub mod factory;
 pub mod model;
 pub mod processor;

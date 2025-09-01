@@ -9,12 +9,16 @@ astrocap_core = { path = "../astrocap_core" }
 az = "1"
 image = { workspace = true }
 ordered-float = "5"
-nalgebra = "0.32"
+nalgebra = { workspace = true }
 ndarray = "0.15"
+rerun = { workspace = true }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 toml = { workspace = true }
 tracing = { workspace = true }
+kiddo = { version = "5" }
+
 
 [dev-dependencies]
 kiddo = { version = "5" }

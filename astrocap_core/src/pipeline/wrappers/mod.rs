@@ -74,6 +74,13 @@ impl FrameProcessorWrapper {
     pub fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         self.inner.pipeline_ctx_init(ctx)
     }
+
+    pub(crate) fn pipeline_finished(
+        &mut self,
+        ctx: &mut PipelineContext,
+    ) -> Result<(), AstrocapError> {
+        self.inner.pipeline_finished(ctx)
+    }
 }
 
 pub struct FrameSinkWrapper {

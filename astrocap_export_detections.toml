@@ -8,10 +8,10 @@ algorithm = "LocalMaxima"
 centroid_window = 3
 min_separation = 10
 point_threshold = 80
-#point_threshold = 50
+
+[[stages]]
+stage_type = "astrocap_processor_detection_export::DetectionExportProcessor"
+output_path = "tests/processed_crop_2_detetions.json"
 
 [sink]
-stage_type = "astrocap_sink_point_detector_evaluator::PointDetectorEvaluatorSink"
-annotations_file = "tests/processed_crop_1_lossless-annotations.json"
-distance_threshold = 3.0
-output_path = "evaluation_results_local_maxima-2.json"
+stage_type = "astrocap_core::DummySink"

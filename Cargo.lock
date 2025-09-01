@@ -741,6 +741,7 @@ name = "astrocap_main"
 version = "0.1.0"
 dependencies = [
  "astrocap_core",
+ "astrocap_processor_detection_export",
  "astrocap_processor_frame_stacker",
  "astrocap_processor_mask",
  "astrocap_processor_median_sub",
@@ -748,10 +749,13 @@ dependencies = [
  "astrocap_processor_point_detector",
  "astrocap_processor_point_fitter",
  "astrocap_processor_rerun_img_tee",
+ "astrocap_processor_tracker",
  "astrocap_processor_video_export",
  "astrocap_sink_point_detector_evaluator",
  "astrocap_sink_rerun",
+ "astrocap_sink_tracker_evaluator",
  "astrocap_source_gstreamer",
+ "astrocap_source_recorded_detections",
  "clap",
  "ctrlc",
  "tracing",
@@ -781,6 +785,18 @@ dependencies = [
  "rusttype",
  "serde",
  "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_processor_detection_export"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "astrocap_processor_tracker",
+ "serde",
+ "serde_json",
+ "toml 0.9.5",
  "tracing",
 ]
 
@@ -901,6 +917,7 @@ dependencies = [
  "nalgebra 0.32.6",
  "ndarray 0.15.6",
  "ordered-float 5.0.0",
+ "rerun",
  "serde",
  "serde_json",
  "toml 0.9.5",
@@ -936,6 +953,21 @@ version = "0.1.0"
 dependencies = [
  "astrocap_core",
  "rerun",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_sink_tracker_evaluator"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "astrocap_processor_tracker",
+ "chrono",
+ "nalgebra 0.32.6",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
  "toml 0.9.5",
  "tracing",
 ]
@@ -981,6 +1013,17 @@ dependencies = [
  "once_cell",
  "test-log",
  "thiserror 2.0.12",
+ "toml 0.9.5",
+ "tracing",
+]
+
+[[package]]
+name = "astrocap_source_recorded_detections"
+version = "0.1.0"
+dependencies = [
+ "astrocap_core",
+ "serde",
+ "serde_json",
  "toml 0.9.5",
  "tracing",
 ]

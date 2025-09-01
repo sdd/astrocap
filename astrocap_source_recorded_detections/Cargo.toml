@@ -1,0 +1,17 @@
+[package]
+name = "astrocap_source_recorded_detections"
+edition = "2024"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+[dependencies]
+astrocap_core = { path = "../astrocap_core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+name = "astrocap_source_recorded_detections"

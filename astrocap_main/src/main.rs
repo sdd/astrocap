@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use astrocap_core::pipeline::run_pipeline_with_config_file_path;
 use astrocap_core::statistics::PipelineStatistics;
+use astrocap_processor_detection_export::DetectionExportProcessor;
 use astrocap_processor_frame_stacker::FrameStackerProcessor;
 use astrocap_processor_mask::MaskProcessor;
 use astrocap_processor_median_sub::{ImgSubberProcessor, MedianProcessor};
@@ -13,10 +14,13 @@ use astrocap_processor_model::ModelState;
 use astrocap_processor_point_detector::PointDetectorProcessor;
 use astrocap_processor_point_fitter::PointFitterProcessor;
 use astrocap_processor_rerun_img_tee::RerunTeeProcessor;
+use astrocap_processor_tracker::TrackerProcessor;
 use astrocap_processor_video_export::VideoExportProcessor;
 use astrocap_sink_point_detector_evaluator::PointDetectorEvaluatorSink;
 use astrocap_sink_rerun::RerunSink;
+use astrocap_sink_tracker_evaluator::TrackerEvaluatorSink;
 use astrocap_source_gstreamer::GstSource;
+use astrocap_source_recorded_detections::RecordedDetectionsSource;
 
 use crate::config::Config;
 

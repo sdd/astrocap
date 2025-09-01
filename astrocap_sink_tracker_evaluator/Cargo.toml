@@ -1,0 +1,15 @@
+[package]
+name = "astrocap_sink_tracker_evaluator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+astrocap_core = { workspace = true }
+astrocap_processor_tracker = { workspace = true }
+chrono = { workspace = true }
+nalgebra = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }

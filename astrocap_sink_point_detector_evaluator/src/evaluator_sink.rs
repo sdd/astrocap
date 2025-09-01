@@ -82,6 +82,8 @@ struct ObjectMetrics {
     pub avg_detection_distance: Option<f32>,
     pub avg_detection_amplitude: Option<f32>,
     pub amplitude_range: Option<(f32, f32)>,
+    pub consecutive_detection_counts: HashMap<usize, usize>,
+    pub consecutive_miss_counts: HashMap<usize, usize>,
 }
 
 #[derive(Serialize, Debug)]

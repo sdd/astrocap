@@ -1,7 +1,7 @@
 [source]
 stage_type = "astrocap_source_gstreamer::GstSource"
-#file_path = "twilight-2021-05-26T2230.mkv"
-file_path = "tests/processed_crop_1_lossless.mkv"
+file_path = "twilight-2021-05-26T2230.mkv"
+#file_path = "tests/processed_crop_1_lossless.mkv"
 # pseudo_live = true
 # zc_enabled = false
 
@@ -9,43 +9,43 @@ file_path = "tests/processed_crop_1_lossless.mkv"
 #stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
 #tag = "original"
 
-#[[stages]]
-#stage_type = "astrocap_processor_median_sub::MedianProcessor"
-#async = true
+[[stages]]
+stage_type = "astrocap_processor_median_sub::MedianProcessor"
+async = true
 
 #[[stages]]
 #stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
 #key = "video/median"
 #tag = "median"
 
-#[[stages]]
-#stage_type = "astrocap_processor_mask::MaskProcessor"
-#file_path = "mask-2.png"
+[[stages]]
+stage_type = "astrocap_processor_mask::MaskProcessor"
+file_path = "mask-2.png"
 
-#[[stages]]
-#stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
-#subtractand_key = "median"
+[[stages]]
+stage_type = "astrocap_processor_median_sub::ImgSubberProcessor"
+subtractand_key = "median"
 
 #[[stages]]
 #stage_type = "astrocap_processor_rerun_img_tee::RerunTeeProcessor"
 #tag = "median_subbed"
 
-#[[stages]]
-#stage_type = "astrocap_processor_frame_stacker::FrameStackerProcessor"
-#stack_depth = 8
-#renormalize = "Sqrt"
+[[stages]]
+stage_type = "astrocap_processor_frame_stacker::FrameStackerProcessor"
+stack_depth = 64
+renormalize = "Sqrt"
 
-#[[stages]]
-#stage_type = "astrocap_processor_video_export::VideoExportProcessor"
-#output_path = "tests/processed_crop_1_lossless.mkv"
-##start_frame_index = 10
-##end_frame_index = 100
-#start_frame_index = 5300
-#end_frame_index = 10800
-#crop_left_px = 910
-#crop_top_px = 360
-#crop_right_px = 1435
-#crop_bottom_px = 695
+[[stages]]
+stage_type = "astrocap_processor_video_export::VideoExportProcessor"
+output_path = "tests/processed_crop_2_lossless.mkv"
+#start_frame_index = 10
+#end_frame_index = 100
+start_frame_index = 5300
+end_frame_index = 10800
+crop_left_px = 910
+crop_top_px = 360
+crop_right_px = 1435
+crop_bottom_px = 695
 
 [[stages]]
 stage_type = "astrocap_processor_point_detector::PointDetectorProcessor"

@@ -1,4 +1,3 @@
-mod map_colors;
 mod processor;
 
 pub use processor::FrameStackerProcessor;
