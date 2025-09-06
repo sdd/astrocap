@@ -25,6 +25,7 @@ impl Detection {
 #[derive(Debug, Clone)]
 pub struct Track {
     pub id: u64,
+    pub parent_id: Option<u64>,
 
     pub state: TrackState,
     pub age: usize,
@@ -37,6 +38,7 @@ impl Track {
 
         Self {
             id: NEXT_TRACK_ID.fetch_add(1, Ordering::AcqRel),
+            parent_id: None,
             state,
             age: 0,
             confidence,

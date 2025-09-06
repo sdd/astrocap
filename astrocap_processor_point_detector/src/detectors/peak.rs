@@ -39,7 +39,7 @@ pub struct PointDetectPeak {
 
 impl PointDetector for PointDetectPeak {
     fn detect(
-        &self,
+        &mut self,
         img: &Frame,
         _median: Option<Arc<Frame>>,
         mask: Option<&Frame>,

@@ -1,7 +1,7 @@
 use crate::model::{Detection, Track};
 use crate::traits::{Configurable, ConfigurableConfig, Updater};
 use astrocap_core::AstrocapError;
-use nalgebra::{Matrix2, Matrix4, Vector2, Vector4};
+use nalgebra::{Matrix2, Matrix4, Vector2};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -216,6 +216,7 @@ mod tests {
     fn create_test_track() -> Track {
         Track {
             id: 1,
+            parent_id: None,
             state: TrackState {
                 state: Vector4::new(10.0, 20.0, 1.0, -0.5), // position (10,20), velocity (1,-0.5)
                 covariance: Matrix4::identity() * 2.0,      // Initial uncertainty

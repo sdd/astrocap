@@ -10,7 +10,7 @@ use rerun::RecordingStream;
 use std::sync::Arc;
 
 pub struct PointDetectorProcessor {
-    point_detector: Arc<dyn PointDetector>,
+    point_detector: Box<dyn PointDetector>,
 }
 
 impl PointDetectorProcessor {
@@ -26,13 +26,14 @@ impl PointDetectorProcessor {
             ))
         })?;
 
-        let point_detector: Arc<dyn PointDetector> = match config {
-            PointExtractorConfig::Peak(config) => Arc::new(PointDetectPeak { config }),
-            PointExtractorConfig::LocalMaxima(config) => {
-                Arc::new(PointDetectLocalMaxima { config })
-            }
+        let point_detector: Box<dyn PointDetector> = match config {
+            PointExtractorConfig::Peak(config) => Box::new(PointDetectPeak { config }),
+            PointExtractorConfig::LocalMaxima(config) => Box::new(PointDetectLocalMaxima {
+                config,
+                sigma: None,
+            }),
             PointExtractorConfig::AdaptiveCentroid(config) => {
-                Arc::new(PointDetectAdaptiveCentroid { config })
+                Box::new(PointDetectAdaptiveCentroid { config })
             }
         };
 

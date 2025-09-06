@@ -6,8 +6,7 @@ use crate::traits::{
 };
 
 // Import all available implementations
-use crate::elements::initiators::mht::MhtInitiator;
-use crate::elements::{
+use super::elements::{
     associators::nearest::NearestAssociator, initiators::threshold::ThresholdInitiator,
     predictors::kalman::Kalman as KalmanPredictor, terminators::simple::SimpleTerminator,
     updaters::kalman::Kalman as KalmanUpdater,
@@ -15,9 +14,9 @@ use crate::elements::{
 
 type Result<T> = std::result::Result<T, AstrocapError>;
 
-pub(crate) struct Factory {}
+pub(crate) struct SingleHypothesisTrackerElementFactory {}
 
-impl Factory {
+impl SingleHypothesisTrackerElementFactory {
     /// Create an initiator from configuration
     ///
     /// Expected configuration format:
@@ -37,12 +36,6 @@ impl Factory {
                 let component_config =
                     <ThresholdInitiator as Configurable>::Config::from_toml_value(config)?;
                 let initiator = ThresholdInitiator::from_config(component_config)?;
-                Ok(initiator as Box<dyn Initiator>)
-            }
-            "mht" => {
-                let component_config =
-                    <MhtInitiator as Configurable>::Config::from_toml_value(config)?;
-                let initiator = MhtInitiator::from_config(component_config)?;
                 Ok(initiator as Box<dyn Initiator>)
             }
             _ => Err(AstrocapError::PluginInvalidConfigError(format!(
@@ -175,11 +168,11 @@ mod tests {
         let config = toml::Value::Table(toml::map::Map::new());
 
         // All components should be creatable with empty config (using defaults)
-        assert!(Factory::create_initiator(&config).is_ok());
-        assert!(Factory::create_terminator(&config).is_ok());
-        assert!(Factory::create_associator(&config).is_ok());
-        assert!(Factory::create_updater(&config).is_ok());
-        assert!(Factory::create_predictor(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_initiator(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_terminator(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_associator(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_updater(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_predictor(&config).is_ok());
     }
 
     #[test]
@@ -201,11 +194,11 @@ mod tests {
         let config: Value = toml::from_str(config_toml).unwrap();
 
         // All components should be creatable with explicit config
-        assert!(Factory::create_initiator(&config).is_ok());
-        assert!(Factory::create_terminator(&config).is_ok());
-        assert!(Factory::create_associator(&config).is_ok());
-        assert!(Factory::create_updater(&config).is_ok());
-        assert!(Factory::create_predictor(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_initiator(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_terminator(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_associator(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_updater(&config).is_ok());
+        assert!(SingleHypothesisTrackerElementFactory::create_predictor(&config).is_ok());
     }
 
     #[test]
@@ -217,6 +210,6 @@ mod tests {
         let config: Value = toml::from_str(config_toml).unwrap();
 
         // Should fail with unknown type
-        assert!(Factory::create_initiator(&config).is_err());
+        assert!(SingleHypothesisTrackerElementFactory::create_initiator(&config).is_err());
     }
 }

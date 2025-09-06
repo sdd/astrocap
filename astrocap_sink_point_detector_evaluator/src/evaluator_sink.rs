@@ -169,7 +169,7 @@ fn calculate_covariance(x_values: &[f32], y_values: &[f32]) -> f32 {
 }
 
 /// Internal tracking structure for per-object statistics
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ObjectTracker {
     pub object_id: u32,
     pub frames_present: u32,
@@ -179,6 +179,11 @@ struct ObjectTracker {
     pub detection_amplitudes: Vec<f32>,
     pub missed_frames_with_brighter_fps: u32,
     pub brightest_nearby_fp_amplitude: Option<f32>,
+    pub consecutive_detections: Vec<usize>,
+    pub consecutive_misses: Vec<usize>,
+    pub current_detection_streak: usize,
+    pub current_miss_streak: usize,
+    pub last_frame_detected: Option<bool>,
 }
 
 impl ObjectTracker {
@@ -192,11 +197,61 @@ impl ObjectTracker {
             detection_amplitudes: Vec::new(),
             missed_frames_with_brighter_fps: 0,
             brightest_nearby_fp_amplitude: None,
+            consecutive_detections: Vec::new(),
+            consecutive_misses: Vec::new(),
+            current_detection_streak: 0,
+            current_miss_streak: 0,
+            last_frame_detected: None,
         }
     }
 
     fn add_frame(&mut self, detected: bool, distance: Option<f32>, amplitude: Option<f32>) {
         self.frames_present += 1;
+
+        // Update consecutive detection/miss tracking
+        match self.last_frame_detected {
+            None => {
+                // First frame for this object
+                if detected {
+                    self.current_detection_streak = 1;
+                    self.current_miss_streak = 0;
+                } else {
+                    self.current_detection_streak = 0;
+                    self.current_miss_streak = 1;
+                }
+            }
+            Some(last_detected) => {
+                if detected {
+                    if last_detected {
+                        // Continue detection streak
+                        self.current_detection_streak += 1;
+                    } else {
+                        // End miss streak, start detection streak
+                        if self.current_miss_streak > 0 {
+                            self.consecutive_misses.push(self.current_miss_streak);
+                        }
+                        self.current_detection_streak = 1;
+                        self.current_miss_streak = 0;
+                    }
+                } else {
+                    if !last_detected {
+                        // Continue miss streak
+                        self.current_miss_streak += 1;
+                    } else {
+                        // End detection streak, start miss streak
+                        if self.current_detection_streak > 0 {
+                            self.consecutive_detections
+                                .push(self.current_detection_streak);
+                        }
+                        self.current_detection_streak = 0;
+                        self.current_miss_streak = 1;
+                    }
+                }
+            }
+        }
+
+        self.last_frame_detected = Some(detected);
+
         if detected {
             self.detections_matched += 1;
             if let Some(dist) = distance {
@@ -209,6 +264,33 @@ impl ObjectTracker {
         }
     }
 
+    fn finalize_streaks(&mut self) {
+        // Finalize any ongoing streaks when evaluation is complete
+        if self.current_detection_streak > 0 {
+            self.consecutive_detections
+                .push(self.current_detection_streak);
+        }
+        if self.current_miss_streak > 0 {
+            self.consecutive_misses.push(self.current_miss_streak);
+        }
+    }
+
+    fn get_consecutive_detection_counts(&self) -> HashMap<usize, usize> {
+        let mut counts = HashMap::new();
+        for &streak_length in &self.consecutive_detections {
+            *counts.entry(streak_length).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    fn get_consecutive_miss_counts(&self) -> HashMap<usize, usize> {
+        let mut counts = HashMap::new();
+        for &streak_length in &self.consecutive_misses {
+            *counts.entry(streak_length).or_insert(0) += 1;
+        }
+        counts
+    }
+
     fn add_missed_frame_info(
         &mut self,
         has_brighter_fps: bool,
@@ -217,21 +299,23 @@ impl ObjectTracker {
         if has_brighter_fps {
             self.missed_frames_with_brighter_fps += 1;
         }
-
-        if let Some(fp_amp) = brightest_fp_amplitude {
-            self.brightest_nearby_fp_amplitude = Some(
-                self.brightest_nearby_fp_amplitude
-                    .map(|current| current.max(fp_amp))
-                    .unwrap_or(fp_amp),
-            );
+        if let Some(amp) = brightest_fp_amplitude {
+            match self.brightest_nearby_fp_amplitude {
+                None => self.brightest_nearby_fp_amplitude = Some(amp),
+                Some(existing) => {
+                    if amp > existing {
+                        self.brightest_nearby_fp_amplitude = Some(amp);
+                    }
+                }
+            }
         }
     }
 
     fn detection_rate(&self) -> f32 {
-        if self.frames_present > 0 {
-            self.detections_matched as f32 / self.frames_present as f32
-        } else {
+        if self.frames_present == 0 {
             0.0
+        } else {
+            self.detections_matched as f32 / self.frames_present as f32
         }
     }
 
@@ -244,29 +328,31 @@ impl ObjectTracker {
     }
 
     fn avg_detection_amplitude(&self) -> Option<f32> {
-        if !self.detection_amplitudes.is_empty() {
+        if self.detection_amplitudes.is_empty() {
+            None
+        } else {
             Some(
                 self.detection_amplitudes.iter().sum::<f32>()
                     / self.detection_amplitudes.len() as f32,
             )
-        } else {
-            None
         }
     }
 
     fn amplitude_range(&self) -> Option<(f32, f32)> {
-        if !self.detection_amplitudes.is_empty() {
+        if self.detection_amplitudes.is_empty() {
+            None
+        } else {
             let min = self
                 .detection_amplitudes
                 .iter()
-                .fold(f32::INFINITY, |a, &b| a.min(b));
+                .cloned()
+                .fold(f32::INFINITY, f32::min);
             let max = self
                 .detection_amplitudes
                 .iter()
-                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             Some((min, max))
-        } else {
-            None
         }
     }
 }
@@ -591,14 +677,49 @@ impl PointDetectorEvaluatorSink {
     fn calculate_per_object_metrics(&self) -> Vec<ObjectMetrics> {
         let mut metrics = Vec::new();
 
-        for obj in &self.annotations.objects {
-            let tracker = &self.object_trackers[&obj.id];
-            let frame_range = obj.frame_range().unwrap_or((0, 0));
+        for (object_id, mut tracker) in self.object_trackers.clone() {
+            // Finalize any ongoing streaks
+            tracker.finalize_streaks();
+
+            // Find the frame range by looking through the annotations for this object
+            let frame_range = self
+                .annotations
+                .objects
+                .iter()
+                .find(|obj| obj.id == object_id)
+                .map(|obj| {
+                    if obj.keyframes.is_empty() {
+                        (0, 0)
+                    } else {
+                        let frame_numbers: Vec<u32> =
+                            obj.keyframes.iter().map(|kf| kf.frame_number).collect();
+                        let min_frame = *frame_numbers.iter().min().unwrap_or(&0);
+                        let max_frame = *frame_numbers.iter().max().unwrap_or(&0);
+                        (min_frame, max_frame)
+                    }
+                })
+                .unwrap_or((0, 0));
+
+            let object_name = self
+                .annotations
+                .objects
+                .iter()
+                .find(|obj| obj.id == object_id)
+                .map(|obj| obj.name.clone())
+                .unwrap_or_else(|| format!("Object_{}", object_id));
+
+            let object_type = self
+                .annotations
+                .objects
+                .iter()
+                .find(|obj| obj.id == object_id)
+                .map(|obj| obj.object_type.clone())
+                .unwrap_or(ObjectType::Unknown);
 
             metrics.push(ObjectMetrics {
-                object_id: obj.id,
-                object_name: obj.name.clone(),
-                object_type: obj.object_type.clone(),
+                object_id,
+                object_name,
+                object_type,
                 frames_present: tracker.frames_present,
                 detections_matched: tracker.detections_matched,
                 detection_rate: tracker.detection_rate(),
@@ -606,12 +727,12 @@ impl PointDetectorEvaluatorSink {
                 avg_detection_distance: tracker.avg_detection_distance(),
                 avg_detection_amplitude: tracker.avg_detection_amplitude(),
                 amplitude_range: tracker.amplitude_range(),
+                consecutive_detection_counts: tracker.get_consecutive_detection_counts(),
+                consecutive_miss_counts: tracker.get_consecutive_miss_counts(),
             });
         }
 
-        // Sort by detection rate (worst first for easier spotting of problems)
-        metrics.sort_by(|a, b| a.detection_rate.partial_cmp(&b.detection_rate).unwrap());
-
+        metrics.sort_by_key(|m| m.object_id);
         metrics
     }
 
@@ -699,10 +820,17 @@ impl PointDetectorEvaluatorSink {
         per_object: &[ObjectMetrics],
         amplitude_analysis: &AmplitudeAnalysis,
     ) {
-        println!("\n=== POINT DETECTOR EVALUATION RESULTS ===");
-        println!("Frames processed: {}", aggregate.frames_processed);
+        println!("\n=== Point Detector Evaluation Results ===");
         println!(
-            "Total ground truth points: {}",
+            "Distance threshold: {:.1} pixels",
+            self.config.distance_threshold
+        );
+        println!("Frames processed: {}", aggregate.frames_processed);
+        println!();
+
+        println!("=== Aggregate Metrics ===");
+        println!(
+            "Total ground truth objects: {}",
             aggregate.total_ground_truth
         );
         println!("Total detections: {}", aggregate.total_detections);
@@ -712,121 +840,105 @@ impl PointDetectorEvaluatorSink {
         println!("Precision: {:.3}", aggregate.precision);
         println!("Recall: {:.3}", aggregate.recall);
         println!("F1 Score: {:.3}", aggregate.f1_score);
-        println!(
-            "Distance threshold: {} pixels",
-            self.config.distance_threshold
-        );
+        println!();
 
-        // Amplitude statistics
-        println!("\n=== AMPLITUDE ANALYSIS ===");
-        let tp_stats = &amplitude_analysis.true_positive_amplitude_stats;
-        let fp_stats = &amplitude_analysis.false_positive_amplitude_stats;
-
-        println!(
-            "TRUE POSITIVES: count={}, mean={:.1}, median={:.1}, range={:.1}-{:.1}",
-            tp_stats.count, tp_stats.mean, tp_stats.median, tp_stats.min, tp_stats.max
-        );
-        println!(
-            "FALSE POSITIVES: count={}, mean={:.1}, median={:.1}, range={:.1}-{:.1}",
-            fp_stats.count, fp_stats.mean, fp_stats.median, fp_stats.min, fp_stats.max
-        );
-
-        // Threshold suggestions
-        println!("\n=== THRESHOLD SUGGESTIONS ===");
-        println!(
-            "{:<10} {:<10} {:<8} {:<8} {:<8}",
-            "Threshold", "F1 Score", "Precision", "Recall", "TP/FP"
-        );
-        println!("{}", "-".repeat(50));
-        for suggestion in amplitude_analysis
-            .amplitude_threshold_suggestions
-            .iter()
-            .take(5)
-        {
-            println!(
-                "{:<10.1} {:<10.3} {:<8.3} {:<8.3} {:<8}",
-                suggestion.threshold,
-                suggestion.expected_f1,
-                suggestion.expected_precision,
-                suggestion.expected_recall,
-                format!("{}/{}", suggestion.tp_count, suggestion.fp_count)
-            );
-        }
-
-        // Per-object breakdown with amplitude info
-        println!("\n=== PER-OBJECT DETECTION RATES WITH AMPLITUDE ===");
-        println!(
-            "{:<4} {:<12} {:<8} {:<8} {:<8} {:<12} {:<12} {:<12}",
-            "ID", "Name", "Present", "Detected", "Rate", "Avg Dist", "Avg Amp", "Missed w/ FPs"
-        );
-        println!("{}", "-".repeat(90));
-
+        println!("=== Per-Object Analysis ({} objects) ===", per_object.len());
         for obj in per_object {
-            let avg_dist_str = if let Some(dist) = obj.avg_detection_distance {
-                format!("{:.2}", dist)
-            } else {
-                "N/A".to_string()
-            };
-
-            let avg_amp_str = if let Some(amp) = obj.avg_detection_amplitude {
-                format!("{:.1}", amp)
-            } else {
-                "N/A".to_string()
-            };
-
-            let rate_str = format!("{:.1}%", obj.detection_rate * 100.0);
-
-            // Find corresponding amplitude analysis
-            let missed_with_fps = amplitude_analysis
-                .per_object_amplitude_analysis
-                .iter()
-                .find(|a| a.object_id == obj.object_id)
-                .map(|a| a.missed_frames_with_brighter_fps)
-                .unwrap_or(0);
-
             println!(
-                "{:<4} {:<12} {:<8} {:<8} {:<8} {:<12} {:<12} {:<12}",
+                "Object {} ({}): {}/{} frames detected ({:.1}%)",
                 obj.object_id,
-                obj.object_name.chars().take(12).collect::<String>(),
-                obj.frames_present,
+                obj.object_name,
                 obj.detections_matched,
-                rate_str,
-                avg_dist_str,
-                avg_amp_str,
-                missed_with_fps
+                obj.frames_present,
+                obj.detection_rate * 100.0
             );
+
+            if let Some(avg_dist) = obj.avg_detection_distance {
+                println!("  Average detection distance: {:.2} pixels", avg_dist);
+            }
+
+            if let Some(avg_amp) = obj.avg_detection_amplitude {
+                println!("  Average detection amplitude: {:.1}", avg_amp);
+            }
+
+            if let Some((min_amp, max_amp)) = obj.amplitude_range {
+                println!("  Amplitude range: {:.1} - {:.1}", min_amp, max_amp);
+            }
+
+            // Print consecutive detection statistics
+            // if !obj.consecutive_detection_counts.is_empty() {
+            //     print!("  Consecutive detections: ");
+            //     let mut detection_pairs: Vec<_> = obj.consecutive_detection_counts.iter().collect();
+            //     detection_pairs.sort_by_key(|(length, _)| *length);
+            //     for (i, (length, count)) in detection_pairs.iter().enumerate() {
+            //         if i > 0 {
+            //             print!(", ");
+            //         }
+            //         print!("{}×{}", length, count);
+            //     }
+            //     println!();
+            // }
+
+            // Print consecutive miss statistics
+            if !obj.consecutive_miss_counts.is_empty() {
+                print!("  Consecutive misses: ");
+                let mut miss_pairs: Vec<_> = obj.consecutive_miss_counts.iter().collect();
+                miss_pairs.sort_by_key(|(length, _)| *length);
+                for (i, (length, count)) in miss_pairs.iter().enumerate() {
+                    if i > 0 {
+                        print!(", ");
+                    }
+                    print!("{}×{}", length, count);
+                }
+                println!();
+            }
+
+            println!();
         }
 
-        // Highlight objects with threshold issues
-        let problematic_objects: Vec<_> = amplitude_analysis
-            .per_object_amplitude_analysis
-            .iter()
-            .filter(|obj| obj.missed_frames_with_brighter_fps > 0)
-            .collect();
+        println!("=== Amplitude Analysis ===");
+        println!("True Positive Amplitudes:");
+        let tp_stats = &amplitude_analysis.true_positive_amplitude_stats;
+        println!(
+            "  Count: {}, Mean: {:.1}, Median: {:.1}, Std Dev: {:.1}",
+            tp_stats.count, tp_stats.mean, tp_stats.median, tp_stats.std_dev
+        );
+        println!(
+            "  Range: {:.1} - {:.1}, IQR: {:.1} - {:.1}",
+            tp_stats.min, tp_stats.max, tp_stats.percentile_25, tp_stats.percentile_75
+        );
 
-        if !problematic_objects.is_empty() {
-            println!("\n⚠️  OBJECTS MISSING DUE TO THRESHOLD ISSUES:");
-            for obj in problematic_objects {
-                let total_missed = obj.total_missed_frames;
-                let missed_with_fps = obj.missed_frames_with_brighter_fps;
-                let percentage = if total_missed > 0 {
-                    (missed_with_fps as f32 / total_missed as f32) * 100.0
-                } else {
-                    0.0
-                };
+        println!("False Positive Amplitudes:");
+        let fp_stats = &amplitude_analysis.false_positive_amplitude_stats;
+        println!(
+            "  Count: {}, Mean: {:.1}, Median: {:.1}, Std Dev: {:.1}",
+            fp_stats.count, fp_stats.mean, fp_stats.median, fp_stats.std_dev
+        );
+        println!(
+            "  Range: {:.1} - {:.1}, IQR: {:.1} - {:.1}",
+            fp_stats.min, fp_stats.max, fp_stats.percentile_25, fp_stats.percentile_75
+        );
 
+        if !amplitude_analysis
+            .amplitude_threshold_suggestions
+            .is_empty()
+        {
+            println!();
+            println!("=== Amplitude Threshold Suggestions ===");
+            for suggestion in &amplitude_analysis.amplitude_threshold_suggestions
+                [..3.min(amplitude_analysis.amplitude_threshold_suggestions.len())]
+            {
                 println!(
-                    "   {} ({}): {}/{} missed frames ({:.1}%) had brighter false positives nearby",
-                    obj.object_name, obj.object_id, missed_with_fps, total_missed, percentage
+                    "Threshold {:.1}: Precision {:.3}, Recall {:.3}, F1 {:.3}",
+                    suggestion.threshold,
+                    suggestion.expected_precision,
+                    suggestion.expected_recall,
+                    suggestion.expected_f1
                 );
-
-                if let Some(brightest_fp) = obj.brightest_nearby_fp_amplitude {
-                    println!("     Brightest nearby FP amplitude: {:.1}", brightest_fp);
-                }
             }
         }
 
-        println!("{}", "=".repeat(50));
+        println!("\nResults saved to: {}", self.config.output_path.display());
     }
 
     pub fn analyze_kalman_q_matrix(&self, min_detection_rate: f32) -> KalmanQAnalysis {

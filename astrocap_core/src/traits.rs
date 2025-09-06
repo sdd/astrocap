@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 pub trait PointDetector: Send + Sync + 'static {
     fn detect(
-        &self,
+        &mut self,
         frame: &Frame,
         median: Option<Arc<Frame>>,
         mask: Option<&Frame>,

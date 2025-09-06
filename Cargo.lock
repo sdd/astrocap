@@ -916,6 +916,7 @@ dependencies = [
  "kiddo",
  "nalgebra 0.32.6",
  "ndarray 0.15.6",
+ "nonmax",
  "ordered-float 5.0.0",
  "rerun",
  "serde",

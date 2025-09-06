@@ -47,7 +47,7 @@ pub struct PointDetectAdaptiveCentroid {
 
 impl PointDetector for PointDetectAdaptiveCentroid {
     fn detect(
-        &self,
+        &mut self,
         img: &Frame,
         median: Option<Arc<Frame>>,
         mask: Option<&Frame>,

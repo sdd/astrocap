@@ -43,6 +43,7 @@ pub struct TrackedObject {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ObjectType {
+    Unknown,
     Star,
     Planet,
     Satellite,

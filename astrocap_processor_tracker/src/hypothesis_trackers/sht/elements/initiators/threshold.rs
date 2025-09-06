@@ -1,10 +1,8 @@
-use crate::model::{Detection, Track, TrackState};
+use crate::model::{Detection, Track};
 use crate::traits::{Configurable, ConfigurableConfig, Initiator};
-use astrocap_core::structs::DetectedPoint;
 use astrocap_core::AstrocapError;
 use ordered_float::OrderedFloat;
 use serde::Deserialize;
-use toml::Value;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]

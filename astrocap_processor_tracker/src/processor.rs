@@ -1,91 +1,42 @@
-use crate::config::Config;
+use rerun::RecordingStream;
+use toml::Value;
+
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::DetectedPoint;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
-use rerun::RecordingStream;
-use toml::Value;
 
-use crate::factory::Factory;
+use crate::config::Config;
 use crate::model::{Detection, Track};
-use crate::traits::{Associator, Initiator, Predictor, Terminator, Updater};
+use crate::traits::HypothesisTracker;
 
 pub struct TrackerProcessor {
-    initiator: Box<dyn Initiator>,
-    terminator: Box<dyn Terminator>,
-    associator: Box<dyn Associator>,
-    updater: Box<dyn Updater>,
-    predictor: Box<dyn Predictor>,
-    config: Config,
-
-    tracks: Vec<Track>,
+    tracker: Box<dyn HypothesisTracker>,
 }
 
 impl TrackerProcessor {
-    pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
-        let Some(raw_config) = config else {
-            return Err(AstrocapError::PluginMissingConfigError);
+    pub fn new(raw_config: Option<&Value>) -> Result<Self, AstrocapError> {
+        let config: Config = match raw_config {
+            Some(config_value) => config_value.clone().try_into().map_err(|e| {
+                AstrocapError::PluginInvalidConfigError(format!("Tracker: {}", e.to_string()))
+            })?,
+            None => Config::default(),
         };
 
-        // Parse the main config struct for any processor-level configuration
-        let config: Config = raw_config.clone().try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!("Tracker:: {}", e.to_string()))
-        })?;
+        let tracker = config.tracker_strategy.create_tracker(raw_config)?;
 
-        // Create components using the raw config Value
-        let initiator = Factory::create_initiator(raw_config)?;
-        let terminator = Factory::create_terminator(raw_config)?;
-        let associator = Factory::create_associator(raw_config)?;
-        let updater = Factory::create_updater(raw_config)?;
-        let predictor = Factory::create_predictor(raw_config)?;
-
-        let tracks = Vec::new();
-
-        Ok(Self {
-            config,
-            tracks,
-            initiator,
-            terminator,
-            associator,
-            updater,
-            predictor,
-        })
-    }
-
-    fn log_to_rerun(&self, rec: &RecordingStream) {
-        if self.tracks.is_empty() {
-            return;
-        }
-
-        rec.log(
-            "model/tracks".to_string(),
-            &rerun::Points2D::new(
-                self.tracks
-                    .iter()
-                    .map(|track| (track.state.state.x, track.state.state.y)),
-            )
-            .with_colors(self.tracks.iter().map(|track| {
-                // Color tracks based on their confidence
-                let normalized_confidence = track.confidence.min(1.0).max(0.0);
-                let hue = normalized_confidence * 120.0; // 0° = red (low confidence), 120° = green (high confidence)
-                let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
-                rerun::Color::from_rgb(r, g, b)
-            }))
-            .with_labels(self.tracks.iter().map(|track| {
-                format!(
-                    "ID: {}, Age: {}, Conf: {:.2}",
-                    track.id, track.age, track.confidence
-                )
-            })),
-        )
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to log tracks to rerun: {}", e);
-        });
+        Ok(Self { tracker })
     }
 }
 
 impl FrameProcessor for TrackerProcessor {
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        ctx.put("tracker/tracks", Vec::<Track>::new());
+
+        Ok(())
+    }
+
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
@@ -101,41 +52,18 @@ impl FrameProcessor for TrackerProcessor {
 
         frame_ctx.put("tracker/detections", detections.clone());
 
-        // associate detections with existing tracks
-        let (associations, unassociated_detections) =
-            self.associator.associate(&detections, &self.tracks);
+        tracing::info!(detection_count = detections.len(), "processing frame");
 
-        for (track_idx, track) in self.tracks.iter_mut().enumerate() {
-            track.age += 1;
+        self.tracker.process_frame(&detections);
 
-            if let Some(detection_idx) = associations.get(&track_idx) {
-                // for associated tracks: update the track with the detection via the updater
-                self.updater.update(track, &detections[*detection_idx])
-            } else {
-                // for unassociated tracks: update the track with the predictor
-                track.confidence -= 0.01;
-                self.predictor.predict(track);
-            }
-        }
-
-        // pass unassociated detections to the initiator
-        let unassociated_detections = unassociated_detections
-            .iter()
-            .map(|idx| &detections[*idx])
-            .collect::<Vec<_>>();
-        let new_tracks = self.initiator.initiate(unassociated_detections.as_slice());
-        self.tracks.extend(new_tracks);
-
-        // run all tracks through the reaper
-        self.tracks
-            .retain(|track| !self.terminator.should_terminate(track));
-
-        frame_ctx.put("tracker/tracks", self.tracks.clone());
-
-        // Log to rerun if available
+        // TODO: ensure that tracks are reportable for any tracker
         if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
-            self.log_to_rerun(&rec);
+            self.tracker.log_to_rerun(&rec);
         }
+
+        /*
+        ctx.put("tracker/tracks", tracks);
+        */
 
         FrameProcessorResult::Continue
     }
@@ -150,7 +78,8 @@ impl FrameProcessor for TrackerProcessor {
 }
 
 // Helper function for HSV to RGB conversion (same as in model processor)
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+#[allow(unused)]
+pub(crate) fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     let h = h % 360.0; // Wrap hue to [0, 360)
     let s = s.clamp(0.0, 1.0);
     let v = v.clamp(0.0, 1.0);

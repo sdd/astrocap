@@ -1,4 +1,5 @@
 use astrocap_core::AstrocapError;
+use rerun::RecordingStream;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use toml::Value;
@@ -23,6 +24,12 @@ pub trait Configurable: Send + Sync + 'static {
     type Config: ConfigurableConfig;
 
     fn from_config(cfg: Self::Config) -> Result<Box<Self>, AstrocapError>;
+}
+
+pub trait HypothesisTracker: Send + Sync + 'static {
+    fn process_frame(&mut self, detections: &[Detection]);
+
+    fn log_to_rerun(&self, rec: &RecordingStream);
 }
 
 /// Initializes new tracks from unassociated detections

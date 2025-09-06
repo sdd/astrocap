@@ -10,7 +10,6 @@ pub struct Config {
     pub frame_width: u32,
     /// Frame height for dummy frames
     pub frame_height: u32,
-
 }
 
 impl Default for Config {

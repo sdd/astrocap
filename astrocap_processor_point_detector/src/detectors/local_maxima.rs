@@ -10,12 +10,24 @@ const DEFAULT_POINT_THRESHOLD: u8 = 40;
 const DEFAULT_MIN_SEPARATION: f64 = 20.0; // Minimum separation between stars (pixels)
 const DEFAULT_CENTROID_WINDOW: i32 = 5; // Window size for centroid calculation
 
+// when computing the background noise we need to mask out the objects
+// so we just use background pixels. The upper threshold is the maximum
+// value that we consider to be background.
+// Since we're currently clamping the median-sub to 0, it can be advisable
+// to set the lower threshold to 1 rather than 0 to avoid the spike of values
+// at 0.
+const ESTIMATE_SIGMA_LOWER_THRESHOLD: u8 = 1;
+const ESTIMATE_SIGMA_UPPER_THRESHOLD: u8 = 100;
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub(crate) struct LocalMaximaConfig {
     point_threshold: u8,
     min_separation: f64,
     centroid_window: i32,
+    estimate_sigma_enabled: bool,
+    estimate_sigma_lower_threshold: u8,
+    estimate_sigma_upper_threshold: u8,
 }
 
 impl Default for LocalMaximaConfig {
@@ -24,17 +36,55 @@ impl Default for LocalMaximaConfig {
             point_threshold: DEFAULT_POINT_THRESHOLD,
             min_separation: DEFAULT_MIN_SEPARATION,
             centroid_window: DEFAULT_CENTROID_WINDOW,
+            estimate_sigma_enabled: false,
+            estimate_sigma_lower_threshold: ESTIMATE_SIGMA_LOWER_THRESHOLD,
+            estimate_sigma_upper_threshold: ESTIMATE_SIGMA_UPPER_THRESHOLD,
         }
     }
 }
 
 pub struct PointDetectLocalMaxima {
     pub(crate) config: LocalMaximaConfig,
+    pub sigma: Option<f32>,
+}
+
+impl PointDetectLocalMaxima {
+    fn calculate_sigma(&mut self, mut vals: Vec<u8>) {
+        if vals.is_empty() {
+            return;
+        } // fallback
+
+        // compute median
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let n = vals.len();
+        let median = if n % 2 == 1 {
+            vals[n / 2] as f32
+        } else {
+            0.5 * (vals[n / 2 - 1] as f32 + vals[n / 2] as f32)
+        };
+
+        // compute MAD
+        let mut devs = Vec::with_capacity(n);
+        for &x in &vals {
+            devs.push((x as f32 - median).abs());
+        }
+        devs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mad = if n % 2 == 1 {
+            devs[n / 2]
+        } else {
+            0.5 * (devs[n / 2 - 1] + devs[n / 2])
+        };
+
+        // Convert to sigma (Gaussian assumption for core)
+        self.sigma = Some(1.4826 * mad);
+
+        tracing::info!(val_count=vals.len(), median, mad, sigma=?self.sigma, "calculated sigma")
+    }
 }
 
 impl PointDetector for PointDetectLocalMaxima {
     fn detect(
-        &self,
+        &mut self,
         img: &Frame,
         _median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
@@ -64,6 +114,8 @@ impl PointDetector for PointDetectLocalMaxima {
         let img_data: &[u8] = img.as_raw().as_ref();
         let mask_data = mask.map(|m| m.as_raw());
 
+        let mut background_pixels: Vec<u8> = Vec::new();
+
         // First pass: find local maxima
         for y in
             (self.config.centroid_window as usize)..(img_h - self.config.centroid_window as usize)
@@ -79,6 +131,13 @@ impl PointDetector for PointDetectLocalMaxima {
                 }
 
                 let center_val: u8 = img_data[y * img_w + x];
+
+                if self.config.estimate_sigma_enabled
+                    && center_val >= self.config.estimate_sigma_lower_threshold
+                    && center_val < self.config.estimate_sigma_upper_threshold
+                {
+                    background_pixels.push(center_val);
+                }
 
                 if center_val < self.config.point_threshold {
                     continue;
@@ -129,6 +188,10 @@ impl PointDetector for PointDetectLocalMaxima {
             if !too_close {
                 final_points.push(candidate);
             }
+        }
+
+        if self.config.estimate_sigma_enabled {
+            self.calculate_sigma(background_pixels);
         }
 
         final_points

@@ -1,7 +1,7 @@
 use crate::model::Track;
 use crate::traits::{Configurable, ConfigurableConfig, Predictor};
 use astrocap_core::AstrocapError;
-use nalgebra::{Matrix4, Vector4};
+use nalgebra::Matrix4;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,8 +156,8 @@ impl Kalman {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elements::predictors::kalman::{Config, Kalman};
-    use crate::model::{Detection, Track, TrackState};
+    use crate::hypothesis_trackers::sht::elements::predictors::kalman::{Config, Kalman};
+    use crate::model::{Track, TrackState};
     use nalgebra::Vector4;
 
     #[test]
@@ -170,6 +170,7 @@ mod tests {
         // Create a track at position (10, 20) with zero velocity
         let mut track = Track {
             id: 1,
+            parent_id: None,
             state: TrackState {
                 state: Vector4::new(10.0, 20.0, 0.0, 0.0),
                 covariance: Matrix4::identity(),
@@ -206,6 +207,7 @@ mod tests {
         // Create a track at position (10, 20) with velocity (2, -1)
         let mut track = Track {
             id: 1,
+            parent_id: None,
             state: TrackState {
                 state: Vector4::new(10.0, 20.0, 2.0, -1.0),
                 covariance: Matrix4::identity(),
@@ -234,6 +236,7 @@ mod tests {
 
         let mut track = Track {
             id: 1,
+            parent_id: None,
             state: TrackState {
                 state: Vector4::new(0.0, 0.0, 4.0, -2.0),
                 covariance: Matrix4::identity(),
@@ -258,6 +261,7 @@ mod tests {
 
         let mut track = Track {
             id: 1,
+            parent_id: None,
             state: TrackState {
                 state: Vector4::new(0.0, 0.0, 0.0, 0.0),
                 covariance: Matrix4::identity(),
@@ -319,6 +323,7 @@ mod tests {
 
         let mut track = Track {
             id: 1,
+            parent_id: None,
             state: TrackState {
                 state: Vector4::new(0.0, 0.0, 0.0, 0.0),
                 covariance: Matrix4::identity() * 1e-8, // Very small initial covariance
