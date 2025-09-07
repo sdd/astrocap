@@ -21,6 +21,34 @@ use kalman_filter::KalmanFilter;
 type DetectionTree = ImmutableKdTree<f32, u32, 2, 32>;
 // type TrackTree = ImmutableKdTree<f32, u32, 2, 32>;
 
+/// represents a probability as both a log likelihood and log odds
+#[derive(Debug, Copy, Clone)]
+pub struct LogProbs {
+    /// log likelihood
+    pub ll: f32,
+
+    /// log odds
+    pub lo: f32,
+}
+
+impl std::ops::Add for LogProbs {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            ll: self.ll + rhs.ll,
+            lo: self.lo + rhs.lo,
+        }
+    }
+}
+
+impl std::ops::AddAssign for LogProbs {
+    fn add_assign(&mut self, rhs: Self) {
+        self.ll += rhs.ll;
+        self.lo += rhs.lo;
+    }
+}
+
 static NEXT_TRACK_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Default)]
@@ -32,42 +60,45 @@ pub struct TrackNodeStore {
 pub struct MhtTrackNode {
     pub id: u64,
     pub age: usize,
+    pub founder_id: u64,
     pub parent_id: Option<u64>,
     pub detection_id: Option<u64>,
     pub state: KalmanFilter,
-    pub log_likelihood: f32,
-    pub cum_log_likelihood: f32,
+    pub conf: LogProbs,
+    pub cum_conf: LogProbs,
 
     // TODO: this may vary, but we just take the original detection amplitude for now
     pub original_amplitude: f32,
 }
 
 impl MhtTrackNode {
-    pub fn spawn_association(&self, detection: &Detection, log_likelihood: f32) -> Self {
+    pub fn spawn_association(&self, detection: &Detection, conf: LogProbs) -> Self {
         let mut state = self.state.predict();
         state.update(detection);
 
         Self {
             id: NEXT_TRACK_ID.fetch_add(1, Ordering::Relaxed),
             age: self.age + 1,
+            founder_id: self.founder_id,
             parent_id: Some(self.id),
             detection_id: Some(detection.id),
             state,
-            log_likelihood,
-            cum_log_likelihood: self.cum_log_likelihood + log_likelihood,
+            conf,
+            cum_conf: self.cum_conf + conf,
             original_amplitude: detection.amplitude,
         }
     }
 
-    pub fn spawn_predicted(&self, log_likelihood: f32) -> Self {
+    pub fn spawn_predicted(&self, conf: LogProbs) -> Self {
         Self {
             id: NEXT_TRACK_ID.fetch_add(1, Ordering::Relaxed),
             age: self.age + 1,
+            founder_id: self.founder_id,
             parent_id: Some(self.id),
             detection_id: None,
             state: self.state.predict(),
-            log_likelihood,
-            cum_log_likelihood: self.cum_log_likelihood + log_likelihood,
+            conf,
+            cum_conf: self.cum_conf + conf,
             original_amplitude: self.original_amplitude,
         }
     }
@@ -127,14 +158,16 @@ impl HypothesisTracker for MultiHypothesisTracker {
         for leaf_id in self.leaf_ids.iter() {
             let track = &self.track_node_store.track_nodes[leaf_id];
 
+            let kf_pred = track.state.predict();
+
             //  * find all detections within distance gate
-            let gated_detections = detections_tree.within_unsorted::<SquaredEuclidean>(
-                &[track.state.x(), track.state.y()],
-                self.config.association_gating_distance,
-            );
+            let r = self.config.association_gate_radius;
+            let gated_detections = detections_tree
+                .within_unsorted::<SquaredEuclidean>(&[kf_pred.x(), kf_pred.y()], r * r);
+            let gated_detections_len = gated_detections.len();
 
             //  * branch a child track for each detection
-            for nn in gated_detections {
+            for nn in &gated_detections {
                 let detection = &detections[nn.item as usize];
 
                 let pd = Self::pd_from_amplitude(
@@ -142,26 +175,50 @@ impl HypothesisTracker for MultiHypothesisTracker {
                     self.config.threshold,
                     self.config.sigma,
                 );
+                let ll = kf_pred.assoc_conf(detection, pd, self.config.clutter_rate);
 
-                let child_track_node = track
-                    .spawn_association(detection, track.state.assoc_log_likelihood(detection, pd));
+                // spawn child: use *kf_pred* then update
+                let mut child_kf = kf_pred.clone();
+                child_kf.update(detection);
 
-                new_leaves.insert(child_track_node.id);
-                new_tracks.push(child_track_node);
+                let child = MhtTrackNode {
+                    id: NEXT_TRACK_ID.fetch_add(1, Ordering::Relaxed),
+                    age: track.age + 1,
+                    founder_id: track.founder_id,
+                    parent_id: Some(track.id),
+                    detection_id: Some(detection.id),
+                    state: child_kf,
+                    conf: ll,
+                    cum_conf: track.cum_conf + ll,
+                    original_amplitude: detection.amplitude,
+                };
+
+                new_leaves.insert(child.id);
+                new_tracks.push(child);
             }
 
             //  * spawn a miss branch
-            let prediction_track_node =
-                track.spawn_predicted(self.calc_miss_log_likelihood(Self::pd_from_amplitude(
-                    track.original_amplitude,
-                    self.config.threshold,
-                    self.config.sigma,
-                )));
+            let conf = self.calc_miss_conf(Self::pd_from_amplitude(
+                track.original_amplitude,
+                self.config.threshold,
+                self.config.sigma,
+            ));
+            let miss_child = MhtTrackNode {
+                id: NEXT_TRACK_ID.fetch_add(1, Ordering::Relaxed),
+                age: track.age + 1,
+                founder_id: track.founder_id,
+                parent_id: Some(track.id),
+                detection_id: None,
+                state: kf_pred, // predicted, no update
+                conf,
+                cum_conf: track.cum_conf + conf,
+                original_amplitude: track.original_amplitude,
+            };
 
-            new_leaves.insert(prediction_track_node.id);
+            new_leaves.insert(miss_child.id);
             self.track_node_store
                 .track_nodes
-                .insert(prediction_track_node.id, prediction_track_node);
+                .insert(miss_child.id, miss_child);
         }
 
         new_tracks.into_iter().for_each(|t| {
@@ -210,15 +267,15 @@ impl HypothesisTracker for MultiHypothesisTracker {
             )
             .with_colors(tracks.iter().map(|track| {
                 // Color tracks based on their confidence
-                let normalized_confidence = track.cum_log_likelihood.clamp(-40.0, 40.0);
-                let hue = normalized_confidence * 1.5; // 0° = red (low confidence), 120° = green (high confidence)
+                let normalized_confidence = track.cum_conf.lo.clamp(-5.0, 5.0);
+                let hue = (normalized_confidence + 5.0) * 12.0; // 0° = red (low confidence), 120° = green (high confidence)
                 let (r, g, b) = crate::processor::hsv_to_rgb(hue, 1.0, 1.0);
                 rerun::Color::from_rgb(r, g, b)
             }))
             .with_labels(tracks.iter().map(|track| {
                 format!(
-                    "ID: {}, Age: {}, CLL: {:.2}",
-                    track.id, track.age, track.cum_log_likelihood
+                    "ID: {}, Age: {}, CLO: {:.2}",
+                    track.id, track.age, track.cum_conf.lo
                 )
             })),
         )
@@ -230,14 +287,93 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
 impl MultiHypothesisTracker {
     fn prune_hypotheses(&mut self) {
-        // Gather (id, score) for all leaves above the threshold
-        let mut candidates: Vec<(u64, f32)> = self
-            .leaf_ids
+        // group leaves by founder
+        let mut leaf_ids_by_founder: HashMap<u64, HashSet<u64>> = HashMap::default();
+        for leaf_id in &self.leaf_ids {
+            let track = self.track_node_store.track_nodes.get(leaf_id).unwrap();
+            leaf_ids_by_founder
+                .entry(track.founder_id)
+                .or_default()
+                .insert(*leaf_id);
+        }
+
+        // apply per-founder pruning
+        let pruned_leaf_ids_by_founder: Vec<HashSet<u64>> = leaf_ids_by_founder
+            .into_iter()
+            .filter_map(|(_, leaf_ids)| {
+                let pruned_leaf_ids = self.prune_leaf_ids(
+                    &leaf_ids,
+                    self.config.per_root_min_leaf_log_odds,
+                    self.config.per_root_max_leaf_count,
+                );
+
+                if pruned_leaf_ids.is_empty() {
+                    None
+                } else {
+                    Some(pruned_leaf_ids)
+                }
+            })
+            .collect();
+
+        // enrich groups with max leaf cumulative log odds,
+        // rejecting track groups with max log-odds below threshold
+        let mut track_leaf_groups: Vec<(f32, &HashSet<u64>)> = pruned_leaf_ids_by_founder
+            .iter()
+            .filter_map(|leaf_ids| {
+                let max_lo = leaf_ids
+                    .iter()
+                    .map(|leaf_id| {
+                        OrderedFloat(
+                            self.track_node_store
+                                .track_nodes
+                                .get(leaf_id)
+                                .unwrap()
+                                .cum_conf
+                                .lo,
+                        )
+                    })
+                    .max()
+                    .unwrap_or(OrderedFloat(-100.0))
+                    .0;
+                if max_lo < self.config.per_root_min_leaf_log_odds {
+                    None
+                } else {
+                    Some((max_lo, leaf_ids))
+                }
+            })
+            .collect();
+
+        // If more than max_track_group_count, select the N best
+        if track_leaf_groups.len() > self.config.max_track_group_count {
+            let n = self.config.max_track_group_count;
+            track_leaf_groups
+                .select_nth_unstable_by_key(n, |&(log_odds, _)| OrderedFloat(-log_odds));
+            track_leaf_groups.truncate(n);
+        }
+
+        self.leaf_ids = track_leaf_groups
+            .iter()
+            .flat_map(|(_, leaf_ids)| leaf_ids.clone())
+            .cloned()
+            .collect();
+    }
+
+    fn prune_leaf_ids(
+        &mut self,
+        leaf_ids: &HashSet<u64>,
+        min_leaf_log_odds: f32,
+        max_leaf_count: usize,
+    ) -> HashSet<u64> {
+        let mut candidates: Vec<(u64, f32)> = leaf_ids
             .iter()
             .filter_map(|id| {
                 self.track_node_store.track_nodes.get(id).and_then(|n| {
-                    let score = n.cum_log_likelihood; // <-- use cumulative
-                    if score > self.config.min_leaf_log_likelihood {
+                    let score = n.cum_conf.lo;
+
+                    // using average per step instead of sum for now
+                    // let score = n.conf.lo / (n.age.max(1) as f32);
+
+                    if score > min_leaf_log_odds {
                         Some((*id, score))
                     } else {
                         None
@@ -247,32 +383,34 @@ impl MultiHypothesisTracker {
             .collect();
 
         // If more than max_leaf_count, select the N best
-        if candidates.len() > self.config.max_leaf_count {
-            let n = self.config.max_leaf_count;
+        if candidates.len() > max_leaf_count {
+            let n = max_leaf_count;
             candidates.select_nth_unstable_by_key(n, |&(_, score)| OrderedFloat(-score));
             candidates.truncate(n);
         }
 
-        self.leaf_ids = candidates.into_iter().map(|(id, _)| id).collect();
+        candidates.into_iter().map(|(id, _)| id).collect()
     }
 
     fn spawn_track_from_detection(&self, detection: &Detection, idx: u64) -> MhtTrackNode {
-        let log_likelihood = self.calc_birth_log_likelihood(detection);
+        let conf = self.calc_birth_conf(detection);
+        let id = NEXT_TRACK_ID.fetch_add(1, Ordering::AcqRel);
         MhtTrackNode {
-            id: NEXT_TRACK_ID.fetch_add(1, Ordering::AcqRel),
+            id,
             age: 0,
+            founder_id: id,
             parent_id: None,
             detection_id: Some(idx),
             state: KalmanFilter::new_from_detection(&detection),
-            log_likelihood,
-            cum_log_likelihood: log_likelihood,
+            conf,
+            cum_conf: conf,
             original_amplitude: detection.amplitude,
         }
     }
 
     fn should_spawn_birth(&self, detection: &Detection) -> bool {
-        let birth_ll = self.calc_birth_log_likelihood(detection);
-        let clutter_ll = self.calc_clutter_log_likelihood(detection);
+        let birth_ll = self.calc_birth_conf(detection).ll;
+        let clutter_ll = self.config.clutter_rate.ln();
 
         (birth_ll - clutter_ll) > self.config.birth_tau
     }
@@ -287,23 +425,46 @@ impl MultiHypothesisTracker {
         0.5 * (1.0 + (z / (1.0 + 0.2316419 * z.abs())).tanh()) // crude fast erf approx
     }
 
-    fn calc_birth_log_likelihood(&self, detection: &Detection) -> f32 {
-        let pd = Self::pd_from_amplitude(
+    pub fn calc_birth_conf(&self, detection: &Detection) -> LogProbs {
+        let pd = MultiHypothesisTracker::pd_from_amplitude(
             detection.amplitude,
             self.config.threshold,
             self.config.sigma,
         )
         .clamp(1e-6, 1.0 - 1e-6);
 
-        self.config.track_birth_rate.ln() + pd.ln()
+        // LL: birth intensity × pd
+        let delta_ll = self.config.track_birth_rate.ln() + pd.ln();
+
+        // LO: same, minus clutter
+        let delta_lo = delta_ll - self.config.clutter_rate.ln();
+
+        LogProbs {
+            ll: delta_ll,
+            lo: delta_lo,
+        }
     }
 
-    fn calc_clutter_log_likelihood(&self, _detection: &Detection) -> f32 {
-        self.config.clutter_rate.ln()
-    }
+    pub fn calc_miss_conf(&self, pd: f32) -> LogProbs {
+        // clamp pd for safety
+        let pd = pd.clamp(1e-6, 1.0 - 1e-6);
 
-    fn calc_miss_log_likelihood(&self, pd: f32) -> f32 {
-        (1.0 - pd).ln()
+        // LL: track missed → ln(1 - pd)
+        let delta_ll = (1.0 - pd).ln();
+
+        // Expected clutter count in gate
+        let gate_area = std::f32::consts::PI
+            * self.config.association_gate_radius
+            * self.config.association_gate_radius;
+        let lambda = self.config.clutter_rate * gate_area;
+
+        // LO: ln(1 - pd) + λ
+        let delta_lo = delta_ll + lambda;
+
+        LogProbs {
+            ll: delta_ll,
+            lo: delta_lo,
+        }
     }
 
     pub fn print_leaf_chains(&self) {
@@ -314,11 +475,12 @@ impl MultiHypothesisTracker {
             while let Some(id) = current_id {
                 if let Some(node) = self.track_node_store.track_nodes.get(&id) {
                     chain.push(format!(
-                        "({id}: pos=({}, {}), ll={:.2}, cum={:.2})",
+                        "({id}: pos=({}, {}), ll={:.2}, lo={:.2}, cum={:.2})",
                         node.state.x(),
                         node.state.y(),
-                        node.log_likelihood,
-                        node.cum_log_likelihood
+                        node.conf.ll,
+                        node.conf.lo,
+                        node.cum_conf.lo
                     ));
                     current_id = node.parent_id;
                 } else {
@@ -343,11 +505,12 @@ mod tests {
 
         // Simple config: low threshold, generous pruning
         let config = MhtConfig {
-            association_gating_distance: 5.0,
+            association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            min_leaf_log_likelihood: -100.0,
-            max_leaf_count: 100,
+            per_root_min_leaf_log_odds: -100.0,
+            max_track_group_count: 100,
+            per_root_max_leaf_count: 10,
             threshold: 50.0,
             sigma: 5.0,
             birth_tau: -10.0,
@@ -428,11 +591,12 @@ mod tests {
         use std::collections::HashSet;
 
         let config = MhtConfig {
-            association_gating_distance: 5.0,
+            association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            min_leaf_log_likelihood: -100.0,
-            max_leaf_count: 100,
+            per_root_min_leaf_log_odds: -100.0,
+            max_track_group_count: 100,
+            per_root_max_leaf_count: 10,
             threshold: 50.0,
             sigma: 5.0,
             birth_tau: -10.0,
@@ -502,11 +666,12 @@ mod tests {
         use std::collections::HashSet;
 
         let config = MhtConfig {
-            association_gating_distance: 5.0,
+            association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            min_leaf_log_likelihood: -100.0,
-            max_leaf_count: 100,
+            per_root_min_leaf_log_odds: -100.0,
+            max_track_group_count: 100,
+            per_root_max_leaf_count: 10,
             threshold: 50.0,
             sigma: 5.0,
             birth_tau: -10.0,
@@ -524,14 +689,22 @@ mod tests {
         let init_state = Vector4::new(0.0, 0.0, 2.0, 3.0);
         let init_kf = KalmanFilter::new_with_covariance(init_state, Matrix4::identity());
 
+        let id = NEXT_TRACK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let node = MhtTrackNode {
-            id: NEXT_TRACK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id,
             age: 0,
+            founder_id: id,
             parent_id: None,
             detection_id: None,
             state: init_kf,
-            log_likelihood: 0.0,
-            cum_log_likelihood: 0.0,
+            conf: LogProbs {
+                ll: 0.0,
+                lo: -100.0,
+            },
+            cum_conf: LogProbs {
+                ll: 0.0,
+                lo: -100.0,
+            },
             original_amplitude: 100.0,
         };
 
@@ -569,11 +742,12 @@ mod tests {
         use std::collections::HashSet;
 
         let config = MhtConfig {
-            association_gating_distance: 5.0,
+            association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            min_leaf_log_likelihood: -100.0,
-            max_leaf_count: 100,
+            per_root_min_leaf_log_odds: -100.0,
+            max_track_group_count: 100,
+            per_root_max_leaf_count: 10,
             threshold: 50.0,
             sigma: 5.0,
             birth_tau: -10.0,
@@ -591,14 +765,22 @@ mod tests {
         let init_state = Vector4::new(0.0, 0.0, 1.0, 0.0);
         let init_kf = KalmanFilter::new_with_covariance(init_state, Matrix4::identity());
 
+        let id = NEXT_TRACK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let node = MhtTrackNode {
-            id: NEXT_TRACK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id,
             age: 0,
+            founder_id: id,
             parent_id: None,
             detection_id: None,
             state: init_kf,
-            log_likelihood: 0.0,
-            cum_log_likelihood: 0.0,
+            conf: LogProbs {
+                ll: 0.0,
+                lo: -100.0,
+            },
+            cum_conf: LogProbs {
+                ll: 0.0,
+                lo: -100.0,
+            },
             original_amplitude: 100.0,
         };
 

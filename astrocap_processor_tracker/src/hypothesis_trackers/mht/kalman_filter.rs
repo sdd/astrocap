@@ -1,6 +1,7 @@
 use crate::model::Detection;
 use nalgebra::{Matrix2, Matrix2x4, Matrix4, Matrix4x2, Vector2, Vector4};
 
+use crate::hypothesis_trackers::mht::LogProbs;
 use std::sync::LazyLock;
 
 #[rustfmt::skip]
@@ -18,7 +19,7 @@ pub static H: LazyLock<Matrix2x4<f32>> = LazyLock::new(|| Matrix2x4::new(
 ));
 
 // TODO: make this configurable
-pub static R: LazyLock<Matrix2<f32>> = LazyLock::new(|| Matrix2::identity());
+pub static R: LazyLock<Matrix2<f32>> = LazyLock::new(|| Matrix2::identity() * 4.0);
 
 // TODO: online learning of this parameter
 // Tuning guide:
@@ -30,16 +31,42 @@ pub static R: LazyLock<Matrix2<f32>> = LazyLock::new(|| Matrix2::identity());
 // Look at average NIS and spread.
 // If mean NIS >> 2 → bump up q.
 // If mean NIS << 2 → shrink q.
-#[rustfmt::skip]
-pub static Q: LazyLock<Matrix4<f32>> = LazyLock::new(|| {
-    let q = 0.00001;
+// #[rustfmt::skip]
+// pub static Q: LazyLock<Matrix4<f32>> = LazyLock::new(|| {
+//     let q = 0.0000001;
+//     Matrix4::from_row_slice(&[
+//         1.0, 0.0, 1.0, 0.0,
+//         0.0, 1.0, 0.0, 1.0,
+//         0.0, 0.0, 1.0, 0.0,
+//         0.0, 0.0, 0.0, 1.0,
+//     ]) * q
+// });
+
+#[inline]
+fn q_cv(dt: f32, q: f32) -> Matrix4<f32> {
+    use nalgebra::Matrix4;
+    let dt2 = dt * dt;
+    let dt3 = dt2 * dt;
+    let dt4 = dt2 * dt2;
     Matrix4::from_row_slice(&[
-        1.0, 0.0, 1.0, 0.0,
-        0.0, 1.0, 0.0, 1.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        0.25 * dt4,
+        0.0,
+        0.5 * dt3,
+        0.0,
+        0.0,
+        0.25 * dt4,
+        0.0,
+        0.5 * dt3,
+        0.5 * dt3,
+        0.0,
+        dt2,
+        0.0,
+        0.0,
+        0.5 * dt3,
+        0.0,
+        dt2,
     ]) * q
-});
+}
 
 #[derive(Clone, Debug)]
 pub struct KalmanFilter {
@@ -81,8 +108,10 @@ impl KalmanFilter {
     }
 
     pub fn predict(&self) -> Self {
+        let q = q_cv(1.0, /* tune me */ 1e-3); // start around 1e-3, adjust later
+
         let state_pred = *F * self.state;
-        let p_pred = *F * self.covariance * F.transpose() + *Q;
+        let p_pred = *F * self.covariance * F.transpose() + q;
 
         Self {
             state: state_pred,
@@ -147,18 +176,55 @@ impl KalmanFilter {
         (residual, s)
     }
 
-    /// Association log-likelihood
-    pub fn assoc_log_likelihood(&self, detection: &Detection, pd: f32) -> f32 {
+    // /// Association log-likelihood
+    // pub fn assoc_log_likelihood(&self, detection: &Detection, pd: f32) -> f32 {
+    //     let (r, s) = self.innovation(detection);
+    //     let s_inv = s.try_inverse().unwrap_or_else(Matrix2::identity);
+    //
+    //     let mahalanobis = r.transpose() * s_inv * r;
+    //     let det_s = s.determinant().max(1e-6);
+    //
+    //     let log_gaussian =
+    //         -0.5 * (mahalanobis[(0, 0)] + (2.0 * std::f32::consts::PI).ln() + det_s.ln());
+    //
+    //     pd.ln() + log_gaussian
+    // }
+
+    // /// Association log-likelihood (relative form, ignores normalisation constant).
+    // /// (This can't be used if you want convertability to log-odds)
+    // pub fn assoc_log_likelihood(&self, detection: &Detection, pd: f32) -> f32 {
+    //     let (r, s) = self.innovation(detection);
+    //     let s_inv = s.try_inverse().unwrap_or_else(Matrix2::identity);
+    //
+    //     let mahalanobis = r.transpose() * s_inv * r;
+    //
+    //     // Relative log-likelihood: log(pd) - 0.5 * Mahalanobis distance
+    //     pd.ln() - 0.5 * mahalanobis[(0, 0)]
+    // }
+
+    pub fn assoc_conf(
+        &self,
+        detection: &Detection,
+        pd: f32,
+        clutter_rate: f32, // c (per-cell intensity)
+    ) -> LogProbs {
         let (r, s) = self.innovation(detection);
         let s_inv = s.try_inverse().unwrap_or_else(Matrix2::identity);
 
-        let mahalanobis = r.transpose() * s_inv * r;
+        let mahalanobis = (r.transpose() * s_inv * r)[0];
         let det_s = s.determinant().max(1e-6);
 
-        let log_gaussian =
-            -0.5 * (mahalanobis[(0, 0)] + (2.0 * std::f32::consts::PI).ln() + det_s.ln());
+        // full Gaussian LL
+        let delta_ll =
+            pd.ln() - 0.5 * mahalanobis - 0.5 * ((2.0 * std::f32::consts::PI).ln() + det_s.ln());
 
-        pd.ln() + log_gaussian
+        // LO = LL − ln(clutter density)
+        let delta_lo = delta_ll - clutter_rate.ln();
+
+        LogProbs {
+            ll: delta_ll,
+            lo: delta_lo,
+        }
     }
 }
 
