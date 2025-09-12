@@ -5,7 +5,7 @@ use astrocap_core::annotations::{AnnotationSession, ObjectType, TrackedObject};
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::DetectedPoint;
-use astrocap_core::traits::FrameSink;
+use astrocap_core::traits::{FrameSink, TrackSummary};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
 use astrocap_processor_tracker::model::{Detection, Track};
 use chrono::{DateTime, Utc};
@@ -38,8 +38,7 @@ struct AnnotationTrackInfo {
 struct UnassociatedTrackInfo {
     track_id: u64,
     initial_position: Vector2<f32>,
-    initial_velocity: Vector2<f32>,
-    final_velocity: Vector2<f32>,
+    avg_velocity: Vector2<f32>,
     velocity_match_score: f32, // how well velocity matches expected annotation velocity
     likely_true_positive: bool, // good velocity match suggests true but unannotated object
 }
@@ -205,7 +204,66 @@ impl TrackerEvaluatorSink {
 
         Ok(evaluator)
     }
+}
 
+impl FrameSink for TrackerEvaluatorSink {
+    fn consume(&mut self, frame_ctx: &mut FrameContext, _ctx: &mut PipelineContext) -> () {
+        let frame_number = frame_ctx.frame_index as u32;
+        self.processed_frames = frame_number + 1;
+
+        // Get ground truth for this frame
+        let ground_truth = self.annotations.objects_at_frame(frame_number);
+
+        let Ok(tracks) = frame_ctx.try_get_as::<Vec<TrackSummary>>("tracker/tracks") else {
+            warn!(
+                "No detected tracks metadata found for frame {}",
+                frame_number
+            );
+            return;
+        };
+
+        // Get processing time if available
+        let processing_time_us = frame_ctx
+            .metadata
+            .get("processing_time_us")
+            .and_then(|pt| pt.downcast_ref::<u64>())
+            .copied();
+
+        // Evaluate this frame
+        let frame_result =
+            self.evaluate_frame(frame_number, &ground_truth, &tracks, processing_time_us);
+
+        // Log progress periodically
+        if frame_number % 100 == 0 {
+            info!(
+                "Frame {}: {} tracks, {} annotations, {} associated",
+                frame_number,
+                tracks.len(),
+                ground_truth.len(),
+                frame_result.tracks_associated
+            );
+        }
+
+        self.frame_results.push(frame_result);
+    }
+
+    fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        info!("Finalizing tracker evaluation...");
+        self.save_results();
+
+        Ok(())
+    }
+
+    fn name(&self) -> &str {
+        "tracker_evaluator"
+    }
+
+    fn processing_type(&self) -> ProcessingType {
+        ProcessingType::Cpu
+    }
+}
+
+impl TrackerEvaluatorSink {
     fn calculate_annotation_velocities(&mut self) {
         let mut velocities = Vec::new();
 
@@ -273,18 +331,18 @@ impl TrackerEvaluatorSink {
         &mut self,
         frame_number: u32,
         ground_truth: &[(u32, f32, f32)],
-        tracks: &[Track],
+        tracks: &[TrackSummary],
         processing_time_us: Option<u64>,
     ) -> FrameResult {
         // Associate tracks to annotations
-        let (associated_tracks, unassociated_tracks) =
+        let (associated_tracks, unassociated_track_ids) =
             self.associate_tracks_to_annotations(frame_number, tracks, ground_truth);
 
         // Update annotation tracking info
         self.update_annotation_tracking_info(frame_number, ground_truth, &associated_tracks);
 
         // Analyze unassociated tracks for potential true positives
-        self.analyze_unassociated_tracks(frame_number, &unassociated_tracks);
+        self.analyze_unassociated_tracks(frame_number, &unassociated_track_ids, tracks);
 
         // Count annotations with and without tracks
         let annotations_with_tracks = associated_tracks.len();
@@ -294,7 +352,7 @@ impl TrackerEvaluatorSink {
             frame_number,
             processing_time_us,
             tracks_associated: associated_tracks.len(),
-            tracks_unassociated: unassociated_tracks.len(),
+            tracks_unassociated: unassociated_track_ids.len(),
             annotations_with_tracks,
             annotations_without_tracks,
         }
@@ -303,7 +361,7 @@ impl TrackerEvaluatorSink {
     fn associate_tracks_to_annotations(
         &mut self,
         frame_number: u32,
-        tracks: &[Track],
+        tracks: &[TrackSummary],
         ground_truth: &[(u32, f32, f32)],
     ) -> (Vec<(u64, u32, f32)>, Vec<u64>) {
         let mut associated = Vec::new();
@@ -311,7 +369,7 @@ impl TrackerEvaluatorSink {
         let mut used_annotations: HashSet<u32> = HashSet::new();
 
         for track in tracks {
-            let track_pos = Vector2::new(track.state.state.x, track.state.state.y);
+            let track_pos = Vector2::new(track.x, track.y);
             let mut best_match: Option<(u32, f32)> = None;
 
             // Find closest annotation within threshold
@@ -403,23 +461,34 @@ impl TrackerEvaluatorSink {
         }
     }
 
-    fn analyze_unassociated_tracks(&mut self, frame_number: u32, unassociated_track_ids: &[u64]) {
+    fn analyze_unassociated_tracks(
+        &mut self,
+        frame_number: u32,
+        unassociated_track_ids: &[u64],
+        tracks: &[TrackSummary],
+    ) {
         if let Some(ref velocity_stats) = self.velocity_stats {
             for &track_id in unassociated_track_ids {
                 // For simplicity, we'll analyze tracks that are old enough to have velocity estimates
                 // In a real implementation, you'd track track history and calculate velocities
+                let track: &TrackSummary = tracks.iter().find(|t| t.id == track_id).unwrap();
+                if track.age < 200 {
+                    continue;
+                }
 
                 // Placeholder values - in practice you'd get these from track history
-                let initial_position = Vector2::new(0.0, 0.0); // From track creation
-                let initial_velocity = Vector2::new(0.0, 0.0); // From track state
-                let final_velocity = Vector2::new(0.0, 0.0); // Average velocity over track lifetime
+                let initial_position = Vector2::new(track.start_x, track.start_y); // From track creation
+                let avg_velocity = Vector2::new(
+                    (track.x - track.start_x) / track.age as f32,
+                    (track.y - track.start_y) / track.age as f32,
+                ); // Average velocity over track lifetime
 
                 // Calculate how well the track velocity matches expected annotation velocity
-                let velocity_error = (final_velocity - velocity_stats.mean_velocity).norm();
+                let velocity_error = (avg_velocity - velocity_stats.mean_velocity).norm();
                 let expected_std = velocity_stats.velocity_magnitude_std;
                 let velocity_match_score = 1.0 / (1.0 + velocity_error / expected_std.max(0.008));
 
-                let likely_true_positive = velocity_match_score > 0.7; // Configurable threshold
+                let likely_true_positive = velocity_match_score > 0.9; // Configurable threshold
 
                 if likely_true_positive {
                     info!("Unassociated track {} has good velocity match (score: {:.3}) - likely true positive",
@@ -429,8 +498,7 @@ impl TrackerEvaluatorSink {
                 let unassociated_info = UnassociatedTrackInfo {
                     track_id,
                     initial_position,
-                    initial_velocity,
-                    final_velocity,
+                    avg_velocity,
                     velocity_match_score,
                     likely_true_positive,
                 };
@@ -718,62 +786,5 @@ impl TrackerEvaluatorSink {
             },
             Err(e) => warn!("Failed to serialize results: {}", e),
         }
-    }
-}
-
-impl FrameSink for TrackerEvaluatorSink {
-    fn consume(&mut self, frame_ctx: &mut FrameContext, _ctx: &mut PipelineContext) -> () {
-        let frame_number = frame_ctx.frame_index as u32;
-        self.processed_frames = frame_number + 1;
-
-        // Get ground truth for this frame
-        let ground_truth = self.annotations.objects_at_frame(frame_number);
-
-        let Ok(tracks) = frame_ctx.try_get_as::<Vec<Track>>("tracker/tracks") else {
-            warn!(
-                "No detected tracks metadata found for frame {}",
-                frame_number
-            );
-            return;
-        };
-
-        // Get processing time if available
-        let processing_time_us = frame_ctx
-            .metadata
-            .get("processing_time_us")
-            .and_then(|pt| pt.downcast_ref::<u64>())
-            .copied();
-
-        // Evaluate this frame
-        let frame_result =
-            self.evaluate_frame(frame_number, &ground_truth, &tracks, processing_time_us);
-
-        // Log progress periodically
-        if frame_number % 100 == 0 {
-            info!(
-                "Frame {}: {} tracks, {} annotations, {} associated",
-                frame_number,
-                tracks.len(),
-                ground_truth.len(),
-                frame_result.tracks_associated
-            );
-        }
-
-        self.frame_results.push(frame_result);
-    }
-
-    fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        info!("Finalizing tracker evaluation...");
-        self.save_results();
-
-        Ok(())
-    }
-
-    fn name(&self) -> &str {
-        "tracker_evaluator"
-    }
-
-    fn processing_type(&self) -> ProcessingType {
-        ProcessingType::Cpu
     }
 }

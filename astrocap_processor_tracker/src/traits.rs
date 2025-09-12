@@ -1,10 +1,10 @@
+use crate::model::{Detection, Track};
+use astrocap_core::traits::TrackSummary;
 use astrocap_core::AstrocapError;
 use rerun::RecordingStream;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use toml::Value;
-
-use crate::model::{Detection, Track};
 
 /// maps track indices to associated detection index
 pub type Associations = HashMap<usize, usize>;
@@ -27,8 +27,9 @@ pub trait Configurable: Send + Sync + 'static {
 }
 
 pub trait HypothesisTracker: Send + Sync + 'static {
-    fn process_frame(&mut self, detections: &[Detection]);
+    fn process_frame(&mut self, detections: &[Detection], frame_index: usize);
 
+    fn summary(&self) -> &[TrackSummary];
     fn log_to_rerun(&self, rec: &RecordingStream);
 }
 

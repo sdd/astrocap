@@ -2,6 +2,7 @@ use super::factory::SingleHypothesisTrackerElementFactory;
 use crate::model::{Detection, Track};
 use crate::processor::hsv_to_rgb;
 use crate::traits::{Associator, HypothesisTracker, Initiator, Predictor, Terminator, Updater};
+use astrocap_core::traits::TrackSummary;
 use astrocap_core::AstrocapError;
 use rerun::RecordingStream;
 use toml::Value;
@@ -41,7 +42,7 @@ impl SingleHypothesisTracker {
 }
 
 impl HypothesisTracker for SingleHypothesisTracker {
-    fn process_frame(&mut self, detections: &[Detection]) {
+    fn process_frame(&mut self, detections: &[Detection], _frame_index: usize) {
         // associate detections with existing tracks
         let (associations, unassociated_detections) =
             self.associator.associate(&detections, &self.tracks);
@@ -74,14 +75,13 @@ impl HypothesisTracker for SingleHypothesisTracker {
             .retain(|track| !self.terminator.should_terminate(track));
     }
 
-    #[allow(unused)]
     fn log_to_rerun(&self, rec: &RecordingStream) {
         if self.tracks.is_empty() {
             return;
         }
 
         rec.log(
-            "model/tracks".to_string(),
+            "tracker/tracks".to_string(),
             &rerun::Points2D::new(
                 self.tracks
                     .iter()
@@ -104,5 +104,9 @@ impl HypothesisTracker for SingleHypothesisTracker {
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to log tracks to rerun: {}", e);
         });
+    }
+
+    fn summary(&self) -> &[TrackSummary] {
+        unimplemented!()
     }
 }

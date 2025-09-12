@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use astrocap_core::traits::{TrackSummarize, TrackSummary};
 use nalgebra::{Matrix4, Vector2, Vector4};
 
 static NEXT_DETECTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -25,7 +26,6 @@ impl Detection {
 #[derive(Debug, Clone)]
 pub struct Track {
     pub id: u64,
-    pub parent_id: Option<u64>,
 
     pub state: TrackState,
     pub age: usize,
@@ -38,10 +38,26 @@ impl Track {
 
         Self {
             id: NEXT_TRACK_ID.fetch_add(1, Ordering::AcqRel),
-            parent_id: None,
             state,
             age: 0,
             confidence,
+        }
+    }
+}
+
+impl TrackSummarize for Track {
+    fn summarize(&self) -> TrackSummary {
+        TrackSummary {
+            id: self.id,
+            x: self.state.state.x,
+            y: self.state.state.y,
+            amplitude: 0.0f32,
+            age: self.age,
+            log_odds: self.confidence,
+
+            start_x: 0.0,
+            start_y: 0.0,
+            first_seen: 0,
         }
     }
 }

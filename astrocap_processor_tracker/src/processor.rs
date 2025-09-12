@@ -31,12 +31,6 @@ impl TrackerProcessor {
 }
 
 impl FrameProcessor for TrackerProcessor {
-    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.put("tracker/tracks", Vec::<Track>::new());
-
-        Ok(())
-    }
-
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
@@ -52,20 +46,27 @@ impl FrameProcessor for TrackerProcessor {
 
         frame_ctx.put("tracker/detections", detections.clone());
 
-        tracing::info!(detection_count = detections.len(), "processing frame");
+        tracing::debug!("processing frame");
 
-        self.tracker.process_frame(&detections);
+        self.tracker
+            .process_frame(&detections, frame_ctx.frame_index);
 
         // TODO: ensure that tracks are reportable for any tracker
         if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
             self.tracker.log_to_rerun(&rec);
         }
 
-        /*
-        ctx.put("tracker/tracks", tracks);
-        */
+        let track_summary = self.tracker.summary().to_vec();
+        tracing::debug!(track_count = track_summary.len());
+        frame_ctx.put("model/tracks", track_summary);
 
         FrameProcessorResult::Continue
+    }
+
+    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        ctx.put("model/tracks", Vec::<Track>::new());
+
+        Ok(())
     }
 
     fn name(&self) -> &str {

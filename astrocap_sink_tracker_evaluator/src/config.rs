@@ -16,7 +16,7 @@ pub struct Config {
 }
 
 fn default_distance_threshold() -> f32 {
-    3.0
+    2.45
 }
 
 fn default_output_path() -> PathBuf {

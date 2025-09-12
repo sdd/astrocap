@@ -6,6 +6,24 @@ use crate::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use std::any::Any;
 use std::sync::Arc;
 
+#[derive(Debug, Clone)]
+pub struct TrackSummary {
+    pub id: u64,
+    pub x: f32,
+    pub y: f32,
+    pub amplitude: f32,
+    pub age: usize,
+    pub log_odds: f32,
+
+    pub first_seen: usize,
+    pub start_x: f32,
+    pub start_y: f32,
+}
+
+pub trait TrackSummarize: Send + Sync + 'static {
+    fn summarize(&self) -> TrackSummary;
+}
+
 pub trait PointDetector: Send + Sync + 'static {
     fn detect(
         &mut self,

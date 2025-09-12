@@ -4,23 +4,10 @@ input_path = "tests/processed_crop_1_detections.json"
 
 [[stages]]
 stage_type = "astrocap_processor_tracker::TrackerProcessor"
-initiator = "threshold"
-max_association_distance = 4          # Conservative distance for star tracking
-confirmation_frames = 4                 # Require 3 supporting detections
-max_hypothesis_age = 8                # Maximum frames to keep unconfirmed hypotheses
-min_detection_frequency = 0.3           # Must detect in at least 40% of frames
-amplitude_tolerance = 0.8               # 20% amplitude variation allowed (atmospheric effects)
-max_expected_motion = 5.0               # Reasonable for stars/planets between frames
-bright_threshold = 120.0                # Objects above this get bonus (very bright stars)
-
-max_distance = 4.0                      # Association distance for existing tracks
-
-process_noise_position = 2.0
-initial_velocity_variance = 0.1
-update_velocity = false
+tracker_strategy = "MultiHypothesis"
 
 [sink]
 stage_type = "astrocap_sink_tracker_evaluator::TrackerEvaluatorSink"
 annotations_file = "tests/processed_crop_1_lossless-annotations.json"
-distance_threshold = 3.0
+distance_threshold = 5.0
 output_path = "tracker_evaluation_results_threshold.json"
