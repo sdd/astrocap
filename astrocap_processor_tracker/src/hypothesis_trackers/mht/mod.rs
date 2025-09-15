@@ -6,9 +6,10 @@ use std::num::{NonZero, NonZeroUsize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use kiddo::{float::kdtree::KdTree, immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
-use nalgebra::{Matrix2, Vector2};
+use nalgebra::{Matrix2, Matrix3, Vector2, Vector3};
 use ordered_float::OrderedFloat;
 use rerun::RecordingStream;
+use statrs::statistics::{Data, Distribution, Statistics};
 use toml::Value;
 
 use crate::model::{Detection, Track};
@@ -69,11 +70,11 @@ pub struct MhtTrackNode {
     pub conf: LogProbs,
     pub cum_conf: LogProbs,
 
-    // TODO: this may vary, but we just take the original detection amplitude for now
-    pub original_amplitude: f32,
+    pub amplitude: f32,
     pub first_seen: usize,
     pub start_x: f32,
     pub start_y: f32,
+    pub start_amplitude: f32,
 }
 
 impl TrackSummarize for MhtTrackNode {
@@ -82,10 +83,10 @@ impl TrackSummarize for MhtTrackNode {
             id: self.founder_id,
             x: self.state.x(),
             y: self.state.y(),
-            amplitude: 0.0f32,
             age: self.age,
             log_odds: self.cum_conf.lo,
 
+            amplitude: self.amplitude,
             start_x: self.start_x,
             start_y: self.start_y,
             first_seen: self.first_seen,
@@ -94,14 +95,9 @@ impl TrackSummarize for MhtTrackNode {
 }
 
 impl MhtTrackNode {
-    pub fn spawn_association(
-        &self,
-        detection: &Detection,
-        conf: LogProbs,
-        measurement_cov: &Matrix2<f32>,
-    ) -> Self {
+    pub fn spawn_association(&self, detection: &Detection, conf: LogProbs) -> Self {
         let mut state = self.state.predict(1.0);
-        state.update(detection, measurement_cov);
+        state.update(detection);
 
         Self {
             id: NEXT_TRACK_ID.fetch_add(1, Ordering::Relaxed),
@@ -112,9 +108,11 @@ impl MhtTrackNode {
             state,
             conf,
             cum_conf: self.cum_conf + conf,
-            original_amplitude: detection.amplitude,
+
+            amplitude: detection.amplitude,
 
             first_seen: self.first_seen,
+            start_amplitude: self.start_amplitude,
             start_x: self.start_x,
             start_y: self.start_y,
         }
@@ -130,11 +128,66 @@ impl MhtTrackNode {
             state: self.state.predict(1.0),
             conf,
             cum_conf: self.cum_conf + conf,
-            original_amplitude: self.original_amplitude,
+
+            amplitude: self.amplitude,
+            start_amplitude: self.start_amplitude,
 
             first_seen: self.first_seen,
             start_x: self.start_x,
             start_y: self.start_y,
+        }
+    }
+}
+
+struct BucketStats {
+    name: String,
+    n: usize,
+    q_pos_vals: Vec<f32>,
+    q_amp_vals: Vec<f32>,
+    rx_vals: Vec<f32>,
+    ry_vals: Vec<f32>,
+    ra_vals: Vec<f32>,
+    q_pos_at_min: usize,
+    q_pos_at_max: usize,
+    q_amp_at_min: usize,
+    q_amp_at_max: usize,
+    rx_at_floor: usize,
+    ry_at_floor: usize,
+    ra_at_floor: usize,
+    rx_at_ceil: usize,
+    ry_at_ceil: usize,
+    ra_at_ceil: usize,
+    // optional NIS tracking (if you cached last association’s residual/S):
+    nis_vals: Vec<f32>,
+    nis_x_vals: Vec<f32>,
+    nis_y_vals: Vec<f32>,
+    nis_a_vals: Vec<f32>,
+}
+
+impl BucketStats {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            n: 0,
+            q_pos_vals: vec![],
+            q_amp_vals: vec![],
+            rx_vals: vec![],
+            ry_vals: vec![],
+            ra_vals: vec![],
+            q_pos_at_min: 0,
+            q_pos_at_max: 0,
+            q_amp_at_max: 0,
+            q_amp_at_min: 0,
+            rx_at_floor: 0,
+            ry_at_floor: 0,
+            ra_at_floor: 0,
+            rx_at_ceil: 0,
+            ry_at_ceil: 0,
+            ra_at_ceil: 0,
+            nis_vals: vec![],
+            nis_x_vals: vec![],
+            nis_y_vals: vec![],
+            nis_a_vals: vec![],
         }
     }
 }
@@ -146,12 +199,12 @@ pub struct MultiHypothesisTracker {
 
     summary: Vec<TrackSummary>,
 
-    measurement_cov: Matrix2<f32>,
+    measurement_cov: Matrix3<f32>,
 
     // --- adaptive state ---
     q_scale: f32,                    // scalar multiplier for Q(dt)
     nis_ewma: f32,                   // running mean NIS
-    residual_cov_ewma: Matrix2<f32>, // EWMA of residual outer products
+    residual_cov_ewma: Matrix3<f32>, // EWMA of residual outer products
 }
 
 impl MultiHypothesisTracker {
@@ -174,7 +227,8 @@ impl MultiHypothesisTracker {
         // Build R = diag(r_x^2, r_y^2)
         let rx2 = config.r_x * config.r_x;
         let ry2 = config.r_y * config.r_y;
-        let measurement_cov = Matrix2::from_diagonal(&nalgebra::Vector2::new(rx2, ry2));
+        let ra2 = config.r_a * config.r_a;
+        let measurement_cov = Matrix3::from_diagonal(&nalgebra::Vector3::new(rx2, ry2, ra2));
 
         Ok(Self {
             config,
@@ -184,7 +238,7 @@ impl MultiHypothesisTracker {
             measurement_cov,
             q_scale: 1e-5,                          // start smallish
             nis_ewma: 2.0,                          // target value
-            residual_cov_ewma: Matrix2::identity(), // initialised to unit
+            residual_cov_ewma: Matrix3::identity(), // initialised to unit
         })
     }
 }
@@ -221,16 +275,26 @@ impl HypothesisTracker for MultiHypothesisTracker {
             // no dropped frames, so dt = 1 frame.
             let kf_pred = track.state.predict(1.0);
 
-            // 2) Find all detections within *spatial* gate (pre-gate)
-            let r = self.config.association_gate_radius;
+            // 2) Find all detections within stellar *spatial* exclusion gate (pre-gate)
+            // let r = self.config.association_gate_radius;
+            let r = self.config.stellar_association_exclusion_radius;
             let gated_detections = detections_tree
                 .within_unsorted::<SquaredEuclidean>(&[kf_pred.x(), kf_pred.y()], r * r);
 
             // 3) * branch a child track for each detection
             for nn in &gated_detections {
                 let detection = &detections[nn.item as usize];
-
                 all_gated_detection_ids.insert(detection.id);
+
+                // only associate detections inside the inner association_gate_radius,
+                // but exclude detections in the wider stellar_association_exclusion_radius
+                // from association and birth. This prevents speckles from bright stars
+                // from spawning froth.
+                if nn.distance
+                    > self.config.association_gate_radius * self.config.association_gate_radius
+                {
+                    continue;
+                }
 
                 // PD from amplitude
                 let pd = Self::pd_from_amplitude(
@@ -244,7 +308,8 @@ impl HypothesisTracker for MultiHypothesisTracker {
                     detection,
                     pd,
                     self.config.clutter_rate,
-                    &self.measurement_cov, // ok to pass the global here; KF holds its own copy too if you prefer
+                    track.id,
+                    track.cum_conf.lo,
                 );
 
                 // NIS gate: chi-square 2D
@@ -255,16 +320,19 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
                 // spawn child: use *kf_pred* then update
                 let mut child_kf = kf_pred.clone();
-                let updated = child_kf.update(detection, &self.measurement_cov);
-                if !updated {
+                if !child_kf.update(detection) {
                     // Extremely rare (numerical issue). Skip this branch.
                     continue;
                 }
 
                 // 5) **Per-KF adaptation** (immediately, off THIS pair only)
                 //    Each child learns from its own residuals.
-                child_kf.adapt_r(&residual, &s_pred);
-                child_kf.adapt_q_from_nis(nis, 2.0);
+                child_kf.adapt_r_from_pair(&residual, &s_pred);
+                child_kf.adapt_q_from_nis(nis, 3.0);
+
+                // amplitude-specific Q adaptation
+                let nis_a = residual.z.powi(2) / s_pred[(2, 2)].max(1e-6);
+                child_kf.adapt_q_amp_from_residual(nis_a);
 
                 // 6) Materialize the child node
                 let child = MhtTrackNode {
@@ -276,9 +344,10 @@ impl HypothesisTracker for MultiHypothesisTracker {
                     state: child_kf,
                     conf: ll,
                     cum_conf: track.cum_conf + ll,
-                    original_amplitude: detection.amplitude,
 
+                    amplitude: detection.amplitude,
                     first_seen: track.first_seen,
+                    start_amplitude: track.start_amplitude,
                     start_x: track.start_x,
                     start_y: track.start_y,
                 };
@@ -293,7 +362,7 @@ impl HypothesisTracker for MultiHypothesisTracker {
             miss_child_kf.adapt_q_on_miss(); // tiny multiplicative bump (implement in KF; e.g. q_scale *= 1.02, clamped)
 
             let conf = self.calc_miss_conf(Self::pd_from_amplitude(
-                track.original_amplitude,
+                track.start_amplitude,
                 self.config.threshold,
                 self.config.sigma,
             ));
@@ -307,7 +376,9 @@ impl HypothesisTracker for MultiHypothesisTracker {
                 state: kf_pred, // predicted, no update
                 conf,
                 cum_conf: track.cum_conf + conf,
-                original_amplitude: track.original_amplitude,
+
+                amplitude: track.amplitude,
+                start_amplitude: track.start_amplitude,
 
                 first_seen: track.first_seen,
                 start_x: track.start_x,
@@ -331,7 +402,6 @@ impl HypothesisTracker for MultiHypothesisTracker {
         } else {
             nis_vals.iter().copied().sum::<f32>() / (nis_vals.len() as f32)
         };
-        tracing::info!(mean_nis, "frame innovation");
 
         // birth new tracks|
         // TODO:
@@ -359,10 +429,219 @@ impl HypothesisTracker for MultiHypothesisTracker {
         self.leaf_ids = new_leaves;
 
         self.prune_hypotheses();
+
+        // Group by founder and select the best leaf per founder
+        let mut best_by_founder: HashMap<u64, &MhtTrackNode> = HashMap::new();
+        for leaf_id in &self.leaf_ids {
+            if let Some(node) = self.track_node_store.track_nodes.get(leaf_id) {
+                best_by_founder
+                    .entry(node.founder_id)
+                    .and_modify(|best| {
+                        if node.cum_conf.lo > best.cum_conf.lo {
+                            *best = node;
+                        }
+                    })
+                    .or_insert(node);
+            }
+        }
+
+        // Collect metrics only from best leaves
+        let mut q_scales = Vec::new();
+        let mut q_amp_scales = Vec::new();
+        let mut r_xs = Vec::new();
+        let mut r_ys = Vec::new();
+        let mut r_as = Vec::new();
+        let mut nis_ewmas = Vec::new();
+
+        for node in best_by_founder.values() {
+            let kf = &node.state;
+            q_scales.push(kf.q_pos_scale);
+            q_amp_scales.push(kf.q_amp_scale);
+            r_xs.push(kf.r[(0, 0)].sqrt());
+            r_ys.push(kf.r[(1, 1)].sqrt());
+            r_as.push(kf.r[(2, 2)].sqrt());
+            nis_ewmas.push(kf.nis_ewma);
+        }
+
+        fn mean(v: &[f32]) -> f32 {
+            if v.is_empty() {
+                0.0
+            } else {
+                v.iter().copied().sum::<f32>() / v.len() as f32
+            }
+        }
+
+        tracing::info!(
+            frame = frame_number,
+            track_count = best_by_founder.len(),
+            mean_nis,
+            nis_ewma_mean = mean(&nis_ewmas),
+            q_pos_mean = mean(&q_scales),
+            q_amp_mean = mean(&q_amp_scales),
+            r_x_mean = mean(&r_xs),
+            r_y_mean = mean(&r_ys),
+            r_a_mean = mean(&r_as),
+        );
+
+        // Strongest by cumulative log-odds, from best-per-founder set
+        if frame_number % 100 == 0 {
+            let mut tracks: Vec<_> = best_by_founder.values().collect();
+            tracks.sort_by_key(|t| OrderedFloat(-t.cum_conf.lo));
+
+            for t in tracks.iter().take(5) {
+                let kf = &t.state;
+                tracing::info!(
+                    track_id = t.id,
+                    founder = t.founder_id,
+                    age = t.age,
+                    cum_lo = t.cum_conf.lo,
+                    q_pos = kf.q_pos_scale,
+                    q_amp = kf.q_amp_scale,
+                    r_x = kf.r[(0, 0)].sqrt(),
+                    r_y = kf.r[(1, 1)].sqrt(),
+                    r_a = kf.r[(2, 2)].sqrt(),
+                    nis_ewma = kf.nis_ewma,
+                    last_amp = kf.state[4],
+                );
+            }
+        }
     }
 
     fn summary(&self) -> &[TrackSummary] {
         &self.summary
+    }
+
+    fn final_summary(&self) {
+        let mut b_all = BucketStats::new("ALL".to_string());
+        let mut b_neg = BucketStats::new("<0".to_string());
+        let mut b1 = BucketStats::new("0-100".to_string());
+        let mut b2 = BucketStats::new(format!("100-{:.00}", self.config.track_confirmation_level));
+        let mut b3 = BucketStats::new(format!(">{:.00}", self.config.track_confirmation_level));
+
+        // group by founder
+        let mut leaves_by_founder: HashMap<u64, Vec<&MhtTrackNode>> = HashMap::new();
+        for leaf_id in &self.leaf_ids {
+            if let Some(node) = self.track_node_store.track_nodes.get(leaf_id) {
+                leaves_by_founder
+                    .entry(node.founder_id)
+                    .or_default()
+                    .push(node);
+            }
+        }
+
+        let mut best_in_founders = Vec::new();
+
+        // pick best per founder
+        for (_fid, leaves) in leaves_by_founder {
+            let best = leaves
+                .into_iter()
+                .max_by_key(|node| OrderedFloat(node.cum_conf.lo))
+                .unwrap();
+
+            best_in_founders.push(best);
+
+            let lo = best.cum_conf.lo;
+            let kf = &best.state;
+
+            // no NIS cache yet → all None
+            let (nis_t, nis_x, nis_y, nis_a) = (None, None, None, None);
+
+            push_track_into_bucket(&mut b_all, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
+
+            if lo < 0.0 {
+                push_track_into_bucket(&mut b_neg, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
+            } else if lo <= 100.0 {
+                push_track_into_bucket(&mut b1, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
+            } else if lo <= self.config.track_confirmation_level {
+                push_track_into_bucket(&mut b2, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
+            } else {
+                push_track_into_bucket(&mut b3, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
+            }
+        }
+
+        println!("\n=== KF stats by confidence bucket (last frame, best leaf per founder) ===");
+        print_bucket(&b_all);
+        print_bucket(&b_neg);
+        print_bucket(&b1);
+        print_bucket(&b2);
+        print_bucket(&b3);
+        println!("===============================================\n");
+
+        // --- Gather best-leaf-per-founder samples ---
+        let mut a_pred_vals = Vec::new(); // KF amplitude state
+        let mut y_vals = Vec::new(); // pixel y
+        let mut ra_vals = Vec::new(); // sqrt(R_aa)
+        let mut qamp_vals = Vec::new(); // q_amp_scale (optional)
+
+        for node in best_in_founders {
+            let kf = &node.state;
+            let a_pred = kf.state[4];
+            let y = kf.state[1];
+            let r_a = kf.r[(2, 2)].sqrt();
+            let q_amp = kf.q_amp_scale;
+
+            if a_pred.is_finite() && y.is_finite() && r_a.is_finite() {
+                a_pred_vals.push(a_pred);
+                y_vals.push(y);
+                ra_vals.push(r_a);
+                qamp_vals.push(q_amp);
+            }
+        }
+
+        println!("\n=== Correlations on best-leaf-per-founder (last frame) ===");
+        let r_a_vs_amp = pearson_corr(&a_pred_vals, &ra_vals);
+        let r_a_vs_y = pearson_corr(&y_vals, &ra_vals);
+        println!(" r(r_a, amplitude) = {:7.4}", r_a_vs_amp);
+        println!(" r(r_a, y        ) = {:7.4}", r_a_vs_y);
+
+        // Optionally also inspect how q_amp_scale relates to amplitude:
+        let r_qamp_vs_amp = pearson_corr(&a_pred_vals, &qamp_vals);
+        println!(" r(q_amp_scale, amplitude) = {:7.4}", r_qamp_vs_amp);
+
+        // --- Binned summaries by amplitude terciles ---
+        let q33 = quantile(a_pred_vals.clone(), 0.3333);
+        let q66 = quantile(a_pred_vals.clone(), 0.6667);
+        let mut ra_lo = Vec::new();
+        let mut ra_mid = Vec::new();
+        let mut ra_hi = Vec::new();
+        for i in 0..ra_vals.len() {
+            let a = a_pred_vals[i];
+            let ra = ra_vals[i];
+            if a <= q33 {
+                ra_lo.push(ra);
+            } else if a <= q66 {
+                ra_mid.push(ra);
+            } else {
+                ra_hi.push(ra);
+            }
+        }
+        println!("\n--- r_a by amplitude terciles ---");
+        print_bin("low amp", &ra_lo);
+        print_bin("mid amp", &ra_mid);
+        print_bin("high amp", &ra_hi);
+
+        // --- Binned summaries by y terciles (proxy for altitude/airmass) ---
+        let y33 = quantile(y_vals.clone(), 0.3333);
+        let y66 = quantile(y_vals.clone(), 0.6667);
+        let mut rya_lo = Vec::new();
+        let mut rya_mid = Vec::new();
+        let mut rya_hi = Vec::new();
+        for i in 0..ra_vals.len() {
+            let y = y_vals[i];
+            let ra = ra_vals[i];
+            if y <= y33 {
+                rya_lo.push(ra);
+            } else if y <= y66 {
+                rya_mid.push(ra);
+            } else {
+                rya_hi.push(ra);
+            }
+        }
+        println!("\n--- r_a by y terciles ---");
+        print_bin("low y", &rya_lo);
+        print_bin("mid y", &rya_mid);
+        print_bin("high y", &rya_hi);
+        println!("(Note: interpret y-direction vs. horizon based on your image convention.)");
     }
 
     fn log_to_rerun(&self, rec: &RecordingStream) {
@@ -378,7 +657,12 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
         tracing::info!(?track_count); //, ?top_5_trcks);
 
-        let tracks: Vec<_> = self.summary.iter().filter(|t| t.log_odds > 100.0).collect();
+        let c_level = self.config.track_confirmation_level;
+        let tracks: Vec<_> = self
+            .summary
+            .iter()
+            .filter(|t| t.log_odds > c_level)
+            .collect();
 
         rec.log(
             "tracker/tracks".to_string(),
@@ -609,7 +893,8 @@ impl MultiHypothesisTracker {
         let conf = self.calc_birth_conf(detection);
         let id = NEXT_TRACK_ID.fetch_add(1, Ordering::AcqRel);
 
-        let state = KalmanFilter::new_from_detection(&detection);
+        let mut state = KalmanFilter::new_from_detection(&detection);
+        state.apply_measurement_from_config(&self.config);
         let start_x = state.x();
         let start_y = state.y();
 
@@ -622,7 +907,8 @@ impl MultiHypothesisTracker {
             state,
             conf,
             cum_conf: conf,
-            original_amplitude: detection.amplitude,
+            amplitude: detection.amplitude,
+            start_amplitude: detection.amplitude,
 
             first_seen: frame_number,
             start_x,
@@ -715,7 +1001,7 @@ impl MultiHypothesisTracker {
         }
     }
 
-    fn adapt_r(&mut self, residual: &Vector2<f32>, s_pred: &Matrix2<f32>) {
+    fn adapt_r(&mut self, residual: &Vector3<f32>, s_pred: &Matrix3<f32>) {
         let beta = 0.05; // smoothing gain
 
         // Residual outer product
@@ -729,14 +1015,14 @@ impl MultiHypothesisTracker {
         let mut r_est = self.residual_cov_ewma - 0.5 * s_pred;
 
         // Only keep diagonal terms (assume x,y independent noise)
-        let mut r_diag = Vector2::new(r_est[(0, 0)], r_est[(1, 1)]);
+        let mut r_diag = Vector3::new(r_est[(0, 0)], r_est[(1, 1)], r_est[(2, 2)]);
 
         // Clamp variances: σ² ∈ [0.25, 16.0] → σ ∈ [0.5 px, 4 px]
         r_diag[0] = r_diag[0].clamp(0.25, 16.0);
         r_diag[1] = r_diag[1].clamp(0.25, 16.0);
 
         // Update measurement covariance as diagonal
-        self.measurement_cov = Matrix2::from_diagonal(&r_diag);
+        self.measurement_cov = Matrix3::from_diagonal(&r_diag);
     }
 
     fn adapt_q_from_mean(&mut self, mean_nis: f32) {
@@ -755,6 +1041,333 @@ impl MultiHypothesisTracker {
         // clamp to sane bounds
         self.q_scale = self.q_scale.clamp(1e-6, 1e-2);
     }
+
+    /// Compute and print mean/std/min/max for a slice of f64 values.
+    fn summary_stats(label: &str, values: &[f64]) {
+        if values.is_empty() {
+            println!("{:<12} | (no data)", label);
+            return;
+        }
+
+        let mean = values.iter().copied().sum::<f64>() / values.len() as f64;
+        let std =
+            (values.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64).sqrt();
+        let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+        println!(
+            "{:<12} | mean={:8.4}  std={:8.4}  min={:8.4}  max={:8.4}",
+            label, mean, std, min, max
+        );
+    }
+
+    fn log_final_stats<I>(kfs: I)
+    where
+        I: IntoIterator<Item = (f32, f32, f32, f32, f32)>, // (q_pos_scale, q_amp_scale, r_x, r_y, r_a)
+    {
+        let (mut q_pos_vals, mut q_amp_vals, mut rx_vals, mut ry_vals, mut ra_vals) =
+            (vec![], vec![], vec![], vec![], vec![]);
+
+        for (q_pos, q_amp, rx, ry, ra) in kfs {
+            q_pos_vals.push(q_pos);
+            q_amp_vals.push(q_amp);
+            rx_vals.push(rx);
+            ry_vals.push(ry);
+            ra_vals.push(ra);
+        }
+
+        println!();
+        println!("{:-<92}", " Final KF stats (last frame) ");
+
+        let report = |name: &str, vals: &[f32]| {
+            if vals.is_empty() {
+                println!("{:<12} | no data", name);
+                return;
+            }
+
+            let data = Data::new(vals.iter().map(|&v| v as f64).collect::<Vec<f64>>());
+
+            let mean = data.mean().unwrap_or(f64::NAN);
+            let std = data.std_dev().unwrap_or(f64::NAN);
+
+            // compute min/max directly
+            let min = vals.iter().copied().fold(f32::INFINITY, f32::min) as f64;
+            let max = vals.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
+
+            println!(
+                "{:<12} | n={:<5} mean={:8.4}  std={:8.4}  min={:8.4}  max={:8.4}",
+                name,
+                vals.len(),
+                mean,
+                std,
+                min,
+                max
+            );
+        };
+
+        report("q_pos_scale", &q_pos_vals);
+        report("q_amp_scale", &q_amp_vals);
+        report("r_x", &rx_vals);
+        report("r_y", &ry_vals);
+        report("r_a", &ra_vals);
+
+        println!("{:-<92}", "");
+    }
+}
+
+fn push_track_into_bucket(
+    b: &mut BucketStats,
+    kf: &KalmanFilter,
+    cfg: &MhtConfig,
+    // optional nis components if you have them cached:
+    nis_total: Option<f32>,
+    nis_x: Option<f32>,
+    nis_y: Option<f32>,
+    nis_a: Option<f32>,
+) {
+    b.n += 1;
+
+    b.q_pos_vals.push(kf.q_pos_scale);
+    b.q_amp_vals.push(kf.q_amp_scale);
+
+    let rx = kf.r[(0, 0)].sqrt();
+    let ry = kf.r[(1, 1)].sqrt();
+    let ra = kf.r[(2, 2)].sqrt();
+    b.rx_vals.push(rx);
+    b.ry_vals.push(ry);
+    b.ra_vals.push(ra);
+
+    if (kf.q_pos_scale - cfg.q_pos_min).abs() < 1e-12 {
+        b.q_pos_at_min += 1;
+    }
+    if (kf.q_pos_scale - cfg.q_pos_max).abs() < 1e-12 {
+        b.q_pos_at_max += 1;
+    }
+
+    if (kf.q_amp_scale - cfg.q_amp_min).abs() < 1e-12 {
+        b.q_amp_at_min += 1;
+    }
+    if (kf.q_amp_scale - cfg.q_amp_max).abs() < 1e-12 {
+        b.q_amp_at_max += 1;
+    }
+
+    if (rx - cfg.r_pos_min).abs() < 1e-3 {
+        b.rx_at_floor += 1;
+    }
+    if (ry - cfg.r_pos_min).abs() < 1e-3 {
+        b.ry_at_floor += 1;
+    }
+    if (ra - cfg.r_amp_min).abs() < 1e-3 {
+        b.ra_at_floor += 1;
+    }
+
+    if (rx - cfg.r_pos_max).abs() < 1e-3 {
+        b.rx_at_ceil += 1;
+    }
+    if (ry - cfg.r_pos_max).abs() < 1e-3 {
+        b.ry_at_ceil += 1;
+    }
+    if (ra - cfg.r_amp_max).abs() < 1e-3 {
+        b.ra_at_ceil += 1;
+    }
+
+    if let Some(v) = nis_total {
+        b.nis_vals.push(v);
+    }
+    if let Some(v) = nis_x {
+        b.nis_x_vals.push(v);
+    }
+    if let Some(v) = nis_y {
+        b.nis_y_vals.push(v);
+    }
+    if let Some(v) = nis_a {
+        b.nis_a_vals.push(v);
+    }
+}
+
+fn summarize(label: &str, vals: &[f32]) -> (usize, f32, f32, f32, f32) {
+    let n = vals.len();
+    if n == 0 {
+        return (0, f32::NAN, f32::NAN, f32::NAN, f32::NAN);
+    }
+    let mean = vals.iter().copied().sum::<f32>() / (n as f32);
+    let var = vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / (n as f32);
+    let std = var.sqrt();
+    let (min, max) = vals
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(mn, mx), &v| {
+            (mn.min(v), mx.max(v))
+        });
+    (n, mean, std, min, max)
+}
+
+fn print_bucket(b: &BucketStats) {
+    let (_, q_pos_mean, q_pos_std, q_pos_min, q_pos_max) = summarize("q_pos", &b.q_pos_vals);
+    let (_, q_amp_mean, q_amp_std, q_amp_min, q_amp_max) = summarize("q_amp", &b.q_amp_vals);
+    let (_, rx_mean, rx_std, rx_min, rx_max) = summarize("r_x", &b.rx_vals);
+    let (_, ry_mean, ry_std, ry_min, ry_max) = summarize("r_y", &b.ry_vals);
+    let (_, ra_mean, ra_std, ra_min, ra_max) = summarize("r_a", &b.ra_vals);
+
+    println!("\n Bucket {:<8}  n={}", b.name, b.n);
+    println!(
+        "   q_pos_scale   : mean={:8.6} std={:8.6} min={:8.6} max={:8.6}  [%min {:>3}%  %max {:>3}%]",
+        q_pos_mean,
+        q_pos_std,
+        q_pos_min,
+        q_pos_max,
+        if b.n > 0 {
+            (100 * b.q_pos_at_min / b.n) as usize
+        } else {
+            0
+        },
+        if b.n > 0 {
+            (100 * b.q_pos_at_max / b.n) as usize
+        } else {
+            0
+        }
+    );
+    println!(
+        "   q_amp_scale   : mean={:8.6} std={:8.6} min={:8.6} max={:8.6}  [%min {:>3}%  %max {:>3}%]",
+        q_amp_mean,
+        q_amp_std,
+        q_amp_min,
+        q_amp_max,
+        if b.n > 0 {
+            (100 * b.q_pos_at_min / b.n) as usize
+        } else {
+            0
+        },
+        if b.n > 0 {
+            (100 * b.q_pos_at_max / b.n) as usize
+        } else {
+            0
+        }
+    );
+    println!(
+        "   r_x (px)  : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
+        rx_mean, rx_std, rx_min, rx_max
+    );
+    println!(
+        "               floors: {:>3}%  ceils: {:>3}%",
+        if b.n > 0 {
+            (100 * b.rx_at_floor / b.n) as usize
+        } else {
+            0
+        },
+        if b.n > 0 {
+            (100 * b.rx_at_ceil / b.n) as usize
+        } else {
+            0
+        }
+    );
+    println!(
+        "   r_y (px)  : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
+        ry_mean, ry_std, ry_min, ry_max
+    );
+    println!(
+        "               floors: {:>3}%  ceils: {:>3}%",
+        if b.n > 0 {
+            (100 * b.ry_at_floor / b.n) as usize
+        } else {
+            0
+        },
+        if b.n > 0 {
+            (100 * b.ry_at_ceil / b.n) as usize
+        } else {
+            0
+        }
+    );
+    println!(
+        "   r_a       : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
+        ra_mean, ra_std, ra_min, ra_max
+    );
+    println!(
+        "               floors: {:>3}%  ceils: {:>3}%",
+        if b.n > 0 {
+            (100 * b.ra_at_floor / b.n) as usize
+        } else {
+            0
+        },
+        if b.n > 0 {
+            (100 * b.ra_at_ceil / b.n) as usize
+        } else {
+            0
+        }
+    );
+
+    if !b.nis_vals.is_empty() {
+        let (_, nt, ns, nmin, nmax) = summarize("nis", &b.nis_vals);
+        let (_, nx, nxs, nxmin, nxmax) = summarize("nis_x", &b.nis_x_vals);
+        let (_, ny, nys, nymin, nymax) = summarize("nis_y", &b.nis_y_vals);
+        let (_, na, nas, namin, namax) = summarize("nis_a", &b.nis_a_vals);
+        println!(
+            "   NIS total : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
+            nt, ns, nmin, nmax
+        );
+        println!(
+            "   NIS x/y/a : x=({:8.4},{:8.4}) y=({:8.4},{:8.4}) a=({:8.4},{:8.4})",
+            nx, nxs, ny, nys, na, nas
+        );
+        println!("               x_min/max=({:8.4},{:8.4}) y_min/max=({:8.4},{:8.4}) a_min/max=({:8.4},{:8.4})",
+                 nxmin, nxmax, nymin, nymax, namin, namax);
+    }
+}
+
+fn pearson_corr(xs: &[f32], ys: &[f32]) -> f32 {
+    let n = xs.len().min(ys.len());
+    if n < 3 {
+        return f32::NAN;
+    }
+    let (mut sx, mut sy, mut sxx, mut syy, mut sxy) = (0.0f64, 0.0, 0.0, 0.0, 0.0);
+    for i in 0..n {
+        let x = xs[i] as f64;
+        let y = ys[i] as f64;
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        syy += y * y;
+        sxy += x * y;
+    }
+    let n = n as f64;
+    let vx = (sxx - sx * sx / n).max(0.0);
+    let vy = (syy - sy * sy / n).max(0.0);
+    if vx <= 0.0 || vy <= 0.0 {
+        return f32::NAN;
+    }
+    let cov = sxy - sx * sy / n;
+    (cov / (vx.sqrt() * vy.sqrt())) as f32
+}
+
+fn quantile(mut v: Vec<f32>, q: f32) -> f32 {
+    if v.is_empty() {
+        return f32::NAN;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let i = ((v.len() as f32 - 1.0) * q)
+        .clamp(0.0, (v.len() - 1) as f32)
+        .round() as usize;
+    v[i]
+}
+
+fn mean_std(vals: &[f32]) -> (f32, f32, usize) {
+    let n = vals.len();
+    if n == 0 {
+        return (f32::NAN, f32::NAN, 0);
+    }
+    let mean = vals.iter().copied().sum::<f32>() / n as f32;
+    let var = vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / n as f32;
+    (mean, var.sqrt(), n)
+}
+
+fn print_bin(label: &str, ra: &[f32]) {
+    let (m, s, n) = mean_std(ra);
+    println!(
+        "  {:<10}  n={:<4}  r_a mean={:7.3}  std={:7.3}",
+        label, n, m, s
+    );
 }
 
 #[cfg(test)]
@@ -992,7 +1605,7 @@ mod tests {
                 ll: 0.0,
                 lo: -100.0,
             },
-            original_amplitude: 100.0,
+            start_amplitude: 100.0,
             first_seen: 0,
             start_x: 0.0,
             start_y: 0.0,
@@ -1079,7 +1692,7 @@ mod tests {
                 ll: 0.0,
                 lo: -100.0,
             },
-            original_amplitude: 100.0,
+            start_amplitude: 100.0,
             first_seen: 0,
             start_x: 0.0,
             start_y: 0.0,

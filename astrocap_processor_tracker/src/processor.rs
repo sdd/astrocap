@@ -58,13 +58,19 @@ impl FrameProcessor for TrackerProcessor {
 
         let track_summary = self.tracker.summary().to_vec();
         tracing::debug!(track_count = track_summary.len());
-        frame_ctx.put("model/tracks", track_summary);
+        frame_ctx.put("tracker/tracks", track_summary);
 
         FrameProcessorResult::Continue
     }
 
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         ctx.put("model/tracks", Vec::<Track>::new());
+
+        Ok(())
+    }
+
+    fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        self.tracker.final_summary();
 
         Ok(())
     }

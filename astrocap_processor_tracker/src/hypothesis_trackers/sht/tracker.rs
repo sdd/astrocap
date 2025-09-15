@@ -109,4 +109,8 @@ impl HypothesisTracker for SingleHypothesisTracker {
     fn summary(&self) -> &[TrackSummary] {
         unimplemented!()
     }
+
+    fn final_summary(&self) {
+        unimplemented!()
+    }
 }

@@ -3,7 +3,10 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct MhtConfig {
+    pub track_confirmation_level: f32,
+
     pub association_gate_radius: f32,
+    pub stellar_association_exclusion_radius: f32,
 
     pub track_birth_rate: f32,
 
@@ -23,22 +26,36 @@ pub struct MhtConfig {
 
     pub r_x: f32,
     pub r_y: f32,
+    pub r_a: f32,
 
     // NEW: coast-aware noise adaptation
     pub q_base: f32,          // tiny jitter when tracking cleanly
     pub q_coast_floor: f32,   // minimum diffusion while coasting (lets gates grow)
     pub q_ramp_frames: usize, // frames to ramp from q_base -> q_coast_floor when missing
+    pub q_pos_min: f32,
+    pub q_pos_max: f32,
 
-    pub r_floor: f32,         // min std px (bright stars lock precisely)
-    pub r_ceil: f32,          // max std px (bad centroid periods)
+    pub q_amp_min: f32,
+    pub q_amp_max: f32,
+
+    pub r_pos_min: f32,       // min std px (bright stars lock precisely)
+    pub r_pos_max: f32,       // max std px (bad centroid periods)
+    pub r_pos_beta: f32,      // smoothing for x,y
     pub r_coast_start: usize, // start inflating R after this many consecutive misses
     pub r_coast_growth: f32,  // multiplicative growth per extra miss (e.g. 0.03 = +3%)
+
+    pub r_amp_min: f32,
+    pub r_amp_max: f32,
+    pub r_amp_beta: f32, // smoothing for amplitude
 }
 
 impl Default for MhtConfig {
     fn default() -> Self {
         Self {
+            track_confirmation_level: 350.0,
             association_gate_radius: 6.0,
+
+            stellar_association_exclusion_radius: 15.0,
 
             /*
                * rough birth rate per frame = 0.01
@@ -81,23 +98,37 @@ impl Default for MhtConfig {
             birth_tau: -10.0,
 
             // 95% in 2D
-            gating_chi2: 5.99,
+            // gating_chi2: 5.99,
+
+            // 95% in 3D
+            gating_chi2: 7.815,
 
             // Kalman filter R
             // measurement variance / noise, in pixels
             r_x: 1.0,
             r_y: 1.0,
+            r_a: 15.0,
 
             // CV stars @ 25–50fps: very small jitter while locked,
             // but enough diffusion to reacquire after long gaps.
-            q_base: 1e-7,
+            q_base: 1e-6,
             q_coast_floor: 6e-4, // ~5px std after ~50 coasts if v is very certain
             q_ramp_frames: 10,
+            q_pos_min: 5e-5,
+            q_pos_max: 1e-2,
 
-            r_floor: 0.5,
-            r_ceil: 2.5,
+            q_amp_min: 1e-5,
+            q_amp_max: 1.0,
+
+            r_pos_min: 0.8,
+            r_pos_max: 2.5,
+            r_pos_beta: 0.02,
             r_coast_start: 5,
             r_coast_growth: 0.03,
+
+            r_amp_min: 8.0,
+            r_amp_max: 70.0,
+            r_amp_beta: 0.05,
         }
     }
 }

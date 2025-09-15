@@ -921,6 +921,7 @@ dependencies = [
  "rerun",
  "serde",
  "serde_json",
+ "statrs",
  "toml 0.9.5",
  "tracing",
 ]
@@ -4241,7 +4242,7 @@ dependencies = [
  "nalgebra 0.30.1",
  "num",
  "rand 0.7.3",
- "rand_distr",
+ "rand_distr 0.2.2",
  "rayon",
  "rusttype",
 ]
@@ -5052,6 +5053,23 @@ dependencies = [
  "num-traits",
  "serde",
  "simba 0.8.1",
+ "typenum",
+]
+
+[[package]]
+name = "nalgebra"
+version = "0.33.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26aecdf64b707efd1310e3544d709c5c0ac61c13756046aaaba41be5c4f66a3b"
+dependencies = [
+ "approx 0.5.1",
+ "matrixmultiply",
+ "num-complex",
+ "num-rational",
+ "num-traits",
+ "rand 0.8.5",
+ "rand_distr 0.4.3",
+ "simba 0.9.0",
  "typenum",
 ]
 
@@ -6477,6 +6495,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96977acbdd3a6576fb1d27391900035bf3863d4a16422973a409b488cf29ffb2"
 dependencies = [
  "rand 0.7.3",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
+dependencies = [
+ "num-traits",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -8347,6 +8375,18 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "statrs"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a3fe7c28c6512e766b0874335db33c94ad7b8f9054228ae1c2abd47ce7d335e"
+dependencies = [
+ "approx 0.5.1",
+ "nalgebra 0.33.2",
+ "num-traits",
+ "rand 0.8.5",
+]
 
 [[package]]
 name = "strict-num"

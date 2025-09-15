@@ -163,9 +163,14 @@ impl FrameProcessor for FrameStackerProcessor {
                     .zip(new_pixels.iter())
                     .zip(old_pixels.iter())
                     .for_each(|(((result, &integration), &new_pixel), &old_pixel)| {
-                        *result = integration
-                            .saturating_add(new_pixel)
-                            .saturating_sub(old_pixel);
+                        let new_val_i16: i16 =
+                            integration as i16 + new_pixel as i16 - old_pixel as i16;
+                        let clamped_val = new_val_i16.clamp(0, 255) as u8;
+                        *result = clamped_val;
+
+                        // *result = integration
+                        //     .saturating_add(new_pixel)
+                        //     .saturating_sub(old_pixel);
                     });
             }
             (Renormalize::None, None) => {

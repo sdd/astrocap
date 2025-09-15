@@ -10,4 +10,5 @@ tracker_strategy = "MultiHypothesis"
 stage_type = "astrocap_sink_tracker_evaluator::TrackerEvaluatorSink"
 annotations_file = "tests/processed_crop_1_lossless-annotations.json"
 distance_threshold = 5.0
+confirmation_threshold = 100
 output_path = "tracker_evaluation_results_threshold.json"

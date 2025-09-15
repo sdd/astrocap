@@ -30,6 +30,8 @@ pub trait HypothesisTracker: Send + Sync + 'static {
     fn process_frame(&mut self, detections: &[Detection], frame_index: usize);
 
     fn summary(&self) -> &[TrackSummary];
+
+    fn final_summary(&self);
     fn log_to_rerun(&self, rec: &RecordingStream);
 }
 

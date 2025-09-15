@@ -7,9 +7,13 @@ use toml::Value;
 pub struct Config {
     /// Path to the JSON annotations file
     pub annotations_file: PathBuf,
+
+    pub confirmation_threshold: f32,
+
     /// Distance threshold for considering a detection a match (pixels)
     #[serde(default = "default_distance_threshold")]
     pub distance_threshold: f32,
+
     /// Output path for evaluation results JSON
     #[serde(default = "default_output_path")]
     pub output_path: PathBuf,
