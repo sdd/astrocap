@@ -1,7 +1,7 @@
 use argmin::core::{CostFunction, State, TerminationReason};
 use argmin::solver::neldermead::NelderMead;
 use astrocap_core::frame::CpuFrame;
-use astrocap_core::structs::{DetectedPoint, FittedPoint, FittedPointQuality};
+use astrocap_core::structs::{Detection, FittedPoint, FittedPointQuality};
 use astrocap_core::traits::PointFitter;
 use image::Pixel;
 use ndarray::Array1;
@@ -188,9 +188,9 @@ pub struct PointFitterGaussianNelderMead {}
 // https://docs.rs/levenberg-marquardt/latest/levenberg_marquardt/struct.LevenbergMarquardt.html
 
 impl PointFitter for PointFitterGaussianNelderMead {
-    fn fit(&self, frame: &CpuFrame, point: &DetectedPoint) -> FittedPoint {
-        let centre_x = point.x.min((frame.img.width() - 1) as f32);
-        let centre_y = point.y.min((frame.img.height() - 1) as f32);
+    fn fit(&self, frame: &CpuFrame, point: &Detection) -> FittedPoint {
+        let centre_x = point.position[0].min((frame.img.width() - 1) as f32);
+        let centre_y = point.position[1].min((frame.img.height() - 1) as f32);
 
         let problem = Gaussian2DFitProblem {
             frame,
@@ -223,8 +223,8 @@ impl PointFitter for PointFitterGaussianNelderMead {
             calculate_fit_quality(frame, centre_x, centre_y, cost, degrees_of_freedom, best[4]);
 
         let mut response = FittedPoint {
-            x: point.x as f32 + best[0],
-            y: point.y as f32 + best[1],
+            x: point.position[0] as f32 + best[0],
+            y: point.position[1] as f32 + best[1],
             radius_x: best[2],
             radius_y: best[3],
             amplitude: best[4],
@@ -351,7 +351,7 @@ pub fn gaussian_2d(
 mod tests {
     use super::PointFitterGaussianNelderMead;
     use astrocap_core::frame::{CpuFrame, CpuStorage};
-    use astrocap_core::structs::DetectedPoint;
+    use astrocap_core::structs::Detection;
     use astrocap_core::traits::PointFitter;
     use image::io::Reader as ImageReader;
     use image::{ImageBuffer, Luma};
@@ -385,7 +385,7 @@ mod tests {
 
         let img = CpuFrame::from_vec(img_width, img_height, raw_img.into_bytes()).unwrap();
 
-        let points: Vec<DetectedPoint> = serde_json::from_reader(
+        let points: Vec<Detection> = serde_json::from_reader(
             File::open("../test-images/astrocap_model/test-image-1-detected.json").unwrap(),
         )
         .unwrap();

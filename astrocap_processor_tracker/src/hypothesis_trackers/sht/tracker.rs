@@ -1,9 +1,9 @@
 use super::factory::SingleHypothesisTrackerElementFactory;
-use crate::model::{Detection, Track};
+use crate::model::Track;
 use crate::processor::hsv_to_rgb;
 use crate::traits::{Associator, HypothesisTracker, Initiator, Predictor, Terminator, Updater};
-use astrocap_core::traits::TrackSummary;
 use astrocap_core::AstrocapError;
+use astrocap_core::{structs::Detection, traits::TrackSummary};
 use rerun::RecordingStream;
 use toml::Value;
 

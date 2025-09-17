@@ -5,15 +5,8 @@ use crate::config::Config;
 use astrocap_core::frame::CpuFrame;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameSource};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Detection {
-    pub x: f32,
-    pub y: f32,
-    pub amplitude: f32,
-}
 
 pub struct RecordedDetectionsSource {
     config: Config,
@@ -85,15 +78,8 @@ impl FrameSource for RecordedDetectionsSource {
         let mut frame_ctx = FrameContext::new(dummy_frame, self.frame_index);
 
         // Convert our Detection format to DetectedPoint format (what the pipeline expects)
-        let detected_points: Vec<DetectedPoint> = self.detections[self.frame_index]
-            .iter()
-            .map(|detection| DetectedPoint {
-                x: detection.x,
-                y: detection.y,
-                amplitude: detection.amplitude,
-                fitted: None,
-            })
-            .collect();
+        let detected_points: Vec<Detection> =
+            self.detections[self.frame_index].iter().cloned().collect();
 
         // Inject the detections into the frame context metadata
         // This is the same key that the point detector processor uses

@@ -1,6 +1,6 @@
-use crate::model::{Detection, Track};
+use crate::model::Track;
 use crate::traits::{Configurable, ConfigurableConfig, Updater};
-use astrocap_core::AstrocapError;
+use astrocap_core::{structs::Detection, AstrocapError};
 use nalgebra::{Matrix2, Matrix4, Vector2};
 use serde::Deserialize;
 
@@ -210,7 +210,9 @@ impl Kalman {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Detection, Track, TrackState};
+    use crate::model::{Track, TrackState};
+    use astrocap_core::structs::Detection;
+
     use nalgebra::{Matrix4, Vector4};
 
     fn create_test_track() -> Track {

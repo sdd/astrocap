@@ -159,7 +159,9 @@ impl CpuStorage {
                     return new_storage.to_owned(); // Ensure the result is owned
                 }
 
-                tracing::warn!("Buffer still has other references and no pool available, performing heap allocation and copy");
+                tracing::warn!(
+                    "Buffer still has other references and no pool available, performing heap allocation and copy"
+                );
                 StatsContext::record_memory_operation(MemoryOperation::CpuCopy(data_len));
                 StatsContext::record_memory_operation(MemoryOperation::CpuAllocation(data_len));
                 let vec = (&**shared).to_vec();
@@ -588,7 +590,7 @@ impl Frame {
         self.ensure_cpu(timeout)?;
 
         match self {
-            Frame::Cpu(ref cpu_frame) => Ok(&cpu_frame.img),
+            &mut Frame::Cpu(ref cpu_frame) => Ok(&cpu_frame.img),
             _ => {
                 unreachable!()
             }

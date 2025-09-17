@@ -12,10 +12,10 @@ use rerun::RecordingStream;
 use statrs::statistics::{Data, Distribution, Statistics};
 use toml::Value;
 
-use crate::model::{Detection, Track};
+use crate::model::Track;
 use crate::traits::HypothesisTracker;
-use astrocap_core::traits::{TrackSummarize, TrackSummary};
-use astrocap_core::AstrocapError;
+use astrocap_core::traits::{Dumpable, TrackSummarize, TrackSummary};
+use astrocap_core::{structs::Detection, AstrocapError, DumpManager};
 
 use config::MhtConfig;
 use kalman_filter::KalmanFilter;
@@ -90,6 +90,57 @@ impl TrackSummarize for MhtTrackNode {
             start_x: self.start_x,
             start_y: self.start_y,
             first_seen: self.first_seen,
+        }
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct MhtTrackNodeRow {
+    pub run_id: u64,
+    pub frame_index: usize,
+
+    pub id: u64,
+    pub founder_id: u64,
+    pub parent_id: Option<u64>,
+    pub detection_id: Option<u64>,
+    pub age: usize,
+    pub conf_ll: f32,
+    pub conf_lo: f32,
+    pub cum_ll: f32,
+    pub cum_lo: f32,
+    pub amplitude: f32,
+    pub first_seen: usize,
+    pub start_x: f32,
+    pub start_y: f32,
+    pub start_amplitude: f32,
+    pub kf_id: u64,
+}
+
+impl Dumpable for MhtTrackNode {
+    type Row = MhtTrackNodeRow;
+
+    const TABLE_NAME: &'static str = "mht_track_node";
+    const VERSION: u32 = 1;
+
+    fn to_row(&self, run_id: u64, frame_index: usize) -> Self::Row {
+        MhtTrackNodeRow {
+            run_id,
+            frame_index,
+            id: self.id,
+            founder_id: self.founder_id,
+            parent_id: self.parent_id,
+            detection_id: self.detection_id,
+            age: self.age,
+            conf_ll: self.conf.ll,
+            conf_lo: self.conf.lo,
+            cum_ll: self.cum_conf.ll,
+            cum_lo: self.cum_conf.lo,
+            amplitude: self.amplitude,
+            first_seen: self.first_seen,
+            start_x: self.start_x,
+            start_y: self.start_y,
+            start_amplitude: self.start_amplitude,
+            kf_id: 1, /* attach KF id here */
         }
     }
 }
@@ -683,6 +734,34 @@ impl HypothesisTracker for MultiHypothesisTracker {
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to log tracks to rerun: {}", e);
         });
+    }
+
+    fn dump(&self, manager: &mut DumpManager, frame_idx: usize) -> Result<(), AstrocapError> {
+        // dump tracks
+        let leaf_rows = self
+            .leaf_ids
+            .iter()
+            .map(|leaf_id| &self.track_node_store.track_nodes[leaf_id]);
+
+        manager
+            .dumper::<MhtTrackNode>()
+            .lock()
+            .unwrap()
+            .dumps(leaf_rows, frame_idx);
+
+        // dump KFs
+        let kfs = self
+            .leaf_ids
+            .iter()
+            .map(|leaf_id| &self.track_node_store.track_nodes[leaf_id].state);
+
+        manager
+            .dumper::<KalmanFilter>()
+            .lock()
+            .unwrap()
+            .dumps(kfs, frame_idx);
+
+        Ok(())
     }
 }
 

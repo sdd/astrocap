@@ -2,7 +2,7 @@ use crate::frame::CpuFrame;
 use crate::pipeline::PipelineContext;
 use crate::statistics::ProcessingType;
 use crate::traits::FrameSource;
-use crate::{register_astrocap_frame_source, AstrocapError, Frame, FrameContext};
+use crate::{AstrocapError, Frame, FrameContext, register_astrocap_frame_source};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct DummySource {

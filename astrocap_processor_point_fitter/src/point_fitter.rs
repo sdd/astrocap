@@ -2,7 +2,7 @@ use crate::config::PointFitterConfig;
 use crate::fitters::nelder_mead::PointFitterGaussianNelderMead;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
-use astrocap_core::structs::{DetectedPoint, FittedPoint};
+use astrocap_core::structs::{Detection, FittedPoint};
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
@@ -45,8 +45,7 @@ impl FrameProcessor for PointFitterProcessor {
             return FrameProcessorResult::Skip;
         };
 
-        let Ok(detected_points_list) =
-            frame_ctx.try_get_as::<Vec<DetectedPoint>>("detected_points")
+        let Ok(detected_points_list) = frame_ctx.try_get_as::<Vec<Detection>>("detected_points")
         else {
             return FrameProcessorResult::Skip;
         };
@@ -59,7 +58,11 @@ impl FrameProcessor for PointFitterProcessor {
         if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
             rec.log(
                 "model/fitted_points".to_string(),
-                &rerun::Points2D::new(detected_points_list.iter().map(|cand| (cand.x, cand.y))),
+                &rerun::Points2D::new(
+                    detected_points_list
+                        .iter()
+                        .map(|cand| (cand.position[0], cand.position[1])),
+                ),
             )
             .unwrap();
         }

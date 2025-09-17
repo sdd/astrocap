@@ -10,6 +10,7 @@ anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }
 image = { workspace = true }
 imageproc = { workspace = true }
+nalgebra = { workspace = true }
 ordered-float = "5"
 rerun = { workspace = true }
 serde = { version = "1", features = ["derive"] }

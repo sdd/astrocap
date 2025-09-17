@@ -3,12 +3,12 @@ use toml::Value;
 
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::traits::FrameProcessor;
-use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
+use astrocap_core::{AstrocapError, DumpManager, FrameContext, FrameProcessorResult};
 
 use crate::config::Config;
-use crate::model::{Detection, Track};
+use crate::model::Track;
 use crate::traits::HypothesisTracker;
 
 pub struct TrackerProcessor {
@@ -36,12 +36,12 @@ impl FrameProcessor for TrackerProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let detections = frame_ctx.get_as::<Vec<DetectedPoint>>("detected_points");
+        let detections = frame_ctx.get_as::<Vec<Detection>>("detected_points");
 
         // map DetectedPoint to Detection
         let detections = detections
             .iter()
-            .map(|d| Detection::new(d.x, d.y, d.amplitude))
+            .map(|d| Detection::new(d.position.x, d.position.y, d.amplitude))
             .collect::<Vec<_>>();
 
         frame_ctx.put("tracker/detections", detections.clone());
@@ -59,6 +59,19 @@ impl FrameProcessor for TrackerProcessor {
         let track_summary = self.tracker.summary().to_vec();
         tracing::debug!(track_count = track_summary.len());
         frame_ctx.put("tracker/tracks", track_summary);
+
+        // Get the dump manager from the pipeline context
+        let entry = ctx.entry("dump_manager");
+        if let std::collections::hash_map::Entry::Occupied(mut entry) = entry {
+            let dump_manager = entry
+                .get_mut()
+                .downcast_mut::<DumpManager>()
+                .expect("dump_manager is not a DumpManager");
+
+            if let Err(e) = self.tracker.dump(dump_manager, frame_ctx.frame_index) {
+                tracing::error!("Error dumping: {}", e);
+            }
+        }
 
         FrameProcessorResult::Continue
     }

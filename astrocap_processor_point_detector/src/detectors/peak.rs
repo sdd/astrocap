@@ -1,4 +1,4 @@
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
@@ -43,8 +43,8 @@ impl PointDetector for PointDetectPeak {
         img: &Frame,
         _median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
-    ) -> Vec<DetectedPoint> {
-        let mut points: Vec<DetectedPoint> = vec![];
+    ) -> Vec<Detection> {
+        let mut points: Vec<Detection> = vec![];
 
         let Some(img) = img.as_cpu_image() else {
             tracing::error!("CPU image not retrieved for frame");
@@ -98,8 +98,8 @@ impl PointDetector for PointDetectPeak {
                         .iter()
                         .enumerate()
                         .filter(|&(_idx, existing)| {
-                            let xd = (existing.x as i32 - point_x as i32).abs();
-                            let yd = (existing.y as i32 - point_y as i32).abs();
+                            let xd = (existing.position.x as i32 - point_x as i32).abs();
+                            let yd = (existing.position.y as i32 - point_y as i32).abs();
                             ((xd * xd) + (yd * yd)) < self.config.point_exclusion_radius_2
                         })
                         .map(|(n, i)| (n, i.clone()))
@@ -126,12 +126,7 @@ impl PointDetector for PointDetectPeak {
                         }
                     }
 
-                    let new_point = DetectedPoint {
-                        x: point_x as f32,
-                        y: point_y as f32,
-                        amplitude: curr_val_f32,
-                        fitted: None,
-                    };
+                    let new_point = Detection::new(point_x as f32, point_y as f32, curr_val_f32);
 
                     points.push(new_point.clone());
                 }
@@ -150,12 +145,12 @@ impl PointDetector for PointDetectPeak {
 pub fn inside_existing_point(
     x: i32,
     y: i32,
-    points: &[DetectedPoint],
+    points: &[Detection],
     point_exclusion_radius_2: i32,
 ) -> bool {
     points.iter().any(|point| {
-        let xd = (point.x as i32 - x).abs();
-        let yd = (point.y as i32 - y).abs();
+        let xd = (point.position.x as i32 - x).abs();
+        let yd = (point.position.y as i32 - y).abs();
         ((xd * xd) + (yd * yd)) < point_exclusion_radius_2
     })
 }
@@ -166,7 +161,7 @@ mod tests {
         PeakConfig, PointDetectPeak, DEFAULT_POINT_EXCLUSION_RADIUS_2, DEFAULT_POINT_THRESHOLD,
         DEFAULT_STEP_X, DEFAULT_STEP_Y,
     };
-    use astrocap_core::structs::DetectedPoint;
+    use astrocap_core::structs::Detection;
     use astrocap_core::traits::PointDetector;
     use astrocap_core::Frame;
     use image::io::Reader as ImageReader;
@@ -227,7 +222,7 @@ mod tests {
 
         let subtracted = Frame::from_img(subtracted);
         let img_median = Some(Arc::new(Frame::from_img(img_median)));
-        let results: Vec<DetectedPoint> = point_detect_peak.detect(&subtracted, img_median, None);
+        let results: Vec<Detection> = point_detect_peak.detect(&subtracted, img_median, None);
 
         serde_json::to_writer(
             File::create("../test-images/astrocap_model/test-image-1-detected.json").unwrap(),
@@ -237,7 +232,7 @@ mod tests {
 
         let mut tree: Tree = Tree::new();
         for (idx, point) in results.iter().enumerate() {
-            tree.add(&[point.x as f64, point.y as f64], idx);
+            tree.add(&[point.position.x as f64, point.position.y as f64], idx);
         }
 
         let known_good = [

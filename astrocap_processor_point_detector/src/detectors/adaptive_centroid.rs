@@ -1,8 +1,9 @@
 use astrocap_core::frame::CpuImgBuf;
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
+use nalgebra::Vector2;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -51,9 +52,9 @@ impl PointDetector for PointDetectAdaptiveCentroid {
         img: &Frame,
         median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
-    ) -> Vec<DetectedPoint> {
+    ) -> Vec<Detection> {
         let min_separation_2 = self.config.min_separation * self.config.min_separation;
-        let mut points: Vec<DetectedPoint> = vec![];
+        let mut points: Vec<Detection> = vec![];
 
         let Some(img) = img.as_cpu_image() else {
             tracing::error!("CPU image not retrieved for frame");
@@ -144,12 +145,11 @@ impl PointDetector for PointDetectAdaptiveCentroid {
                     let (centroid_x, centroid_y, peak_intensity) =
                         calculate_centroid(&*img, x, y, self.config.centroid_window, &mask);
 
-                    points.push(DetectedPoint {
-                        x: centroid_x.round(),
-                        y: centroid_y.round(),
-                        amplitude: peak_intensity,
-                        fitted: None,
-                    });
+                    points.push(Detection::new(
+                        centroid_x.round(),
+                        centroid_y.round(),
+                        peak_intensity,
+                    ));
                 }
             }
         }
@@ -159,9 +159,9 @@ impl PointDetector for PointDetectAdaptiveCentroid {
         points.sort_by(|a, b| b.amplitude.partial_cmp(&a.amplitude).unwrap());
 
         for candidate in points {
-            let too_close = final_points.iter().any(|existing: &DetectedPoint| {
-                let dx = candidate.x - existing.x;
-                let dy = candidate.y - existing.y;
+            let too_close = final_points.iter().any(|existing: &Detection| {
+                let dx = candidate.position.x - existing.position.x;
+                let dy = candidate.position.y - existing.position.y;
                 (dx * dx + dy * dy) < min_separation_2
             });
 

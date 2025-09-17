@@ -1,7 +1,7 @@
 use crate::pipeline::PipelineContext;
 use crate::statistics::ProcessingType;
 use crate::traits::FrameSink;
-use crate::{register_astrocap_frame_sink, AstrocapError, FrameContext};
+use crate::{AstrocapError, FrameContext, register_astrocap_frame_sink};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use toml::Value;
 

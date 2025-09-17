@@ -1,6 +1,6 @@
-use crate::model::{Detection, Track};
+use crate::model::Track;
 use crate::traits::{Configurable, ConfigurableConfig, Initiator};
-use astrocap_core::AstrocapError;
+use astrocap_core::{structs::Detection, AstrocapError};
 use ordered_float::OrderedFloat;
 use serde::Deserialize;
 

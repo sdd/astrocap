@@ -1,5 +1,5 @@
 use astrocap_core::frame::CpuImgBuf;
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
@@ -88,10 +88,10 @@ impl PointDetector for PointDetectLocalMaxima {
         img: &Frame,
         _median: Option<Arc<Frame>>,
         mask: Option<&Frame>,
-    ) -> Vec<DetectedPoint> {
+    ) -> Vec<Detection> {
         let min_separation_2 = self.config.min_separation * self.config.min_separation;
 
-        let mut points: Vec<DetectedPoint> = vec![];
+        let mut points: Vec<Detection> = vec![];
 
         let Some(img) = img.as_cpu_image() else {
             tracing::error!("CPU image not retrieved for frame");
@@ -164,12 +164,7 @@ impl PointDetector for PointDetectLocalMaxima {
                         img_h,
                     );
 
-                    points.push(DetectedPoint {
-                        x: centroid_x.round(),
-                        y: centroid_y.round(),
-                        amplitude: peak_intensity,
-                        fitted: None,
-                    });
+                    points.push(Detection::new(centroid_x, centroid_y, peak_intensity));
                 }
             }
         }
@@ -179,9 +174,9 @@ impl PointDetector for PointDetectLocalMaxima {
         points.sort_by(|a, b| b.amplitude.partial_cmp(&a.amplitude).unwrap());
 
         for candidate in points {
-            let too_close = final_points.iter().any(|existing: &DetectedPoint| {
-                let dx = candidate.x as f64 - existing.x as f64;
-                let dy = candidate.y as f64 - existing.y as f64;
+            let too_close = final_points.iter().any(|existing: &Detection| {
+                let dx = candidate.position.x as f64 - existing.position.x as f64;
+                let dy = candidate.position.y as f64 - existing.position.y as f64;
                 (dx * dx + dy * dy) < min_separation_2
             });
 

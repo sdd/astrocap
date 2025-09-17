@@ -630,12 +630,12 @@ where
         // Innovation covariance: S = H*P*H^T + R
         let s = [
             [
-                self.kalman_covariance[0][0] + adjusted_noise + 1e-6,
+                self.kalman_covariance[0][0] + adjusted_noise + 1e-6f64.az::<F>(),
                 self.kalman_covariance[0][1],
             ],
             [
                 self.kalman_covariance[1][0],
-                self.kalman_covariance[1][1] + adjusted_noise + 1e-6,
+                self.kalman_covariance[1][1] + adjusted_noise + 1e-6f64.az::<F>(),
             ],
         ];
 

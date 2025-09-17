@@ -1,10 +1,41 @@
 use crate::pipeline::PipelineContext;
 use crate::statistics::ProcessingType;
 use crate::traits::FrameProcessor;
-use crate::{register_astrocap_frame_processor, AstrocapError, FrameContext, FrameProcessorResult};
+use crate::{
+    AstrocapError, DumpManager, Dumpable, FrameContext, FrameProcessorResult,
+    register_astrocap_frame_processor,
+};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use toml::Value;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ExampleDataRow {
+    pub run_id: u64,
+    pub frame_index: usize,
+    pub value: String,
+}
+
+/// Example data to dump
+pub struct ExampleData {
+    pub value: String,
+}
+
+impl Dumpable for ExampleData {
+    type Row = ExampleDataRow;
+
+    const TABLE_NAME: &'static str = "example_data";
+    const VERSION: u32 = 1;
+
+    fn to_row(&self, run_id: u64, frame_index: usize) -> Self::Row {
+        ExampleDataRow {
+            run_id,
+            frame_index,
+            value: self.value.clone(),
+        }
+    }
+}
 
 pub struct DummyProcessor {
     processing_delay_ms: Option<u64>,
@@ -50,6 +81,23 @@ impl FrameProcessor for DummyProcessor {
         if let Ok(counter) = ctx.try_get_as::<AtomicUsize>("frames_processed") {
             counter.fetch_add(1, Ordering::SeqCst);
         }
+
+        // Create and dump example data
+        let example_data = ExampleData {
+            value: format!("Frame {} from {}", frame_ctx.frame_index, self.name()),
+        };
+
+        // Check if we have a dump manager in the pipeline context
+        if let Ok(dump_manager) = ctx.try_get_as_mut::<DumpManager>("dump_manager") {
+            if let Err(err) = dump_manager
+                .dumper::<ExampleData>()
+                .lock()
+                .unwrap()
+                .dump(&example_data, frame_ctx.frame_index)
+            {
+                tracing::error!("Failed to dump example data: {:?}", err);
+            }
+        };
 
         FrameProcessorResult::Continue
     }

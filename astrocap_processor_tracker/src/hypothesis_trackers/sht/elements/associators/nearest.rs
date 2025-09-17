@@ -1,6 +1,6 @@
-use crate::model::{Detection, Track};
+use crate::model::Track;
 use crate::traits::{Associations, Associator, Configurable, ConfigurableConfig};
-use astrocap_core::AstrocapError;
+use astrocap_core::{structs::Detection, AstrocapError};
 use kiddo::{KdTree, SquaredEuclidean};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};

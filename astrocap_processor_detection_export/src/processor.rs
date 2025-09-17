@@ -1,6 +1,6 @@
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessor, FrameProcessorResult};
 use std::fs::File;
 use tracing::{debug, error, info};
@@ -8,13 +8,6 @@ use tracing::{debug, error, info};
 use crate::config::Config;
 
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Detection {
-    pub x: f32,
-    pub y: f32,
-    pub amplitude: f32,
-}
 
 pub struct DetectionExportProcessor {
     config: Config,
@@ -64,15 +57,11 @@ impl FrameProcessor for DetectionExportProcessor {
         _ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
         let frame_detections = if let Ok(detected_points) =
-            frame_ctx.try_get_as::<Vec<DetectedPoint>>("detected_points")
+            frame_ctx.try_get_as::<Vec<Detection>>("detected_points")
         {
             detected_points
                 .iter()
-                .map(|point| Detection {
-                    x: point.x,
-                    y: point.y,
-                    amplitude: point.amplitude,
-                })
+                .map(|point| Detection::new(point.position.x, point.position.y, point.amplitude))
                 .collect()
         } else {
             Vec::new()

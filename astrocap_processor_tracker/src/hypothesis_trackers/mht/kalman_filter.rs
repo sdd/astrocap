@@ -1,12 +1,15 @@
-use crate::model::Detection;
 use nalgebra::{
     Matrix2, Matrix2x4, Matrix3, Matrix3x5, Matrix4, Matrix4x2, Matrix5, Matrix5x3, Vector2,
     Vector3, Vector4, Vector5,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::hypothesis_trackers::mht::config::MhtConfig;
 use crate::hypothesis_trackers::mht::LogProbs;
+use astrocap_core::{structs::Detection, traits::Dumpable};
 use std::sync::LazyLock;
+
+static NEXT_KF_ID: AtomicU64 = AtomicU64::new(1);
 
 // State transition matrix F. Assumes constant frame rate
 #[rustfmt::skip]
@@ -77,6 +80,7 @@ const BASELINE_AMP_DRIFT_VAR: f32 = 3.0; // σ≈3 amplitude units per frame →
 /// Structure holding KF state + covariance + adaptive noise scales
 #[derive(Clone, Debug)]
 pub struct KalmanFilter {
+    pub id: u64,
     pub state: Vector5<f32>,      // [x, y, vx, vy, a]
     pub covariance: Matrix5<f32>, // 4×4 covariance of the state estimate
 
@@ -109,6 +113,40 @@ pub struct KalmanFilter {
     pub r_amp_beta: f32, // smoothing for a (usually > r_beta)
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct KalmanFilterRow {
+    pub id: u64,
+    pub run_id: u64,
+    pub frame_index: usize,
+
+    pub state: [f32; 5],
+    pub covariance: [f32; 25],
+    pub r: [f32; 9],
+    pub q_pos_scale: f32,
+    pub q_amp_scale: f32,
+    pub nis_ewma: f32,
+}
+
+impl Dumpable for KalmanFilter {
+    type Row = KalmanFilterRow;
+
+    const TABLE_NAME: &'static str = "kalman_filter";
+    const VERSION: u32 = 1;
+    fn to_row(&self, run_id: u64, frame_index: usize) -> Self::Row {
+        KalmanFilterRow {
+            run_id,
+            frame_index,
+            id: self.id,
+            state: self.state.as_slice().try_into().unwrap(),
+            covariance: self.covariance.as_slice().try_into().unwrap(),
+            r: self.r.as_slice().try_into().unwrap(),
+            q_pos_scale: self.q_pos_scale,
+            q_amp_scale: self.q_amp_scale,
+            nis_ewma: self.nis_ewma,
+        }
+    }
+}
+
 impl KalmanFilter {
     pub fn new_from_detection(detection: &Detection) -> Self {
         Self::new_with_velocity(Vector5::new(
@@ -126,6 +164,7 @@ impl KalmanFilter {
         let r_a_init = 20.0f32;
 
         Self {
+            id: NEXT_KF_ID.fetch_add(1, Ordering::Relaxed),
             state,
             covariance: Matrix5::identity(),
 
@@ -166,6 +205,7 @@ impl KalmanFilter {
         let r_a_init = 20.0f32;
 
         Self {
+            id: NEXT_KF_ID.fetch_add(1, Ordering::Relaxed),
             state,
             covariance,
 
@@ -256,6 +296,7 @@ impl KalmanFilter {
         let covariance = *F5 * self.covariance * F5.transpose() + q;
 
         Self {
+            id: NEXT_KF_ID.fetch_add(1, Ordering::Relaxed),
             state,
             covariance,
 
@@ -700,13 +741,11 @@ mod tests {
 
     #[test]
     fn test_kf_predict_moves_forward() {
-        use nalgebra::{Matrix4, Vector4};
+        // Initial state: (x=0, y=0, vx=1, vy=2, a=5)
+        let init_state = Vector5::new(0.0, 0.0, 1.0, 2.0, 5.0);
+        let kf = KalmanFilter::new_with_covariance(init_state, Matrix5::identity());
 
-        // Initial state: (x=0, y=0, vx=1, vy=2)
-        let init_state = Vector4::new(0.0, 0.0, 1.0, 2.0);
-        let kf = KalmanFilter::new_with_covariance(init_state, Matrix4::identity());
-
-        let predicted = kf.predict();
+        let predicted = kf.predict(1.0);
 
         // Expect position advanced by velocity: x=1, y=2
         assert!((predicted.x() - 1.0).abs() < 1e-5);
@@ -715,18 +754,20 @@ mod tests {
         // Velocity should be unchanged
         assert!((predicted.state[2] - 1.0).abs() < 1e-5);
         assert!((predicted.state[3] - 2.0).abs() < 1e-5);
+
+        // Amplitude should be unchanged
+        assert!((predicted.state[4] - 5.0).abs() < 1e-5);
     }
 
     #[test]
     fn test_kf_update_pulls_toward_detection() {
-        use crate::model::Detection;
-        use nalgebra::{Matrix4, Vector4};
+        use astrocap_core::structs::Detection;
 
-        // Start at (0,0) with zero velocity
-        let init_state = Vector4::new(0.0, 0.0, 0.0, 0.0);
-        let mut kf = KalmanFilter::new_with_covariance(init_state, Matrix4::identity());
+        // Start at (0,0) with zero velocity and amplitude 0
+        let init_state = Vector5::new(0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut kf = KalmanFilter::new_with_covariance(init_state, Matrix5::identity());
 
-        // Measurement at (10,10)
+        // Measurement at (10,10) with amplitude 100
         let detection = Detection {
             id: 1,
             position: Vector2::new(10.0, 10.0),
@@ -738,5 +779,8 @@ mod tests {
         // After update, x and y should have shifted toward 10
         assert!(kf.x() > 0.0 && kf.x() < 10.0);
         assert!(kf.y() > 0.0 && kf.y() < 10.0);
+
+        // Amplitude should have shifted toward 100
+        assert!(kf.a() > 0.0 && kf.a() < 100.0);
     }
 }

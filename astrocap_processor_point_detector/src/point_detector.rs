@@ -4,8 +4,9 @@ use crate::detectors::local_maxima::PointDetectLocalMaxima;
 use crate::detectors::peak::PointDetectPeak;
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
+use astrocap_core::structs::Detection;
 use astrocap_core::traits::{FrameProcessor, PointDetector};
-use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
+use astrocap_core::{AstrocapError, DumpManager, Frame, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
 use std::sync::Arc;
 
@@ -63,9 +64,28 @@ impl FrameProcessor for PointDetectorProcessor {
         if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
             rec.log(
                 "model/detected_points".to_string(),
-                &rerun::Points2D::new(detected_points_list.iter().map(|cand| (cand.x, cand.y))),
+                &rerun::Points2D::new(
+                    detected_points_list
+                        .iter()
+                        .map(|cand| (cand.position.x, cand.position.y)),
+                ),
             )
             .unwrap();
+        }
+
+        // Get the dump manager from the pipeline context
+        let entry = ctx.entry("dump_manager");
+        if let std::collections::hash_map::Entry::Occupied(mut entry) = entry {
+            let dump_manager = entry
+                .get_mut()
+                .downcast_mut::<DumpManager>()
+                .expect("dump_manager is not a DumpManager");
+
+            dump_manager
+                .dumper::<Detection>()
+                .lock()
+                .unwrap()
+                .dumps(detected_points_list.iter(), frame_ctx.frame_index);
         }
 
         frame_ctx.metadata.insert(

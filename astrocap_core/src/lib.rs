@@ -3,17 +3,21 @@ use std::collections::HashMap;
 use std::mem::swap;
 
 pub mod annotations;
+pub mod dump_manager;
 pub mod error;
 pub mod frame;
+mod parquet_dumper;
 pub mod pipeline;
 pub mod stages;
 pub mod statistics;
 pub mod structs;
 pub mod traits;
 
+pub use dump_manager::DumpManager;
 pub use error::AstrocapError;
 pub use frame::Frame;
-pub use traits::{FrameProcessor, FrameSink, FrameSource, StageFactory};
+pub use parquet_dumper::ParquetDumper;
+pub use traits::{Dumpable, FrameProcessor, FrameSink, FrameSource, StageFactory};
 
 // needed for the exported macros to work without the consuming crate having to import them
 pub use inventory;

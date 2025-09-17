@@ -46,7 +46,7 @@ impl AnnotatorApp {
             cache.width(),
             cache.height(),
             cache.frame_count() as u32, // Cast to u32
-            cache.fps(),
+            cache.fps() as f32,
         );
 
         self.annotations = Some(annotations);
@@ -170,8 +170,8 @@ impl AnnotatorApp {
             {
                 let keyframe = Keyframe {
                     frame_number: self.current_frame,
-                    x: image_x as f64,
-                    y: image_y as f64,
+                    x: image_x as f32,
+                    y: image_y as f32,
                     confidence: 1.0,
                     notes: None,
                 };

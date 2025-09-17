@@ -4,7 +4,7 @@ use crate::config::Config;
 use astrocap_core::annotations::{AnnotationSession, ObjectType, TrackedObject};
 use astrocap_core::pipeline::PipelineContext;
 use astrocap_core::statistics::ProcessingType;
-use astrocap_core::structs::DetectedPoint;
+use astrocap_core::structs::Detection;
 use astrocap_core::traits::FrameSink;
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
 use chrono::{DateTime, Utc};
@@ -364,7 +364,7 @@ pub struct PointDetectorEvaluatorSink {
     object_trackers: HashMap<u32, ObjectTracker>,
     all_true_positive_amplitudes: Vec<f32>,
     all_false_positive_amplitudes: Vec<f32>,
-    frame_detections: Vec<(u32, Vec<DetectedPoint>)>,
+    frame_detections: Vec<(u32, Vec<Detection>)>,
 }
 
 impl PointDetectorEvaluatorSink {
@@ -416,7 +416,7 @@ impl PointDetectorEvaluatorSink {
         &mut self,
         frame_number: u32,
         ground_truth: &[(u32, f32, f32)],
-        detections: &[DetectedPoint],
+        detections: &[Detection],
         processing_time_us: Option<u64>,
     ) -> FrameResult {
         self.frame_detections
@@ -437,8 +437,8 @@ impl PointDetectorEvaluatorSink {
                     continue; // Already matched
                 }
 
-                let distance = ((gt_x - (detected_point.x as f32)).powi(2)
-                    + (gt_y - (detected_point.y as f32)).powi(2))
+                let distance = ((gt_x - (detected_point.position[0])).powi(2)
+                    + (gt_y - (detected_point.position[1])).powi(2))
                 .sqrt();
                 if distance < best_distance {
                     best_distance = distance;
@@ -478,7 +478,8 @@ impl PointDetectorEvaluatorSink {
                     .map(|(_, det)| {
                         (
                             det,
-                            ((gt_x - det.x as f32).powi(2) + (gt_y - det.y as f32).powi(2)).sqrt(),
+                            ((gt_x - det.position.x).powi(2) + (gt_y - det.position.y).powi(2))
+                                .sqrt(),
                         )
                     })
                     .filter(|(_, distance)| *distance <= self.config.distance_threshold * 2.0) // Search in wider radius
@@ -1051,12 +1052,12 @@ impl PointDetectorEvaluatorSink {
             // Get expected position from linear interpolation
             if let Some(expected_pos) = object.position_at_frame(*frame_number) {
                 // Find the closest detection to expected position
-                let mut best_match: Option<&DetectedPoint> = None;
+                let mut best_match: Option<&Detection> = None;
                 let mut best_distance = 5.0; // Maximum matching distance
 
                 for detection in detections {
-                    let distance = ((detection.x - expected_pos.0).powi(2)
-                        + (detection.y - expected_pos.1).powi(2))
+                    let distance = ((detection.position.x - expected_pos.0).powi(2)
+                        + (detection.position.y - expected_pos.1).powi(2))
                     .sqrt();
 
                     if distance < best_distance {
@@ -1067,8 +1068,8 @@ impl PointDetectorEvaluatorSink {
 
                 if let Some(detection) = best_match {
                     // Calculate position error (actual - expected)
-                    let pos_error_x = detection.x - expected_pos.0;
-                    let pos_error_y = detection.y - expected_pos.1;
+                    let pos_error_x = detection.position.x - expected_pos.0;
+                    let pos_error_y = detection.position.y - expected_pos.1;
 
                     position_deltas_x.push(pos_error_x);
                     position_deltas_y.push(pos_error_y);
@@ -1080,8 +1081,8 @@ impl PointDetectorEvaluatorSink {
                         if frame_gap > 0 && frame_gap <= 10 {
                             // Reasonable frame gap
                             // Actual velocity
-                            let actual_vel_x = (detection.x - prev_x) / frame_gap as f32;
-                            let actual_vel_y = (detection.y - prev_y) / frame_gap as f32;
+                            let actual_vel_x = (detection.position.x - prev_x) / frame_gap as f32;
+                            let actual_vel_y = (detection.position.y - prev_y) / frame_gap as f32;
 
                             // Expected velocity from linear interpolation
                             if let Some(prev_expected) = object.position_at_frame(prev_frame) {
@@ -1101,7 +1102,8 @@ impl PointDetectorEvaluatorSink {
                     }
 
                     // Update previous detection
-                    previous_detection = Some((*frame_number, detection.x, detection.y));
+                    previous_detection =
+                        Some((*frame_number, detection.position.x, detection.position.y));
                     sample_count += 1;
                 }
             }
@@ -1147,7 +1149,7 @@ impl FrameSink for PointDetectorEvaluatorSink {
         // Get ground truth for this frame
         let ground_truth = self.annotations.objects_at_frame(frame_number);
 
-        let Ok(detections) = frame_ctx.try_get_as::<Vec<DetectedPoint>>("detected_points") else {
+        let Ok(detections) = frame_ctx.try_get_as::<Vec<Detection>>("detected_points") else {
             warn!(
                 "No detected points metadata found for frame {}",
                 frame_number

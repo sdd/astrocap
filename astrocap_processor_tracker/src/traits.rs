@@ -1,6 +1,6 @@
-use crate::model::{Detection, Track};
-use astrocap_core::traits::TrackSummary;
-use astrocap_core::AstrocapError;
+use crate::model::Track;
+use astrocap_core::{structs::Detection, traits::TrackSummary};
+use astrocap_core::{AstrocapError, DumpManager};
 use rerun::RecordingStream;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -33,6 +33,10 @@ pub trait HypothesisTracker: Send + Sync + 'static {
 
     fn final_summary(&self);
     fn log_to_rerun(&self, rec: &RecordingStream);
+
+    fn dump(&self, _manager: &mut DumpManager, _frame_idx: usize) -> Result<(), AstrocapError> {
+        Ok(())
+    }
 }
 
 /// Initializes new tracks from unassociated detections

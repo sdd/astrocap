@@ -1,4 +1,4 @@
-use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, PipelineContext};
+use astrocap_core::pipeline::{PipelineConfig, PipelineContext, build_pipeline, run_pipeline};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test]

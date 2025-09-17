@@ -1,21 +1,31 @@
 [package]
 name = "astrocap_core"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
+anyhow = { workspace = true }
+arrow2_convert = { workspace = true }
 chrono = { workspace = true }
 image = { workspace = true }
-imageproc = { workspace = true }
 inventory = "0.3"
+nalgebra = { workspace = true }
+parquet = { workspace = true }
 paste = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_arrow = { version = "0.13", features = ["arrow-56"] }
+arrow-schema = "56"
+arrow-array = "56"
 toml = { workspace = true }
 tracing = { workspace = true }
 dashmap = "6"
 thiserror = { workspace = true }
 once_cell.workspace = true
+rand = "0.8.5"
+
+[dev-dependencies]
+nalgebra = { workspace = true }
 
 [lib]
 name = "astrocap_core"

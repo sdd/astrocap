@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -37,14 +37,11 @@ impl PipelineContext {
         }
     }
 
-    pub fn entry<'a, K: Into<String>>(
-        &'a mut self,
-        key: K,
-    ) -> Entry<'a, String, PipelineContextValue> {
+    pub fn entry<K: Into<String>>(&mut self, key: K) -> Entry<'_, String, PipelineContextValue> {
         self.metadata.entry(key.into())
     }
 
-    pub fn try_get_as<'a, T: 'static>(&'a self, key: &str) -> Result<&'a T, AstrocapError> {
+    pub fn try_get_as<T: 'static>(&self, key: &str) -> Result<&T, AstrocapError> {
         let Some(value) = self.metadata.get(key) else {
             tracing::trace!("key \"{}\" not present in frame context metadata", key);
             return Err(AstrocapError::FrameMetadataNotFoundError);
@@ -58,15 +55,25 @@ impl PipelineContext {
         Ok(downcasted)
     }
 
-    pub fn get_as<'a, T: 'static>(&'a self, key: &str) -> &'a T {
+    pub fn try_get_as_mut<T: 'static>(&mut self, key: &str) -> Result<&mut T, AstrocapError> {
+        let Some(value) = self.metadata.get_mut(key) else {
+            tracing::trace!("key \"{}\" not present in frame context metadata", key);
+            return Err(AstrocapError::FrameMetadataNotFoundError);
+        };
+
+        let Some(downcasted) = value.downcast_mut::<T>() else {
+            tracing::error!("Could not downcast metadata value to requested type");
+            return Err(AstrocapError::FrameMetadataTypeError);
+        };
+
+        Ok(downcasted)
+    }
+
+    pub fn get_as<T: 'static>(&self, key: &str) -> &T {
         self.try_get_as(key).unwrap()
     }
 
-    pub fn get_as_or_insert<'a, T: Send + Sync + 'static, F>(
-        &'a mut self,
-        key: &str,
-        default: F,
-    ) -> &'a T
+    pub fn get_as_or_insert<T: Send + Sync + 'static, F>(&mut self, key: &str, default: F) -> &T
     where
         F: FnOnce() -> T,
     {
@@ -350,7 +357,7 @@ pub fn run_pipeline(
         // Log comprehensive timing summary for this frame
         log_frame_timing_summary(&ctx, frame_count, total_frame_duration_us);
 
-        // Log periodic throughput stats
+        // Log periodic throughput stats and flush dumpers
         if frame_count.is_multiple_of(100) {
             let elapsed = pipeline_start.elapsed();
             let fps = frame_count as f64 / elapsed.as_secs_f64();
@@ -361,6 +368,17 @@ pub fn run_pipeline(
                 fps,
                 "Pipeline throughput"
             );
+
+            // Periodically flush the dump manager to ensure data is written to disk
+            if let Ok(dm) =
+                pipeline_context.try_get_as_mut::<crate::dump_manager::DumpManager>("dump_manager")
+            {
+                // We need to get a mutable reference, but we only have immutable access through try_get_as
+                // Instead of changing the API, we'll drop and re-access it with entry()
+                if let Err(e) = dm.flush_all() {
+                    tracing::warn!(error = ?e, "Failed to flush dump manager");
+                }
+            }
         }
     }
 
@@ -387,17 +405,63 @@ pub fn run_pipeline(
     // Clean up global stats when pipeline completes
     StatsContext::clear_global_stats();
 
+    match pipeline_context.try_get_as_mut::<crate::dump_manager::DumpManager>("dump_manager") {
+        Err(e) => {
+            eprintln!(
+                "Failed to get dump manager from pipeline context. Cannot perform final flush ({e:?})"
+            );
+        }
+        Ok(dm) => {
+            if let Err(e) = dm.flush_all() {
+                eprintln!("Failed to flush dump manager ({e:?})");
+            } else {
+                println!("Dump manager successfully flushed");
+            }
+        }
+    }
+
     pipeline_context
 }
 
 pub fn run_pipeline_with_config_file_path(
     path: &PathBuf,
     stats: Arc<PipelineStatistics>,
+    dump_dir: Option<PathBuf>,
 ) -> PipelineContext {
     let config_raw = std::fs::read_to_string(path).expect("Failed to read config file");
     let config: PipelineConfig = toml::from_str(&config_raw).expect("Failed to parse config file");
     let pipeline = build_pipeline(&config).expect("Failed to build pipeline from config");
-    let pipeline_context = PipelineContext::new();
+    let mut pipeline_context = PipelineContext::new();
+
+    // If dump_dir is provided, store the config content in the DumpManager
+    if let Some(dump_dir) = dump_dir
+        && let Ok(dm) = crate::dump_manager::DumpManager::new(&dump_dir)
+    {
+        // Store the config content
+        let dm = dm.with_config(config_raw.clone());
+
+        // Attempt to extract source information from config
+        let dm = if let Some(source_name) = config
+            .source
+            .params
+            .as_ref()
+            .and_then(|v| v.get("file"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        {
+            dm.with_source(source_name)
+        } else {
+            dm
+        };
+
+        tracing::info!(dump_dir = ?dump_dir, "Initialized dump manager");
+
+        if let Err(e) = dm.write_metadata() {
+            tracing::warn!(error = ?e, "Failed to write dump metadata");
+        }
+
+        pipeline_context.put("dump_manager", dm);
+    }
 
     run_pipeline(pipeline_context, pipeline, Some(stats))
 }
