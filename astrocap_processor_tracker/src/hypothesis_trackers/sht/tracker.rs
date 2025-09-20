@@ -2,8 +2,8 @@ use super::factory::SingleHypothesisTrackerElementFactory;
 use crate::model::Track;
 use crate::processor::hsv_to_rgb;
 use crate::traits::{Associator, HypothesisTracker, Initiator, Predictor, Terminator, Updater};
-use astrocap_core::AstrocapError;
-use astrocap_core::{structs::Detection, traits::TrackSummary};
+use astrocap_core::{AstrocapError, FrameContext};
+use astrocap_core::structs::Detection;
 use rerun::RecordingStream;
 use toml::Value;
 
@@ -75,7 +75,7 @@ impl HypothesisTracker for SingleHypothesisTracker {
             .retain(|track| !self.terminator.should_terminate(track));
     }
 
-    fn log_to_rerun(&self, rec: &RecordingStream) {
+    fn log_to_rerun(&self, rec: &RecordingStream, _frame_ctx: &mut FrameContext) {
         if self.tracks.is_empty() {
             return;
         }
@@ -104,13 +104,5 @@ impl HypothesisTracker for SingleHypothesisTracker {
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to log tracks to rerun: {}", e);
         });
-    }
-
-    fn summary(&self) -> &[TrackSummary] {
-        unimplemented!()
-    }
-
-    fn final_summary(&self) {
-        unimplemented!()
     }
 }

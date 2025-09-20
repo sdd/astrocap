@@ -93,9 +93,11 @@ impl DumpManager {
 
     /// Flush all open dumpers
     pub fn flush_all(&mut self) -> Result<()> {
-        // This is still challenging without a common trait, but we can work around it
+        // TODO: This is still challenging without a common trait, but we can work around it
         // by storing flush functions or implementing a trait-based approach
-        warn!("flush_all not fully implemented - consider redesigning with a common trait");
+        tracing::debug!(
+            "flush_all not fully implemented - consider redesigning with a common trait"
+        );
         Ok(())
     }
 

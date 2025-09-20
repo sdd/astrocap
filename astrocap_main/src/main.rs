@@ -14,6 +14,7 @@ use astrocap_processor_median_sub::{ImgSubberProcessor, MedianProcessor};
 use astrocap_processor_point_detector::PointDetectorProcessor;
 use astrocap_processor_point_fitter::PointFitterProcessor;
 use astrocap_processor_rerun_img_tee::RerunTeeProcessor;
+use astrocap_processor_solvastro::SolvastroProcessor;
 use astrocap_processor_tracker::TrackerProcessor;
 use astrocap_processor_video_export::VideoExportProcessor;
 use astrocap_sink_point_detector_evaluator::PointDetectorEvaluatorSink;

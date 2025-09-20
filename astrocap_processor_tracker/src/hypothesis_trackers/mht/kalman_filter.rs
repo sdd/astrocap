@@ -1,6 +1,6 @@
 use nalgebra::{
-    Matrix2, Matrix2x4, Matrix3, Matrix3x5, Matrix4, Matrix4x2, Matrix5, Matrix5x3, Vector2,
-    Vector3, Vector4, Vector5,
+    Matrix2, Matrix2x4, Matrix3, Matrix3x5, Matrix4, Matrix5, Matrix5x3,
+    Vector3, Vector5,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -470,19 +470,19 @@ impl KalmanFilter {
         // let gate_area = std::f32::consts::PI * GATE_RADIUS * GATE_RADIUS;
         // let delta_lo = pd.ln() - 0.5 * nis - (clutter_rate * gate_area).ln();
 
-        Self::maybe_log_nis_breakdown(
-            parent_id,
-            parent_cum_lo,
-            detection.amplitude,
-            z_pred[2],
-            &self.r,
-            &residual,
-            &s,
-            nis,
-            6.0,    // cutoff for x/y NIS
-            6.0,    // cutoff for amplitude NIS
-            1000.0, // only log once track is well-established
-        );
+        // Self::maybe_log_nis_breakdown(
+        //     parent_id,
+        //     parent_cum_lo,
+        //     detection.amplitude,
+        //     z_pred[2],
+        //     &self.r,
+        //     &residual,
+        //     &s,
+        //     nis,
+        //     6.0,    // cutoff for x/y NIS
+        //     6.0,    // cutoff for amplitude NIS
+        //     1000.0, // only log once track is well-established
+        // );
 
         (
             LogProbs {
@@ -555,10 +555,10 @@ impl KalmanFilter {
         self.q_pos_scale = self.q_pos_scale.clamp(1e-8, 1e-2);
 
         if (self.q_pos_scale - self.q_pos_min).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_pos_scale, "Q scale at min");
+            tracing::debug!(q_scale = self.q_pos_scale, "Q scale at min");
         }
         if (self.q_pos_scale - self.q_pos_max).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_pos_scale, "Q scale at max");
+            tracing::debug!(q_scale = self.q_pos_scale, "Q scale at max");
         }
     }
 
@@ -570,10 +570,10 @@ impl KalmanFilter {
         self.q_pos_scale = (self.q_pos_scale * inflation).min(self.q_pos_max);
 
         if (self.q_pos_scale - self.q_pos_min).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_pos_scale, "Q scale at min");
+            tracing::debug!(q_scale = self.q_pos_scale, "Q scale at min");
         }
         if (self.q_pos_scale - self.q_pos_max).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_pos_scale, "Q scale at max");
+            tracing::debug!(q_scale = self.q_pos_scale, "Q scale at max");
         }
     }
 
@@ -593,10 +593,10 @@ impl KalmanFilter {
         self.q_pos_scale = self.q_pos_scale.clamp(self.q_pos_min, self.q_pos_max);
 
         if (self.q_pos_scale - self.q_pos_min).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_pos_scale, "Q pos scale at min");
+            tracing::debug!(q_scale = self.q_pos_scale, "Q pos scale at min");
         }
         if (self.q_pos_scale - self.q_pos_max).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_pos_scale, "Q pos scale at max");
+            tracing::debug!(q_scale = self.q_pos_scale, "Q pos scale at max");
         }
     }
 
@@ -610,10 +610,10 @@ impl KalmanFilter {
         self.q_amp_scale = self.q_amp_scale.clamp(self.q_amp_min, self.q_amp_max);
 
         if (self.q_amp_scale - self.q_amp_min).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_amp_scale, "Q amp scale at min");
+            tracing::debug!(q_scale = self.q_amp_scale, "Q amp scale at min");
         }
         if (self.q_amp_scale - self.q_amp_max).abs() < 1e-12 {
-            tracing::warn!(q_scale = self.q_amp_scale, "Q amp scale at max");
+            tracing::debug!(q_scale = self.q_amp_scale, "Q amp scale at max");
         }
     }
 
@@ -664,28 +664,28 @@ impl KalmanFilter {
         // X floor/ceil checks
         let r_x = self.r[(0, 0)].sqrt();
         if (r_x - self.r_pos_min).abs() < 1e-3 {
-            tracing::warn!(r_x, "R_x at floor");
+            tracing::debug!(r_x, "R_x at floor");
         }
         if (r_x - self.r_pos_max).abs() < 1e-3 {
-            tracing::warn!(r_x, "R_x at ceil");
+            tracing::debug!(r_x, "R_x at ceil");
         }
 
         // Y floor/ceil checks
         let r_y = self.r[(1, 1)].sqrt();
         if (r_y - self.r_pos_min).abs() < 1e-3 {
-            tracing::warn!(r_y, "R_y at floor");
+            tracing::debug!(r_y, "R_y at floor");
         }
         if (r_y - self.r_pos_max).abs() < 1e-3 {
-            tracing::warn!(r_y, "R_y at ceil");
+            tracing::debug!(r_y, "R_y at ceil");
         }
 
         // Amplitude floor/ceil checks
         let r_a = self.r[(2, 2)].sqrt();
         if (r_a - self.r_amp_min).abs() < 1e-3 {
-            tracing::warn!(r_a, "R_a at floor");
+            tracing::debug!(r_a, "R_a at floor");
         }
         if (r_a - self.r_amp_max).abs() < 1e-3 {
-            tracing::warn!(r_a, "R_a at ceil");
+            tracing::debug!(r_a, "R_a at ceil");
         }
     }
 }

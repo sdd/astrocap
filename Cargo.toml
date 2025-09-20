@@ -15,6 +15,7 @@ members = [
     "astrocap_processor_point_fitter",
     "astrocap_processor_video_export",
     "astrocap_processor_rerun_img_tee",
+    "astrocap_processor_solvastro",
     "astrocap_processor_tracker",
     "astrocap_sink_point_detector_evaluator",
     "astrocap_sink_tracker_evaluator",
@@ -47,6 +48,7 @@ astrocap_processor_detection_export = { path = "./astrocap_processor_detection_e
 astrocap_processor_point_fitter = { path = "./astrocap_processor_point_fitter" }
 astrocap_processor_video_export = { path = "astrocap_processor_video_export" }
 astrocap_processor_rerun_img_tee = { path = "./astrocap_processor_rerun_img_tee" }
+astrocap_processor_solvastro = { path = "./astrocap_processor_solvastro" }
 astrocap_processor_tracker = { path = "./astrocap_processor_tracker" }
 astrocap_sink_point_detector_evaluator = { path = "astrocap_sink_point_detector_evaluator" }
 astrocap_sink_rerun = { path = "astrocap_sink_rerun" }
@@ -55,6 +57,7 @@ astrocap_source_gstreamer = { path = "./astrocap_source_gstreamer" }
 astrocap_source_recorded_detections = { path = "./astrocap_source_recorded_detections" }
 
 anyhow = "1"
+arc-swap = "1.7"
 arrow2_convert = "0.5"
 az = "1"
 bytes = "1"
@@ -64,7 +67,7 @@ http = "1"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 imageproc = { version = "0.23" }
 metrics = "0.24"
-nalgebra = { version = "0.32", features = ["serde"] }
+nalgebra = { version = "0.32", features = ["serde", "serde-serialize"] }
 once_cell = "1"
 parquet = "56"
 rerun = { version = "0.23", features = ["run", "server"], default-features = false }

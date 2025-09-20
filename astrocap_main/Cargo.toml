@@ -16,6 +16,7 @@ astrocap_processor_mask = { workspace = true }
 astrocap_processor_median_sub = { workspace = true }
 #astrocap_processor_model = { workspace = true }
 astrocap_processor_rerun_img_tee = { workspace = true }
+astrocap_processor_solvastro = { workspace = true }
 astrocap_processor_tracker = { workspace = true }
 astrocap_processor_video_export = { workspace = true }
 astrocap_sink_point_detector_evaluator = { workspace = true }

@@ -96,7 +96,7 @@ impl AstrocapFrameQueue {
                 };
 
                 if let Some(sender) = sender_clone {
-                    tracing::info!(%buffer_len, "buffer reached upper capacity threshold");
+                    tracing::debug!(%buffer_len, "buffer reached upper capacity threshold");
                     drop(buffer); // Release buffer lock
                     if sender.send(true).is_err() {
                         tracing::warn!("Failed to send message");
@@ -145,7 +145,7 @@ impl AstrocapFrameQueue {
             };
 
             if let Some(sender) = sender_clone {
-                tracing::info!(
+                tracing::debug!(
                     buffer_len = %new_buffer_len,
                     "buffer reached lower occupancy threshold",
                 );
@@ -179,7 +179,7 @@ impl AstrocapFrameQueue {
                 };
 
                 if let Some(sender) = sender_clone {
-                    tracing::info!(
+                    tracing::debug!(
                         buffer_len = %new_buffer_len,
                         "buffer reached lower capacity threshold",
                     );

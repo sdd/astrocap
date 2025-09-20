@@ -4,7 +4,7 @@ use astrocap_core::{
     structs::Detection,
     traits::{TrackSummarize, TrackSummary},
 };
-use nalgebra::{Matrix4, Vector2, Vector4};
+use nalgebra::{Matrix4, Vector4};
 
 static NEXT_TRACK_ID: AtomicU64 = AtomicU64::new(1);
 

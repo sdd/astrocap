@@ -128,15 +128,11 @@ where
     T::Row: serde::Serialize + Send + Sync,
 {
     fn drop(&mut self) {
-        println!("Dropping ParquetDumper");
         if let Err(e) = self.flush() {
             eprintln!("Error flushing ParquetDumper on drop: {}", e);
         }
-        println!("Flushed ParquetDumper");
-
         if let Err(e) = self.close() {
             eprintln!("Error closing ParquetDumper on drop: {}", e);
         }
-        println!("Closed ParquetDumper");
     }
 }

@@ -35,6 +35,13 @@ pub struct TrackSummary {
     pub start_y: f32,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct StarCandidate {
+    pub x: f32,
+    pub y: f32,
+    pub amp: f32,
+}
+
 pub trait TrackSummarize: Send + Sync + 'static {
     fn summarize(&self) -> TrackSummary;
 }

@@ -53,12 +53,8 @@ impl FrameProcessor for TrackerProcessor {
 
         // TODO: ensure that tracks are reportable for any tracker
         if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
-            self.tracker.log_to_rerun(&rec);
+            self.tracker.log_to_rerun(&rec, frame_ctx);
         }
-
-        let track_summary = self.tracker.summary().to_vec();
-        tracing::debug!(track_count = track_summary.len());
-        frame_ctx.put("tracker/tracks", track_summary);
 
         // Get the dump manager from the pipeline context
         let entry = ctx.entry("dump_manager");
@@ -83,8 +79,6 @@ impl FrameProcessor for TrackerProcessor {
     }
 
     fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        self.tracker.final_summary();
-
         Ok(())
     }
 

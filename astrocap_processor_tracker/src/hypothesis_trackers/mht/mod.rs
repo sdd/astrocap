@@ -2,20 +2,20 @@ pub mod config;
 pub mod kalman_filter;
 
 use std::collections::{HashMap, HashSet};
-use std::num::{NonZero, NonZeroUsize};
+use std::num::NonZero;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use kiddo::{float::kdtree::KdTree, immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
-use nalgebra::{Matrix2, Matrix3, Vector2, Vector3};
+use nalgebra::Matrix3;
 use ordered_float::OrderedFloat;
 use rerun::RecordingStream;
-use statrs::statistics::{Data, Distribution, Statistics};
+use statrs::statistics::Statistics;
 use toml::Value;
 
-use crate::model::Track;
 use crate::traits::HypothesisTracker;
-use astrocap_core::traits::{Dumpable, TrackSummarize, TrackSummary};
-use astrocap_core::{structs::Detection, AstrocapError, DumpManager};
+use astrocap_core::traits::{Dumpable, StarCandidate};
+use astrocap_core::{structs::Detection, AstrocapError, DumpManager, FrameContext};
 
 use config::MhtConfig;
 use kalman_filter::KalmanFilter;
@@ -75,23 +75,6 @@ pub struct MhtTrackNode {
     pub start_x: f32,
     pub start_y: f32,
     pub start_amplitude: f32,
-}
-
-impl TrackSummarize for MhtTrackNode {
-    fn summarize(&self) -> TrackSummary {
-        TrackSummary {
-            id: self.founder_id,
-            x: self.state.x(),
-            y: self.state.y(),
-            age: self.age,
-            log_odds: self.cum_conf.lo,
-
-            amplitude: self.amplitude,
-            start_x: self.start_x,
-            start_y: self.start_y,
-            first_seen: self.first_seen,
-        }
-    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -247,15 +230,6 @@ pub struct MultiHypothesisTracker {
     config: MhtConfig,
     leaf_ids: HashSet<u64>,
     track_node_store: TrackNodeStore,
-
-    summary: Vec<TrackSummary>,
-
-    measurement_cov: Matrix3<f32>,
-
-    // --- adaptive state ---
-    q_scale: f32,                    // scalar multiplier for Q(dt)
-    nis_ewma: f32,                   // running mean NIS
-    residual_cov_ewma: Matrix3<f32>, // EWMA of residual outer products
 }
 
 impl MultiHypothesisTracker {
@@ -272,7 +246,6 @@ impl MultiHypothesisTracker {
         })?;
 
         let leaf_ids = HashSet::default();
-        let summary = Vec::default();
         let track_node_store = TrackNodeStore::default();
 
         // Build R = diag(r_x^2, r_y^2)
@@ -284,12 +257,7 @@ impl MultiHypothesisTracker {
         Ok(Self {
             config,
             leaf_ids,
-            summary,
             track_node_store,
-            measurement_cov,
-            q_scale: 1e-5,                          // start smallish
-            nis_ewma: 2.0,                          // target value
-            residual_cov_ewma: Matrix3::identity(), // initialised to unit
         })
     }
 }
@@ -314,9 +282,6 @@ impl HypothesisTracker for MultiHypothesisTracker {
         let mut new_leaves: HashSet<u64> = HashSet::default();
         let mut new_tracks: Vec<MhtTrackNode> = Vec::default();
         let mut all_gated_detection_ids = HashSet::new();
-
-        // used to calc global mean NIS for statistical purposes
-        let mut nis_vals: Vec<f32> = Vec::new();
 
         // for each existing leaf:
         for leaf_id in self.leaf_ids.iter() {
@@ -367,7 +332,6 @@ impl HypothesisTracker for MultiHypothesisTracker {
                 if !nis.is_finite() || nis > self.config.gating_chi2 {
                     continue;
                 }
-                nis_vals.push(nis);
 
                 // spawn child: use *kf_pred* then update
                 let mut child_kf = kf_pred.clone();
@@ -446,14 +410,6 @@ impl HypothesisTracker for MultiHypothesisTracker {
             self.track_node_store.track_nodes.insert(t.id, t);
         });
 
-        // No global adaptation pass anymore
-        // Still log monitoring metrics
-        let mean_nis = if nis_vals.is_empty() {
-            0.0
-        } else {
-            nis_vals.iter().copied().sum::<f32>() / (nis_vals.len() as f32)
-        };
-
         // birth new tracks|
         // TODO:
         //  * Cap births per frame (e.g. max 10).
@@ -480,6 +436,13 @@ impl HypothesisTracker for MultiHypothesisTracker {
         self.leaf_ids = new_leaves;
 
         self.prune_hypotheses();
+    }
+
+    fn log_to_rerun(&self, rec: &RecordingStream, frame_ctx: &mut FrameContext) {
+        if self.leaf_ids.is_empty() {
+            tracing::info!("nothing to log to rerun");
+            return;
+        }
 
         // Group by founder and select the best leaf per founder
         let mut best_by_founder: HashMap<u64, &MhtTrackNode> = HashMap::new();
@@ -496,240 +459,56 @@ impl HypothesisTracker for MultiHypothesisTracker {
             }
         }
 
-        // Collect metrics only from best leaves
-        let mut q_scales = Vec::new();
-        let mut q_amp_scales = Vec::new();
-        let mut r_xs = Vec::new();
-        let mut r_ys = Vec::new();
-        let mut r_as = Vec::new();
-        let mut nis_ewmas = Vec::new();
-
-        for node in best_by_founder.values() {
-            let kf = &node.state;
-            q_scales.push(kf.q_pos_scale);
-            q_amp_scales.push(kf.q_amp_scale);
-            r_xs.push(kf.r[(0, 0)].sqrt());
-            r_ys.push(kf.r[(1, 1)].sqrt());
-            r_as.push(kf.r[(2, 2)].sqrt());
-            nis_ewmas.push(kf.nis_ewma);
-        }
-
-        fn mean(v: &[f32]) -> f32 {
-            if v.is_empty() {
-                0.0
-            } else {
-                v.iter().copied().sum::<f32>() / v.len() as f32
-            }
-        }
-
-        tracing::info!(
-            frame = frame_number,
-            track_count = best_by_founder.len(),
-            mean_nis,
-            nis_ewma_mean = mean(&nis_ewmas),
-            q_pos_mean = mean(&q_scales),
-            q_amp_mean = mean(&q_amp_scales),
-            r_x_mean = mean(&r_xs),
-            r_y_mean = mean(&r_ys),
-            r_a_mean = mean(&r_as),
-        );
-
-        // Strongest by cumulative log-odds, from best-per-founder set
-        if frame_number % 100 == 0 {
-            let mut tracks: Vec<_> = best_by_founder.values().collect();
-            tracks.sort_by_key(|t| OrderedFloat(-t.cum_conf.lo));
-
-            for t in tracks.iter().take(5) {
-                let kf = &t.state;
-                tracing::info!(
-                    track_id = t.id,
-                    founder = t.founder_id,
-                    age = t.age,
-                    cum_lo = t.cum_conf.lo,
-                    q_pos = kf.q_pos_scale,
-                    q_amp = kf.q_amp_scale,
-                    r_x = kf.r[(0, 0)].sqrt(),
-                    r_y = kf.r[(1, 1)].sqrt(),
-                    r_a = kf.r[(2, 2)].sqrt(),
-                    nis_ewma = kf.nis_ewma,
-                    last_amp = kf.state[4],
-                );
-            }
-        }
-    }
-
-    fn summary(&self) -> &[TrackSummary] {
-        &self.summary
-    }
-
-    fn final_summary(&self) {
-        let mut b_all = BucketStats::new("ALL".to_string());
-        let mut b_neg = BucketStats::new("<0".to_string());
-        let mut b1 = BucketStats::new("0-100".to_string());
-        let mut b2 = BucketStats::new(format!("100-{:.00}", self.config.track_confirmation_level));
-        let mut b3 = BucketStats::new(format!(">{:.00}", self.config.track_confirmation_level));
-
-        // group by founder
-        let mut leaves_by_founder: HashMap<u64, Vec<&MhtTrackNode>> = HashMap::new();
-        for leaf_id in &self.leaf_ids {
-            if let Some(node) = self.track_node_store.track_nodes.get(leaf_id) {
-                leaves_by_founder
-                    .entry(node.founder_id)
-                    .or_default()
-                    .push(node);
-            }
-        }
-
-        let mut best_in_founders = Vec::new();
-
-        // pick best per founder
-        for (_fid, leaves) in leaves_by_founder {
-            let best = leaves
-                .into_iter()
-                .max_by_key(|node| OrderedFloat(node.cum_conf.lo))
-                .unwrap();
-
-            best_in_founders.push(best);
-
-            let lo = best.cum_conf.lo;
-            let kf = &best.state;
-
-            // no NIS cache yet → all None
-            let (nis_t, nis_x, nis_y, nis_a) = (None, None, None, None);
-
-            push_track_into_bucket(&mut b_all, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
-
-            if lo < 0.0 {
-                push_track_into_bucket(&mut b_neg, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
-            } else if lo <= 100.0 {
-                push_track_into_bucket(&mut b1, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
-            } else if lo <= self.config.track_confirmation_level {
-                push_track_into_bucket(&mut b2, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
-            } else {
-                push_track_into_bucket(&mut b3, kf, &self.config, nis_t, nis_x, nis_y, nis_a);
-            }
-        }
-
-        println!("\n=== KF stats by confidence bucket (last frame, best leaf per founder) ===");
-        print_bucket(&b_all);
-        print_bucket(&b_neg);
-        print_bucket(&b1);
-        print_bucket(&b2);
-        print_bucket(&b3);
-        println!("===============================================\n");
-
-        // --- Gather best-leaf-per-founder samples ---
-        let mut a_pred_vals = Vec::new(); // KF amplitude state
-        let mut y_vals = Vec::new(); // pixel y
-        let mut ra_vals = Vec::new(); // sqrt(R_aa)
-        let mut qamp_vals = Vec::new(); // q_amp_scale (optional)
-
-        for node in best_in_founders {
-            let kf = &node.state;
-            let a_pred = kf.state[4];
-            let y = kf.state[1];
-            let r_a = kf.r[(2, 2)].sqrt();
-            let q_amp = kf.q_amp_scale;
-
-            if a_pred.is_finite() && y.is_finite() && r_a.is_finite() {
-                a_pred_vals.push(a_pred);
-                y_vals.push(y);
-                ra_vals.push(r_a);
-                qamp_vals.push(q_amp);
-            }
-        }
-
-        println!("\n=== Correlations on best-leaf-per-founder (last frame) ===");
-        let r_a_vs_amp = pearson_corr(&a_pred_vals, &ra_vals);
-        let r_a_vs_y = pearson_corr(&y_vals, &ra_vals);
-        println!(" r(r_a, amplitude) = {:7.4}", r_a_vs_amp);
-        println!(" r(r_a, y        ) = {:7.4}", r_a_vs_y);
-
-        // Optionally also inspect how q_amp_scale relates to amplitude:
-        let r_qamp_vs_amp = pearson_corr(&a_pred_vals, &qamp_vals);
-        println!(" r(q_amp_scale, amplitude) = {:7.4}", r_qamp_vs_amp);
-
-        // --- Binned summaries by amplitude terciles ---
-        let q33 = quantile(a_pred_vals.clone(), 0.3333);
-        let q66 = quantile(a_pred_vals.clone(), 0.6667);
-        let mut ra_lo = Vec::new();
-        let mut ra_mid = Vec::new();
-        let mut ra_hi = Vec::new();
-        for i in 0..ra_vals.len() {
-            let a = a_pred_vals[i];
-            let ra = ra_vals[i];
-            if a <= q33 {
-                ra_lo.push(ra);
-            } else if a <= q66 {
-                ra_mid.push(ra);
-            } else {
-                ra_hi.push(ra);
-            }
-        }
-        println!("\n--- r_a by amplitude terciles ---");
-        print_bin("low amp", &ra_lo);
-        print_bin("mid amp", &ra_mid);
-        print_bin("high amp", &ra_hi);
-
-        // --- Binned summaries by y terciles (proxy for altitude/airmass) ---
-        let y33 = quantile(y_vals.clone(), 0.3333);
-        let y66 = quantile(y_vals.clone(), 0.6667);
-        let mut rya_lo = Vec::new();
-        let mut rya_mid = Vec::new();
-        let mut rya_hi = Vec::new();
-        for i in 0..ra_vals.len() {
-            let y = y_vals[i];
-            let ra = ra_vals[i];
-            if y <= y33 {
-                rya_lo.push(ra);
-            } else if y <= y66 {
-                rya_mid.push(ra);
-            } else {
-                rya_hi.push(ra);
-            }
-        }
-        println!("\n--- r_a by y terciles ---");
-        print_bin("low y", &rya_lo);
-        print_bin("mid y", &rya_mid);
-        print_bin("high y", &rya_hi);
-        println!("(Note: interpret y-direction vs. horizon based on your image convention.)");
-    }
-
-    fn log_to_rerun(&self, rec: &RecordingStream) {
-        if self.summary.is_empty() {
-            tracing::info!("nothing to log to rerun");
-            return;
-        }
-
-        let track_count = self.summary.len();
-        let mut summary_clone = self.summary.clone();
-        summary_clone.sort_by_key(|t| OrderedFloat(-t.log_odds));
-        let top_5_trcks = summary_clone.iter().take(5).collect::<Vec<_>>();
-
-        tracing::info!(?track_count); //, ?top_5_trcks);
+        // let track_count = best_by_founder.len();
+        let mut best_list = best_by_founder.values().collect::<Vec<_>>();
+        best_list.sort_by_key(|t| OrderedFloat(-t.cum_conf.lo));
+        // tracing::info!(?track_count);
 
         let c_level = self.config.track_confirmation_level;
-        let tracks: Vec<_> = self
-            .summary
+        let tracks: Vec<_> = best_list
             .iter()
-            .filter(|t| t.log_odds > c_level)
+            .filter(|t| t.cum_conf.lo > c_level)
             .collect();
+
+        let star_candidates: Vec<StarCandidate> = best_list
+            .iter()
+            .map(|t| StarCandidate {
+                x: t.state.x(),
+                y: t.state.y(),
+                amp: t.state.a(),
+            })
+            .collect();
+
+        frame_ctx.put("solvastro/star_candidates", Arc::new(star_candidates));
 
         rec.log(
             "tracker/tracks".to_string(),
-            &rerun::Points2D::new(tracks.iter().map(|track| (track.x, track.y)))
-                .with_colors(tracks.iter().map(|track| {
-                    // Color tracks based on their confidence
-                    let normalized_confidence = track.log_odds.clamp(0.0, 5000.0);
-                    let hue = (normalized_confidence) * 120.0 / 5000.0; // 0° = red (low confidence), 120° = green (high confidence)
-                    let (r, g, b) = crate::processor::hsv_to_rgb(hue, 1.0, 1.0);
-                    rerun::Color::from_rgb(r, g, b)
-                }))
-                .with_labels(
-                    tracks
-                        .iter()
-                        .map(|track| format!("Age {} CLO {:.2}", track.age, track.log_odds)),
-                ),
+            &rerun::Boxes2D::from_mins_and_sizes(
+                std::iter::repeat((10.0, 10.0)).take(tracks.len()),
+                std::iter::repeat((10.0, 10.0)).take(tracks.len()),
+            )
+            .with_centers(
+                tracks
+                    .iter()
+                    .map(|track| (track.state.x(), track.state.y())),
+            )
+            // &rerun::Points2D::new(
+            //     tracks
+            //         .iter()
+            //         .map(|track| (track.state.x(), track.state.y())),
+            // )
+            .with_colors(tracks.iter().map(|track| {
+                // Color tracks based on their confidence
+                let normalized_confidence = track.cum_conf.lo.clamp(0.0, 5000.0);
+                let hue = (normalized_confidence) * 120.0 / 5000.0; // 0° = red (low confidence), 120° = green (high confidence)
+                let (r, g, b) = crate::processor::hsv_to_rgb(hue, 1.0, 1.0);
+                rerun::Color::from_rgb(r, g, b)
+            }))
+            .with_labels(
+                tracks
+                    .iter()
+                    .map(|track| format!("Age {} CLO {:.2}", track.age, track.cum_conf.lo)),
+            ),
         )
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to log tracks to rerun: {}", e);
@@ -800,7 +579,7 @@ impl MultiHypothesisTracker {
         // enrich groups with max leaf cumulative log odds,
         // rejecting track groups with max log-odds below threshold
         // build summary at same time
-        let mut summary: Vec<TrackSummary> = vec![];
+        // let mut summary: Vec<TrackSummary> = vec![];
         let mut track_leaf_groups: Vec<(f32, &HashSet<u64>)> = pruned_leaf_ids_by_founder
             .iter()
             .filter_map(|(founder_id, leaf_ids)| {
@@ -820,16 +599,8 @@ impl MultiHypothesisTracker {
                     .max_by_key(|&(_, lo)| OrderedFloat(lo))
                     .unwrap_or((0, -100.0));
 
-                let best_leaf = self.track_node_store.track_nodes.get(&max_leaf_id).unwrap();
-
-                // tracing::info!(
-                //     founder_id,
-                //     max_lo,
-                //     x = best_leaf.state.x(),
-                //     y = best_leaf.state.y(),
-                //     "best leaf for founder"
-                // );
-                summary.push(best_leaf.summarize());
+                // let best_leaf = self.track_node_store.track_nodes.get(&max_leaf_id).unwrap();
+                // summary.push(best_leaf.summarize());
 
                 if max_lo < self.config.per_root_min_leaf_log_odds {
                     None
@@ -838,8 +609,6 @@ impl MultiHypothesisTracker {
                 }
             })
             .collect();
-
-        self.summary = summary;
 
         // If more than max_track_group_count, select the N best
         if track_leaf_groups.len() > self.config.max_track_group_count {
@@ -1053,145 +822,6 @@ impl MultiHypothesisTracker {
             lo: delta_lo,
         }
     }
-
-    pub fn print_leaf_chains(&self) {
-        for leaf_id in &self.leaf_ids {
-            let mut chain = Vec::new();
-            let mut current_id = Some(*leaf_id);
-
-            while let Some(id) = current_id {
-                if let Some(node) = self.track_node_store.track_nodes.get(&id) {
-                    chain.push(format!(
-                        "({id}: pos=({}, {}), ll={:.2}, lo={:.2}, cum={:.2})",
-                        node.state.x(),
-                        node.state.y(),
-                        node.conf.ll,
-                        node.conf.lo,
-                        node.cum_conf.lo
-                    ));
-                    current_id = node.parent_id;
-                } else {
-                    break;
-                }
-            }
-
-            // chain is leaf → root, which is what we want now
-            println!("Leaf chain: {}", chain.join(" <- "));
-        }
-    }
-
-    fn adapt_r(&mut self, residual: &Vector3<f32>, s_pred: &Matrix3<f32>) {
-        let beta = 0.05; // smoothing gain
-
-        // Residual outer product
-        let rr = residual * residual.transpose();
-
-        // EWMA of residual covariance
-        self.residual_cov_ewma = (1.0 - beta) * self.residual_cov_ewma + beta * rr;
-
-        // Subtract some of the predicted covariance, but not all
-        // (prevents collapse when residuals are tiny)
-        let mut r_est = self.residual_cov_ewma - 0.5 * s_pred;
-
-        // Only keep diagonal terms (assume x,y independent noise)
-        let mut r_diag = Vector3::new(r_est[(0, 0)], r_est[(1, 1)], r_est[(2, 2)]);
-
-        // Clamp variances: σ² ∈ [0.25, 16.0] → σ ∈ [0.5 px, 4 px]
-        r_diag[0] = r_diag[0].clamp(0.25, 16.0);
-        r_diag[1] = r_diag[1].clamp(0.25, 16.0);
-
-        // Update measurement covariance as diagonal
-        self.measurement_cov = Matrix3::from_diagonal(&r_diag);
-    }
-
-    fn adapt_q_from_mean(&mut self, mean_nis: f32) {
-        let alpha = 0.05; // smoothing
-
-        // target = dimension of measurement (2D → 2.0)
-        let target = 2.0;
-
-        if mean_nis.is_finite() && mean_nis > 1e-6 {
-            let ratio = target / mean_nis;
-            // log-domain smoothing
-            let log_update = (ratio.ln()) * alpha;
-            self.q_scale *= log_update.exp();
-        }
-
-        // clamp to sane bounds
-        self.q_scale = self.q_scale.clamp(1e-6, 1e-2);
-    }
-
-    /// Compute and print mean/std/min/max for a slice of f64 values.
-    fn summary_stats(label: &str, values: &[f64]) {
-        if values.is_empty() {
-            println!("{:<12} | (no data)", label);
-            return;
-        }
-
-        let mean = values.iter().copied().sum::<f64>() / values.len() as f64;
-        let std =
-            (values.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64).sqrt();
-        let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-
-        println!(
-            "{:<12} | mean={:8.4}  std={:8.4}  min={:8.4}  max={:8.4}",
-            label, mean, std, min, max
-        );
-    }
-
-    fn log_final_stats<I>(kfs: I)
-    where
-        I: IntoIterator<Item = (f32, f32, f32, f32, f32)>, // (q_pos_scale, q_amp_scale, r_x, r_y, r_a)
-    {
-        let (mut q_pos_vals, mut q_amp_vals, mut rx_vals, mut ry_vals, mut ra_vals) =
-            (vec![], vec![], vec![], vec![], vec![]);
-
-        for (q_pos, q_amp, rx, ry, ra) in kfs {
-            q_pos_vals.push(q_pos);
-            q_amp_vals.push(q_amp);
-            rx_vals.push(rx);
-            ry_vals.push(ry);
-            ra_vals.push(ra);
-        }
-
-        println!();
-        println!("{:-<92}", " Final KF stats (last frame) ");
-
-        let report = |name: &str, vals: &[f32]| {
-            if vals.is_empty() {
-                println!("{:<12} | no data", name);
-                return;
-            }
-
-            let data = Data::new(vals.iter().map(|&v| v as f64).collect::<Vec<f64>>());
-
-            let mean = data.mean().unwrap_or(f64::NAN);
-            let std = data.std_dev().unwrap_or(f64::NAN);
-
-            // compute min/max directly
-            let min = vals.iter().copied().fold(f32::INFINITY, f32::min) as f64;
-            let max = vals.iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64;
-
-            println!(
-                "{:<12} | n={:<5} mean={:8.4}  std={:8.4}  min={:8.4}  max={:8.4}",
-                name,
-                vals.len(),
-                mean,
-                std,
-                min,
-                max
-            );
-        };
-
-        report("q_pos_scale", &q_pos_vals);
-        report("q_amp_scale", &q_amp_vals);
-        report("r_x", &rx_vals);
-        report("r_y", &ry_vals);
-        report("r_a", &ra_vals);
-
-        println!("{:-<92}", "");
-    }
 }
 
 fn push_track_into_bucket(
@@ -1280,118 +910,6 @@ fn summarize(label: &str, vals: &[f32]) -> (usize, f32, f32, f32, f32) {
     (n, mean, std, min, max)
 }
 
-fn print_bucket(b: &BucketStats) {
-    let (_, q_pos_mean, q_pos_std, q_pos_min, q_pos_max) = summarize("q_pos", &b.q_pos_vals);
-    let (_, q_amp_mean, q_amp_std, q_amp_min, q_amp_max) = summarize("q_amp", &b.q_amp_vals);
-    let (_, rx_mean, rx_std, rx_min, rx_max) = summarize("r_x", &b.rx_vals);
-    let (_, ry_mean, ry_std, ry_min, ry_max) = summarize("r_y", &b.ry_vals);
-    let (_, ra_mean, ra_std, ra_min, ra_max) = summarize("r_a", &b.ra_vals);
-
-    println!("\n Bucket {:<8}  n={}", b.name, b.n);
-    println!(
-        "   q_pos_scale   : mean={:8.6} std={:8.6} min={:8.6} max={:8.6}  [%min {:>3}%  %max {:>3}%]",
-        q_pos_mean,
-        q_pos_std,
-        q_pos_min,
-        q_pos_max,
-        if b.n > 0 {
-            (100 * b.q_pos_at_min / b.n) as usize
-        } else {
-            0
-        },
-        if b.n > 0 {
-            (100 * b.q_pos_at_max / b.n) as usize
-        } else {
-            0
-        }
-    );
-    println!(
-        "   q_amp_scale   : mean={:8.6} std={:8.6} min={:8.6} max={:8.6}  [%min {:>3}%  %max {:>3}%]",
-        q_amp_mean,
-        q_amp_std,
-        q_amp_min,
-        q_amp_max,
-        if b.n > 0 {
-            (100 * b.q_pos_at_min / b.n) as usize
-        } else {
-            0
-        },
-        if b.n > 0 {
-            (100 * b.q_pos_at_max / b.n) as usize
-        } else {
-            0
-        }
-    );
-    println!(
-        "   r_x (px)  : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
-        rx_mean, rx_std, rx_min, rx_max
-    );
-    println!(
-        "               floors: {:>3}%  ceils: {:>3}%",
-        if b.n > 0 {
-            (100 * b.rx_at_floor / b.n) as usize
-        } else {
-            0
-        },
-        if b.n > 0 {
-            (100 * b.rx_at_ceil / b.n) as usize
-        } else {
-            0
-        }
-    );
-    println!(
-        "   r_y (px)  : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
-        ry_mean, ry_std, ry_min, ry_max
-    );
-    println!(
-        "               floors: {:>3}%  ceils: {:>3}%",
-        if b.n > 0 {
-            (100 * b.ry_at_floor / b.n) as usize
-        } else {
-            0
-        },
-        if b.n > 0 {
-            (100 * b.ry_at_ceil / b.n) as usize
-        } else {
-            0
-        }
-    );
-    println!(
-        "   r_a       : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
-        ra_mean, ra_std, ra_min, ra_max
-    );
-    println!(
-        "               floors: {:>3}%  ceils: {:>3}%",
-        if b.n > 0 {
-            (100 * b.ra_at_floor / b.n) as usize
-        } else {
-            0
-        },
-        if b.n > 0 {
-            (100 * b.ra_at_ceil / b.n) as usize
-        } else {
-            0
-        }
-    );
-
-    if !b.nis_vals.is_empty() {
-        let (_, nt, ns, nmin, nmax) = summarize("nis", &b.nis_vals);
-        let (_, nx, nxs, nxmin, nxmax) = summarize("nis_x", &b.nis_x_vals);
-        let (_, ny, nys, nymin, nymax) = summarize("nis_y", &b.nis_y_vals);
-        let (_, na, nas, namin, namax) = summarize("nis_a", &b.nis_a_vals);
-        println!(
-            "   NIS total : mean={:8.4} std={:8.4} min={:8.4} max={:8.4}",
-            nt, ns, nmin, nmax
-        );
-        println!(
-            "   NIS x/y/a : x=({:8.4},{:8.4}) y=({:8.4},{:8.4}) a=({:8.4},{:8.4})",
-            nx, nxs, ny, nys, na, nas
-        );
-        println!("               x_min/max=({:8.4},{:8.4}) y_min/max=({:8.4},{:8.4}) a_min/max=({:8.4},{:8.4})",
-                 nxmin, nxmax, nymin, nymax, namin, namax);
-    }
-}
-
 fn pearson_corr(xs: &[f32], ys: &[f32]) -> f32 {
     let n = xs.len().min(ys.len());
     if n < 3 {
@@ -1439,14 +957,6 @@ fn mean_std(vals: &[f32]) -> (f32, f32, usize) {
     let mean = vals.iter().copied().sum::<f32>() / n as f32;
     let var = vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / n as f32;
     (mean, var.sqrt(), n)
-}
-
-fn print_bin(label: &str, ra: &[f32]) {
-    let (m, s, n) = mean_std(ra);
-    println!(
-        "  {:<10}  n={:<4}  r_a mean={:7.3}  std={:7.3}",
-        label, n, m, s
-    );
 }
 
 #[cfg(test)]

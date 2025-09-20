@@ -1,0 +1,21 @@
+[package]
+name = "astrocap_processor_solvastro"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+astrocap_core = { path = "../astrocap_core" }
+
+arc-swap = { workspace = true }
+memmap = "0.7"
+rerun = { workspace = true }
+serde = { workspace = true }
+solvastro = { path = "../../solvastro" }
+stable_deref_trait = "1.2"
+toml = { workspace = true }
+tracing = { workspace = true }
+yoke = { version = "0.7", features = ["derive"] }
+
+
+[lib]
+name = "astrocap_processor_solvastro"

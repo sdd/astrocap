@@ -1,5 +1,5 @@
 use crate::model::Track;
-use astrocap_core::{structs::Detection, traits::TrackSummary};
+use astrocap_core::{structs::Detection, FrameContext};
 use astrocap_core::{AstrocapError, DumpManager};
 use rerun::RecordingStream;
 use serde::Deserialize;
@@ -28,11 +28,7 @@ pub trait Configurable: Send + Sync + 'static {
 
 pub trait HypothesisTracker: Send + Sync + 'static {
     fn process_frame(&mut self, detections: &[Detection], frame_index: usize);
-
-    fn summary(&self) -> &[TrackSummary];
-
-    fn final_summary(&self);
-    fn log_to_rerun(&self, rec: &RecordingStream);
+    fn log_to_rerun(&self, rec: &RecordingStream, frame_ctx: &mut FrameContext);
 
     fn dump(&self, _manager: &mut DumpManager, _frame_idx: usize) -> Result<(), AstrocapError> {
         Ok(())

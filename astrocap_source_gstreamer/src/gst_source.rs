@@ -190,7 +190,7 @@ impl GstSource {
 
         match state_change_result {
             Ok(gst::StateChangeSuccess::Success) | Ok(gst::StateChangeSuccess::NoPreroll) => {
-                tracing::info!("gst pipeline {action_verb} succeeded");
+                tracing::debug!("gst pipeline {action_verb} succeeded");
             }
             Ok(gst::StateChangeSuccess::Async) => {
                 tracing::debug!("gst pipeline {action_verb} in progress");
@@ -199,7 +199,7 @@ impl GstSource {
                 match result {
                     Ok(_) => {
                         if current == gst::State::Paused {
-                            tracing::info!("gst pipeline {action_verb} succeeded");
+                            tracing::debug!("gst pipeline {action_verb} succeeded");
                         } else {
                             tracing::warn!(
                                 ?current,
