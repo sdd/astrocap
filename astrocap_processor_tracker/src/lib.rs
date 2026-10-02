@@ -5,4 +5,4 @@ pub mod processor;
 pub mod traits;
 
 pub use processor::TrackerProcessor;
-astrocap_core::register_astrocap_frame_processor!(TrackerProcessor);
+vyd::register_vyd_frame_processor!(TrackerProcessor);

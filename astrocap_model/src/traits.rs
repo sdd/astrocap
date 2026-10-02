@@ -2,7 +2,10 @@ use crate::state::{DetectedPoint, FittedPoint};
 use argmin::core::ArgminFloat;
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::Cast;
-use kiddo::float::kdtree::Axis;
+use kiddo::leaf_view::TlsLeafScratch;
+use kiddo::stem_strategies::donnelly::simd_full::{BacktrackBlock3, BacktrackBlock4};
+use kiddo::stem_strategy::{SimdPrune, SimdSelectBestChildBlock3};
+use kiddo::Axis;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use num_traits::float::FloatCore;
 use serde::Serialize;
@@ -13,7 +16,12 @@ use std::sync::Arc;
 
 pub trait AstroFloat:
     ArgminFloat
-    + Axis
+    + Axis<Coord = Self>
+    + SimdPrune
+    + SimdSelectBestChildBlock3
+    + BacktrackBlock3
+    + BacktrackBlock4
+    + TlsLeafScratch
     + Sum
     + AddAssign
     + SubAssign
@@ -32,7 +40,12 @@ pub trait AstroFloat:
 
 impl<
         T: ArgminFloat
-            + Axis
+            + Axis<Coord = Self>
+            + SimdPrune
+            + SimdSelectBestChildBlock3
+            + BacktrackBlock3
+            + BacktrackBlock4
+            + TlsLeafScratch
             + Sum
             + AddAssign
             + SubAssign

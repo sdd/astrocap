@@ -3,7 +3,7 @@ use argmin::core::ArgminFloat;
 
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
-use kiddo::float::kdtree::Axis;
+use kiddo::Axis;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};

@@ -14,4 +14,4 @@ stage_type = "astrocap_processor_detection_export::DetectionExportProcessor"
 output_path = "tests/processed_crop_2_detetions.json"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"

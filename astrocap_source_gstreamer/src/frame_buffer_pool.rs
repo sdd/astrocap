@@ -1,9 +1,9 @@
-use astrocap_core::frame::{CpuStorage, CpuStorageShared, FrameError};
 use astrocap_core::Frame;
 use bytes::{Bytes, BytesMut};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use tracing;
+use vyd::frame::{CpuStorage, CpuStorageShared, FrameError};
 
 /// A frame buffer that owns memory from the pool and implements CpuStorageShared
 pub struct FrameBuffer {

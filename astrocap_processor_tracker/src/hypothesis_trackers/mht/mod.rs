@@ -6,7 +6,7 @@ use std::num::NonZero;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use kiddo::{float::kdtree::KdTree, immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
+use kiddo::{ImmutableKdTree, MutableKdTree, SquaredEuclidean};
 use nalgebra::Matrix3;
 use ordered_float::OrderedFloat;
 use rerun::RecordingStream;
@@ -21,7 +21,7 @@ use config::MhtConfig;
 use kalman_filter::KalmanFilter;
 
 // TODO: include amplitude as a dimension in the trees
-type DetectionTree = ImmutableKdTree<f32, u32, 2, 32>;
+type DetectionTree = ImmutableKdTree<f32, 2>;
 // type TrackTree = ImmutableKdTree<f32, u32, 2, 32>;
 
 /// represents a probability as both a log likelihood and log odds
@@ -269,8 +269,8 @@ impl HypothesisTracker for MultiHypothesisTracker {
             .iter()
             .map(|d| [d.position.x, d.position.y])
             .collect();
-        let detections_tree: DetectionTree =
-            DetectionTree::new_from_slice(detection_coords.as_slice());
+        let detections_tree: DetectionTree = DetectionTree::new_from_slice(&detection_coords)
+            .expect("detection tree construction failed");
 
         // let track_coords: Vec<[f32; 2]> = self
         //     .tracks
@@ -295,7 +295,10 @@ impl HypothesisTracker for MultiHypothesisTracker {
             // let r = self.config.association_gate_radius;
             let r = self.config.stellar_association_exclusion_radius;
             let gated_detections = detections_tree
-                .within_unsorted::<SquaredEuclidean>(&[kf_pred.x(), kf_pred.y()], r * r);
+                .query(&[kf_pred.x(), kf_pred.y()])
+                .within::<SquaredEuclidean<f32>>(r * r)
+                .unsorted()
+                .execute();
 
             // 3) * branch a child track for each detection
             for nn in &gated_detections {
@@ -649,31 +652,36 @@ impl MultiHypothesisTracker {
         // sort founders by id (or by min age)
         founders.sort_by_key(|(fid, _, _)| *fid);
 
-        let mut kd: KdTree<f32, u64, 2, 32, u32> = KdTree::new();
+        let mut kd: MutableKdTree<f32, 2> = MutableKdTree::builder()
+            .build_from_entries(&[])
+            .expect("empty founder tree construction failed");
+        let mut founder_ids = Vec::with_capacity(founders.len());
         let mut remap: HashMap<u64, u64> = HashMap::new();
 
         let merge_radius = 1.0;
         for (fid, x, y) in founders {
-            let dupes = kd.nearest_n_within::<SquaredEuclidean>(
-                &[x, y],
-                merge_radius,
-                NonZero::<usize>::new(1).unwrap(),
-                true,
-            );
+            let dupes = kd
+                .query(&[x, y])
+                .nearest_n::<SquaredEuclidean<f32>>(NonZero::new(1).unwrap())
+                .within(merge_radius)
+                .execute();
             if let Some(existing_fid) = dupes.first() {
-                tracing::info!("merging track {fid} into {}", existing_fid.item);
+                let existing_fid = founder_ids[existing_fid.item as usize];
+                tracing::info!("merging track {fid} into {}", existing_fid);
                 // merge: remap this founder -> existing
-                remap.insert(fid, existing_fid.item);
+                remap.insert(fid, existing_fid);
 
                 // add leaves to matching founder in new_leaves_by_founder
                 for leaf_id in &leaves_by_founder[&fid] {
                     new_leaves_by_founder
-                        .entry(existing_fid.item)
+                        .entry(existing_fid)
                         .or_default()
                         .insert(*leaf_id);
                 }
             } else {
-                kd.add(&[x, y], fid);
+                kd.add(&[x, y], founder_ids.len() as u32)
+                    .expect("founder tree insertion failed");
+                founder_ids.push(fid);
                 // insert group into new_leaves_by_founder
                 for leaf_id in &leaves_by_founder[&fid] {
                     new_leaves_by_founder
@@ -962,7 +970,7 @@ fn mean_std(vals: &[f32]) -> (f32, f32, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Vector2;
+    use nalgebra::{Matrix5, Vector2, Vector5};
 
     #[test]
     fn toy_two_frames_with_branching() {
@@ -973,7 +981,7 @@ mod tests {
             association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            per_root_min_leaf_log_odds: -100.0,
+            per_root_min_leaf_log_odds: -1_000_000.0,
             max_track_group_count: 100,
             per_root_max_leaf_count: 10,
             threshold: 50.0,
@@ -982,19 +990,13 @@ mod tests {
             r_x: 1.0,
             r_y: 1.0,
             min_track_log_odds: 0.0,
+            ..MhtConfig::default()
         };
-
-        // Build R = diag(r_x^2, r_y^2)
-        let rx2 = config.r_x * config.r_x;
-        let ry2 = config.r_y * config.r_y;
-        let measurement_cov = Matrix2::from_diagonal(&nalgebra::Vector2::new(rx2, ry2));
 
         let mut tracker = MultiHypothesisTracker {
             config,
             leaf_ids: HashSet::default(),
-            summary: Vec::default(),
             track_node_store: TrackNodeStore::default(),
-            measurement_cov,
         };
 
         // --- Frame 1: two detections ---
@@ -1014,7 +1016,6 @@ mod tests {
         tracker.process_frame(&frame1, 0);
 
         println!("After frame 1:");
-        tracker.print_leaf_chains();
 
         // Expect: 2 leaf tracks (one per detection)
         assert_eq!(tracker.leaf_ids.len(), 2);
@@ -1036,7 +1037,6 @@ mod tests {
         tracker.process_frame(&frame2, 1);
 
         println!("After frame 2:");
-        tracker.print_leaf_chains();
 
         // After frame 2, we expect:
         // - 1 association branch continuing the (10,10) track near (11,11)
@@ -1067,7 +1067,7 @@ mod tests {
             association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            per_root_min_leaf_log_odds: -100.0,
+            per_root_min_leaf_log_odds: -1_000_000.0,
             max_track_group_count: 100,
             per_root_max_leaf_count: 10,
             threshold: 50.0,
@@ -1076,19 +1076,13 @@ mod tests {
             r_x: 1.0,
             r_y: 1.0,
             min_track_log_odds: 0.0,
+            ..MhtConfig::default()
         };
-
-        // Build R = diag(r_x^2, r_y^2)
-        let rx2 = config.r_x * config.r_x;
-        let ry2 = config.r_y * config.r_y;
-        let measurement_cov = Matrix2::from_diagonal(&nalgebra::Vector2::new(rx2, ry2));
 
         let mut tracker = MultiHypothesisTracker {
             config,
             leaf_ids: HashSet::default(),
-            summary: Vec::default(),
             track_node_store: TrackNodeStore::default(),
-            measurement_cov,
         };
 
         // --- Frame 1: one detection at (10,10) ---
@@ -1101,7 +1095,6 @@ mod tests {
         tracker.process_frame(&frame1, 0);
 
         println!("After frame 1:");
-        tracker.print_leaf_chains();
         assert_eq!(tracker.leaf_ids.len(), 1);
 
         // Grab the track ID from frame 1
@@ -1119,7 +1112,6 @@ mod tests {
         tracker.process_frame(&frame2, 1);
 
         println!("After frame 2 (miss only):");
-        tracker.print_leaf_chains();
         assert_eq!(
             tracker.leaf_ids.len(),
             1,
@@ -1143,14 +1135,13 @@ mod tests {
 
     #[test]
     fn toy_miss_with_velocity() {
-        use nalgebra::{Matrix4, Vector4};
         use std::collections::HashSet;
 
         let config = MhtConfig {
             association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            per_root_min_leaf_log_odds: -100.0,
+            per_root_min_leaf_log_odds: -1_000_000.0,
             max_track_group_count: 100,
             per_root_max_leaf_count: 10,
             threshold: 50.0,
@@ -1159,24 +1150,18 @@ mod tests {
             r_x: 1.0,
             r_y: 1.0,
             min_track_log_odds: 0.0,
+            ..MhtConfig::default()
         };
-
-        // Build R = diag(r_x^2, r_y^2)
-        let rx2 = config.r_x * config.r_x;
-        let ry2 = config.r_y * config.r_y;
-        let measurement_cov = Matrix2::from_diagonal(&nalgebra::Vector2::new(rx2, ry2));
 
         let mut tracker = MultiHypothesisTracker {
             config,
             leaf_ids: HashSet::default(),
-            summary: Vec::default(),
             track_node_store: TrackNodeStore::default(),
-            measurement_cov,
         };
 
         // Manually create a node with velocity (2,3)
-        let init_state = Vector4::new(0.0, 0.0, 2.0, 3.0);
-        let init_kf = KalmanFilter::new_with_covariance(init_state, Matrix4::identity());
+        let init_state = Vector5::new(0.0, 0.0, 2.0, 3.0, 100.0);
+        let init_kf = KalmanFilter::new_with_covariance(init_state, Matrix5::identity());
 
         let id = NEXT_TRACK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let node = MhtTrackNode {
@@ -1194,6 +1179,7 @@ mod tests {
                 ll: 0.0,
                 lo: -100.0,
             },
+            amplitude: 100.0,
             start_amplitude: 100.0,
             first_seen: 0,
             start_x: 0.0,
@@ -1209,7 +1195,6 @@ mod tests {
         tracker.process_frame(&frame, 0);
 
         println!("After miss with velocity:");
-        tracker.print_leaf_chains();
 
         // We should still have one leaf
         assert_eq!(tracker.leaf_ids.len(), 1);
@@ -1230,14 +1215,13 @@ mod tests {
 
     #[test]
     fn toy_long_gap_then_reassoc() {
-        use nalgebra::{Matrix4, Vector4};
         use std::collections::HashSet;
 
         let config = MhtConfig {
             association_gate_radius: 5.0,
             track_birth_rate: 2e-8,
             clutter_rate: 3.69e-5,
-            per_root_min_leaf_log_odds: -100.0,
+            per_root_min_leaf_log_odds: -1_000_000.0,
             max_track_group_count: 100,
             per_root_max_leaf_count: 10,
             threshold: 50.0,
@@ -1246,24 +1230,18 @@ mod tests {
             r_x: 1.0,
             r_y: 1.0,
             min_track_log_odds: 0.0,
+            ..MhtConfig::default()
         };
-
-        // Build R = diag(r_x^2, r_y^2)
-        let rx2 = config.r_x * config.r_x;
-        let ry2 = config.r_y * config.r_y;
-        let measurement_cov = Matrix2::from_diagonal(&nalgebra::Vector2::new(rx2, ry2));
 
         let mut tracker = MultiHypothesisTracker {
             config,
             leaf_ids: HashSet::default(),
-            summary: Vec::default(),
             track_node_store: TrackNodeStore::default(),
-            measurement_cov,
         };
 
         // Seed a node at (0,0) with velocity (1,0)
-        let init_state = Vector4::new(0.0, 0.0, 1.0, 0.0);
-        let init_kf = KalmanFilter::new_with_covariance(init_state, Matrix4::identity());
+        let init_state = Vector5::new(0.0, 0.0, 1.0, 0.0, 100.0);
+        let init_kf = KalmanFilter::new_with_covariance(init_state, Matrix5::identity());
 
         let id = NEXT_TRACK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let node = MhtTrackNode {
@@ -1281,6 +1259,7 @@ mod tests {
                 ll: 0.0,
                 lo: -100.0,
             },
+            amplitude: 100.0,
             start_amplitude: 100.0,
             first_seen: 0,
             start_x: 0.0,
@@ -1315,7 +1294,6 @@ mod tests {
         tracker.process_frame(&frame, 5);
 
         println!("After reassociation:");
-        tracker.print_leaf_chains();
 
         // New leaf should exist, near (5.2,0.1)
         let reassoc_id = *tracker.leaf_ids.iter().next().unwrap();

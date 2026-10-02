@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+pub use vyd::annotations::{AnnotationSessionMetadata, Keyframe, VideoMetadata};
 
 /// Root structure for manual annotations
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -11,17 +12,6 @@ pub struct AnnotationSession {
     pub objects: Vec<TrackedObject>,
     /// Annotation session metadata
     pub session_metadata: AnnotationSessionMetadata,
-}
-
-/// Video file information
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VideoMetadata {
-    pub file_path: String,
-    pub width: u32,
-    pub height: u32,
-    pub frame_count: u32,
-    pub fps: f32,
-    pub duration_seconds: f32,
 }
 
 /// Represents a single tracked object (star) across multiple frames
@@ -51,98 +41,17 @@ pub enum ObjectType {
     Other(String),
 }
 
-/// A keyframe position in the track
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Keyframe {
-    /// Frame number (0-based)
-    pub frame_number: u32,
-    /// Sub-pixel X coordinate
-    pub x: f32,
-    /// Sub-pixel Y coordinate
-    pub y: f32,
-    /// Confidence in this annotation (0.0 - 1.0)
-    pub confidence: f32,
-    /// Optional notes about this keyframe
-    pub notes: Option<String>,
-}
-
-/// Information about the annotation session
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AnnotationSessionMetadata {
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub annotator: String,
-    pub tool_version: String,
-    pub notes: Option<String>,
-}
-
 impl TrackedObject {
-    /// Get the position of this object at a specific frame using linear interpolation
     pub fn position_at_frame(&self, frame_number: u32) -> Option<(f32, f32)> {
-        // Find exact keyframe match first
-        if let Some(keyframe) = self
-            .keyframes
-            .iter()
-            .find(|k| k.frame_number == frame_number)
-        {
-            return Some((keyframe.x, keyframe.y));
-        }
-
-        // Find bounding keyframes for interpolation
-        let mut before: Option<&Keyframe> = None;
-        let mut after: Option<&Keyframe> = None;
-
-        for keyframe in &self.keyframes {
-            if keyframe.frame_number < frame_number {
-                if before.is_none() || keyframe.frame_number > before.unwrap().frame_number {
-                    before = Some(keyframe);
-                }
-            } else if keyframe.frame_number > frame_number {
-                if after.is_none() || keyframe.frame_number < after.unwrap().frame_number {
-                    after = Some(keyframe);
-                }
-            }
-        }
-
-        // Linear interpolation between keyframes
-        match (before, after) {
-            (Some(b), Some(a)) => {
-                let t = (frame_number - b.frame_number) as f32
-                    / (a.frame_number - b.frame_number) as f32;
-                let x = b.x + t * (a.x - b.x);
-                let y = b.y + t * (a.y - b.y);
-                Some((x, y))
-            }
-            _ => None, // No interpolation possible
-        }
+        vyd::annotations::position_at_frame(&self.keyframes, frame_number)
     }
 
-    /// Get the frame range where this object is visible
     pub fn frame_range(&self) -> Option<(u32, u32)> {
-        if self.keyframes.is_empty() {
-            return None;
-        }
-
-        let min_frame = self.keyframes.iter().map(|k| k.frame_number).min().unwrap();
-        let max_frame = self.keyframes.iter().map(|k| k.frame_number).max().unwrap();
-        Some((min_frame, max_frame))
+        vyd::annotations::frame_range(&self.keyframes)
     }
 
-    /// Add a new keyframe to this track
     pub fn add_keyframe(&mut self, keyframe: Keyframe) {
-        // Insert in sorted order by frame number
-        match self
-            .keyframes
-            .binary_search_by_key(&keyframe.frame_number, |k| k.frame_number)
-        {
-            Ok(pos) => {
-                // Replace existing keyframe at this frame
-                self.keyframes[pos] = keyframe;
-            }
-            Err(pos) => {
-                // Insert at the correct position
-                self.keyframes.insert(pos, keyframe);
-            }
-        }
+        vyd::annotations::add_keyframe(&mut self.keyframes, keyframe);
     }
 }
 

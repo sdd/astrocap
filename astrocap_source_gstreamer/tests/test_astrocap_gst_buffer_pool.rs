@@ -149,14 +149,15 @@ fn test_buffer_pool_size_mismatch() {
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
-    buffer_pool.set_frame_buffer_pool(pool);
+    buffer_pool.set_frame_buffer_pool(pool.clone());
 
-    // Configure with WRONG size - should be detected during acquisition
-    let wrong_size = 1024; // Different from pool buffer_size
+    // Negotiating a new size reconfigures the underlying frame pool.
+    let wrong_size = 1024;
     let mut config = buffer_pool.config();
     config.set_params(None, wrong_size, 0, buffer_count as u32);
     let config_result = buffer_pool.set_config(config);
-    assert!(config_result.is_err()); // Configuration should fail for now
+    assert!(config_result.is_ok());
+    assert_eq!(pool.lock().unwrap().buffer_size(), wrong_size as usize);
 
     /*buffer_pool.set_active(true).unwrap();
 

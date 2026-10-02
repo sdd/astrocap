@@ -1,10 +1,10 @@
-use astrocap_core::frame::CpuImgBuf;
 use astrocap_core::structs::Detection;
 use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
 use image::Pixel;
 use serde::Deserialize;
 use std::sync::Arc;
+use vyd::frame::CpuImgBuf;
 
 const DEFAULT_POINT_THRESHOLD: u8 = 40;
 const DEFAULT_MIN_SEPARATION: f64 = 20.0; // Minimum separation between stars (pixels)

@@ -91,14 +91,14 @@ fn test_dump_functionality() {
     // Create a test pipeline configuration
     let toml_config = r#"
 [source]
-stage_type = "astrocap_core::DummySource"
+stage_type = "vyd::DummySource"
 frame_count = 10
 
 [[stages]]
 stage_type = "astrocap_core::DumpTestProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#;
 
     // Parse the TOML configuration
@@ -130,7 +130,7 @@ stage_type = "astrocap_core::DummySink"
     pipeline_context.put("dump_manager", dump_manager);
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline, None);
+    let final_context = run_pipeline(pipeline_context, pipeline, None).unwrap();
 
     // Verify stats
     let frames_sourced = final_context

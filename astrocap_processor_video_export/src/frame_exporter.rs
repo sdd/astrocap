@@ -4,8 +4,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::config::Config;
-use astrocap_core::frame::CpuFrame;
 use astrocap_core::{AstrocapError, Frame};
+use vyd::frame::CpuFrame;
 
 // Simple PNG sequence exporter for lossless storage
 pub struct FrameExporter {

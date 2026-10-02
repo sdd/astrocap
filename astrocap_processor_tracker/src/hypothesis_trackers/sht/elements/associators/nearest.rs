@@ -1,7 +1,7 @@
 use crate::model::Track;
 use crate::traits::{Associations, Associator, Configurable, ConfigurableConfig};
 use astrocap_core::{structs::Detection, AstrocapError};
-use kiddo::{KdTree, SquaredEuclidean};
+use kiddo::{MutableKdTree, SquaredEuclidean};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
@@ -43,9 +43,13 @@ impl Associator for NearestAssociator {
         let mut used_detections = HashSet::new();
 
         // Build KD-tree of detections
-        let mut detection_tree: KdTree<f32, 2> = KdTree::with_capacity(detections.len());
+        let mut detection_tree: MutableKdTree<f32, 2> = MutableKdTree::builder()
+            .build_from_entries(&[])
+            .expect("empty detection tree construction failed");
         for (idx, detection) in detections.iter().enumerate() {
-            detection_tree.add(&[detection.position.x, detection.position.y], idx as u64);
+            detection_tree
+                .add(&[detection.position.x, detection.position.y], idx as u32)
+                .expect("detection tree insertion failed");
         }
 
         // For each track, find nearest detection within gate using KD-tree
@@ -53,12 +57,12 @@ impl Associator for NearestAssociator {
             let track_pos = [track.state.state[0], track.state.state[1]];
 
             // Find all detections within the gate radius
-            let candidates = detection_tree.nearest_n_within::<SquaredEuclidean>(
-                &track_pos,
-                self.config.max_distance * self.config.max_distance, // squared distance
-                std::num::NonZero::new(usize::MAX).unwrap(),
-                false,
-            );
+            let candidates = detection_tree
+                .query(&track_pos)
+                .within::<SquaredEuclidean<f32>>(
+                    self.config.max_distance * self.config.max_distance,
+                )
+                .execute();
 
             // Find the closest unused detection
             let mut best_detection_idx = None;

@@ -1,11 +1,11 @@
 use argmin::core::{CostFunction, State, TerminationReason};
 use argmin::solver::neldermead::NelderMead;
-use astrocap_core::frame::CpuFrame;
 use astrocap_core::structs::{Detection, FittedPoint, FittedPointQuality};
 use astrocap_core::traits::PointFitter;
 use image::Pixel;
 use ndarray::Array1;
 use tracing::{debug, warn};
+use vyd::frame::CpuFrame;
 
 const INITIAL_GAUSSIAN_ALPHA: f32 = 1.0; // was 2.5;
 const MAX_ITERATIONS: u64 = 20;
@@ -350,16 +350,16 @@ pub fn gaussian_2d(
 #[cfg(test)]
 mod tests {
     use super::PointFitterGaussianNelderMead;
-    use astrocap_core::frame::{CpuFrame, CpuStorage};
     use astrocap_core::structs::Detection;
     use astrocap_core::traits::PointFitter;
     use image::io::Reader as ImageReader;
     use image::{ImageBuffer, Luma};
-    use kiddo::float::kdtree::KdTree;
+    use kiddo::MutableKdTree;
     use kiddo::SquaredEuclidean;
     use std::collections::HashSet;
     use std::fs::File;
     use std::sync::Arc;
+    use vyd::frame::{CpuFrame, CpuStorage};
 
     struct Point {
         x: usize,
@@ -367,7 +367,7 @@ mod tests {
         amp: u8,
     }
 
-    type Tree = KdTree<f32, usize, 2, 32, u32>;
+    type Tree = MutableKdTree<f32, 2>;
 
     const MAX_GOOD_STAR_MATCH_RADIUS: f32 = 10.0;
 
@@ -425,19 +425,22 @@ mod tests {
         )
         .unwrap();
 
-        let mut tree: Tree = Tree::new();
+        let mut tree: Tree = Tree::new_from_slice(&[]).unwrap();
         for (idx, point) in results.iter().enumerate() {
-            tree.add(&[point.x, point.y], idx);
+            tree.add(&[point.x, point.y], idx as u32).unwrap();
         }
 
         // assert that the known good stars are detected
         let mut matched_indexes: HashSet<usize> = HashSet::new();
         let mut matched_candidates: Vec<_> = Vec::new();
         for point in known_good.iter() {
-            let nearest = tree.nearest_one::<SquaredEuclidean>(&[point.x as f32, point.y as f32]);
+            let nearest = tree
+                .query(&[point.x as f32, point.y as f32])
+                .nearest_one::<SquaredEuclidean<f32>>()
+                .execute();
             assert!(nearest.distance < MAX_GOOD_STAR_MATCH_RADIUS);
-            matched_indexes.insert(nearest.item);
-            matched_candidates.push(&results[nearest.item]);
+            matched_indexes.insert(nearest.item as usize);
+            matched_candidates.push(&results[nearest.item as usize]);
         }
 
         assert_eq!(matched_indexes.len(), known_good.len());

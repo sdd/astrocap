@@ -1,12 +1,12 @@
 use crate::median_config::MedianConfig;
 use crate::median_filter::median_filter;
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use image::GrayImage;
 use std::sync::{Arc, Mutex};
 use toml::Value;
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 pub struct MedianProcessor {
     config: MedianConfig,

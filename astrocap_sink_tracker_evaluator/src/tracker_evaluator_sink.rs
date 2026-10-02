@@ -2,8 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::config::Config;
 use astrocap_core::annotations::{AnnotationSession, ObjectType, TrackedObject};
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::Detection;
 use astrocap_core::traits::{FrameSink, TrackSummary};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
@@ -13,6 +11,8 @@ use nalgebra::Vector2;
 use serde::Serialize;
 use toml::Value;
 use tracing::{info, warn};
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 /// Association between a track and an annotated object
 #[derive(Debug, Clone)]

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+vyd = { workspace = true }
 astrocap_core = { path = "../astrocap_core" }
 argmin = "0.8"
 argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
@@ -19,7 +20,7 @@ toml = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 
 [lib]
 name = "astrocap_processor_point_fitter"

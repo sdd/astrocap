@@ -5,4 +5,4 @@ pub mod structs;
 
 pub use processor::SolvastroProcessor;
 
-astrocap_core::register_astrocap_frame_processor!(SolvastroProcessor);
+vyd::register_vyd_frame_processor!(SolvastroProcessor);

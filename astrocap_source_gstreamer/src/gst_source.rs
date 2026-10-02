@@ -13,10 +13,10 @@ use crate::config::*;
 use crate::create_shared_pool;
 use crate::gst_buffer_timing_meta::instrument_pipeline_with_timing_meta;
 use crate::gst_pipeline::*;
-use astrocap_core::statistics::{PipelineStatistics, ProcessingType};
 use astrocap_core::traits::FrameSource;
 use astrocap_core::{pipeline::PipelineContext, AstrocapError, FrameContext};
 use thiserror::Error;
+use vyd::statistics::{PipelineStatistics, ProcessingType};
 
 const FRAME_BLOCKING_TIMEOUT: Duration = Duration::from_millis(250);
 

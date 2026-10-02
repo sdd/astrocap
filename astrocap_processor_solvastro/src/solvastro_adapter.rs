@@ -8,9 +8,9 @@ use memmap::{Mmap, MmapOptions};
 use stable_deref_trait::StableDeref;
 use yoke::{Yoke, Yokeable};
 
-use solvastro::k5_v2::process_query::process_query;
-use solvastro::k5_v2::star_index_container::ReadableStarIndexContainer;
-use solvastro::k5_v2::verified_solution::VerifiedSolution;
+use solvastro::dynamic_index::process_query::process_query;
+use solvastro::dynamic_index::star_index_container::ReadableStarIndexContainer;
+use solvastro::dynamic_index::verified_solution::VerifiedSolution;
 use solvastro::settings::Settings;
 use solvastro::structs_f64::query::{Query, QueryPoint};
 

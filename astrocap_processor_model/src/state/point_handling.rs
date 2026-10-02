@@ -1,4 +1,4 @@
-use astrocap_core::frame::CpuFrame;
+use vyd::frame::CpuFrame;
 use astrocap_core::traits::PointFitter;
 use az::Az;
 use kiddo::SquaredEuclidean;

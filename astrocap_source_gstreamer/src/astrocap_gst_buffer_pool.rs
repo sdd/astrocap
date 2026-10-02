@@ -247,11 +247,10 @@ mod tests {
         // Configure without setting underlying pool
         let mut config = buffer_pool.config();
         config.set_params(None, 1024, 0, 2);
-        buffer_pool.set_config(config).unwrap();
-        buffer_pool.set_active(true).unwrap();
+        assert!(buffer_pool.set_config(config).is_err());
 
         // Should fail - no pool configured
-        let result = buffer_pool.acquire_buffer(None);
+        let result = buffer_pool.imp().acquire_buffer(None);
         assert!(result.is_err());
     }
 
@@ -306,13 +305,13 @@ mod tests {
     }
 
     #[test]
-    fn test_size_mismatch_rejection() {
+    fn test_size_mismatch_reconfigures_pool() {
         gst::init().unwrap();
 
         let buffer_pool = AstrocapGstBufferPool::new();
         let buffer_size = 1024;
         let pool = create_shared_pool(buffer_size, 2);
-        buffer_pool.set_frame_buffer_pool(pool);
+        buffer_pool.set_frame_buffer_pool(pool.clone());
 
         // Configure with wrong size
         let mut config = buffer_pool.config();
@@ -320,7 +319,8 @@ mod tests {
 
         let result = buffer_pool.set_config(config);
 
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert_eq!(pool.lock().unwrap().buffer_size(), 2048);
     }
 
     #[test]

@@ -1,4 +1,3 @@
-use astrocap_core::frame::CpuImgBuf;
 use astrocap_core::structs::Detection;
 use astrocap_core::traits::PointDetector;
 use astrocap_core::Frame;
@@ -6,6 +5,7 @@ use image::Pixel;
 use nalgebra::Vector2;
 use serde::Deserialize;
 use std::sync::Arc;
+use vyd::frame::CpuImgBuf;
 
 const DEFAULT_BASE_THRESHOLD: u8 = 20; // Base threshold for dark regions
 const DEFAULT_DARK_THRESHOLD: u8 = 90; // Median value that we consider "dark"

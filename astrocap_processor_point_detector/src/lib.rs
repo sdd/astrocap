@@ -3,4 +3,4 @@ pub mod detectors;
 pub mod point_detector;
 
 pub use point_detector::PointDetectorProcessor;
-astrocap_core::register_astrocap_frame_processor!(PointDetectorProcessor);
+vyd::register_vyd_frame_processor!(PointDetectorProcessor);

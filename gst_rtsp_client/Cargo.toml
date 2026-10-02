@@ -16,7 +16,7 @@ gst-video = { package = "gstreamer-video", version = "0.21.2" }
 http = "1"
 imageproc = "0.23.0"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 rerun = { workspace = true }
 rtrb = "0.3"
 #solvastro = { path = "../solvastro-2", package = "solvastro" }

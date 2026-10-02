@@ -1,13 +1,12 @@
 use astrocap_core::FrameProcessorResult::{Continue, Skip};
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
-use astrocap_core::{
-    AstrocapError, Frame, FrameContext, FrameProcessorResult, register_astrocap_frame_processor,
-};
+use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
 use std::sync::Arc;
 use toml::Value;
+use vyd::pipeline::PipelineContext;
+use vyd::register_vyd_frame_processor;
+use vyd::statistics::ProcessingType;
 
 pub struct RerunTeeProcessor {
     tag: String,
@@ -109,4 +108,4 @@ impl FrameProcessor for RerunTeeProcessor {
     }
 }
 
-register_astrocap_frame_processor!(RerunTeeProcessor);
+register_vyd_frame_processor!(RerunTeeProcessor);

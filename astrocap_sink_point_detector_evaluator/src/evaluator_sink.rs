@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use crate::config::Config;
 use astrocap_core::annotations::{AnnotationSession, ObjectType, TrackedObject};
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::Detection;
 use astrocap_core::traits::FrameSink;
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
@@ -11,6 +9,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use toml::Value;
 use tracing::{info, warn};
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 /// Evaluation results structures
 #[derive(Serialize, Debug)]

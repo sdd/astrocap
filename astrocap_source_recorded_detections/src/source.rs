@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 
 use crate::config::Config;
-use astrocap_core::frame::CpuFrame;
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::Detection;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameSource};
+use vyd::frame::CpuFrame;
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 pub struct RecordedDetectionsSource {
     config: Config,

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+vyd = { workspace = true }
 astrocap_core = { path = "../astrocap_core" }
 astrocap_source_gstreamer = { path = "../astrocap_source_gstreamer" }
 anyhow = "1.0"

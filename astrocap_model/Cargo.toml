@@ -10,14 +10,14 @@ argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_l
 az = "1"
 derive_more = "0.99.17"
 itertools = "0.12"
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 lazy_static = "1"
 nalgebra = "0.32"
 ndarray = "0.15"
 nonmax = { version = "0.5", features = ["serde"] }
 num-traits = "0.2"
 ordered-float = "4"
-rerun = { version = "0.23", default-features = false }
+rerun = { workspace = true }
 rusttype = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

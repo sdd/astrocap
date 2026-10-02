@@ -1,11 +1,11 @@
-use astrocap_core::frame::CpuFrame;
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use std::sync::Arc;
 use toml::Value;
+use vyd::frame::CpuFrame;
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 pub struct MaskProcessor {
     file_path: String,

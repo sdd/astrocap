@@ -2,13 +2,13 @@ use crate::config::PointExtractorConfig;
 use crate::detectors::adaptive_centroid::PointDetectAdaptiveCentroid;
 use crate::detectors::local_maxima::PointDetectLocalMaxima;
 use crate::detectors::peak::PointDetectPeak;
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::Detection;
 use astrocap_core::traits::{FrameProcessor, PointDetector};
 use astrocap_core::{AstrocapError, DumpManager, Frame, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
 use std::sync::Arc;
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 pub struct PointDetectorProcessor {
     point_detector: Box<dyn PointDetector>,

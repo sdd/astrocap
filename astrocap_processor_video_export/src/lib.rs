@@ -2,10 +2,10 @@ mod config;
 mod frame_exporter;
 
 use astrocap_core::FrameProcessorResult::{Continue, Skip};
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 use std::sync::{Arc, Mutex};
 use toml::Value;
@@ -123,4 +123,4 @@ impl FrameProcessor for VideoExportProcessor {
     }
 }
 
-astrocap_core::register_astrocap_frame_processor!(VideoExportProcessor);
+vyd::register_vyd_frame_processor!(VideoExportProcessor);

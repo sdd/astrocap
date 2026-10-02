@@ -12,7 +12,6 @@ pub use streaks::MovingStreak;
 
 use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use std::error::Error;
-use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
@@ -22,18 +21,17 @@ use crate::traits::{AstroFloat, ImageLumaExtractor, PointDetector, PointFitter};
 use az::{Az, Cast};
 
 // use crate::state::solution_handling::Solver;
-use kiddo::{KdTree, SquaredEuclidean};
+use kiddo::{MutableKdTree, SquaredEuclidean};
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use num_traits::float::FloatCore;
-use ordered_float::OrderedFloat;
 use rerun::RecordingStream;
 
 const POINT_EXCLUSION_DIST: f64 = 3.4f64;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FrameState<F: AstroFloat> {
     pub detected_points_list: Vec<DetectedPoint<F>>,
-    pub detected_points_tree: KdTree<F, 2>,
+    pub detected_points_tree: MutableKdTree<F, 2>,
 }
 
 #[derive(Debug)]
@@ -46,14 +44,14 @@ pub struct ModelState<F: AstroFloat> {
 
     pub star_candidates: Vec<StarCandidate<F>>,
     #[allow(dead_code)]
-    star_candidates_tree: KdTree<F, 2>,
+    star_candidates_tree: MutableKdTree<F, 2>,
     matched_point_indices: HashSet<usize>,
 
     // wcs: Option<Wcs>,
     #[allow(dead_code)]
     // star_matches: Option<Vec<StarMatch<F>>>,
     pub moving_targets: Vec<MovingTarget<F>>,
-    pub moving_targets_tree: KdTree<F, 2>,
+    pub moving_targets_tree: MutableKdTree<F, 2>,
 
     #[allow(dead_code)]
     moving_streaks: Vec<MovingStreak>,
@@ -72,12 +70,14 @@ impl<F: AstroFloat> ModelState<F> {
             current_frame_state: None,
             historical_frame_states: vec![],
             star_candidates: vec![],
-            star_candidates_tree: KdTree::new(),
+            star_candidates_tree: MutableKdTree::new_from_slice(&[])
+                .expect("empty tree construction failed"),
             matched_point_indices: HashSet::new(),
             // wcs: None,
             // star_matches: None,
             moving_targets: vec![],
-            moving_targets_tree: KdTree::new(),
+            moving_targets_tree: MutableKdTree::new_from_slice(&[])
+                .expect("empty tree construction failed"),
             moving_streaks: vec![],
             // solver: star_index_path.map(|path| Solver::new(&path)),
         }
@@ -152,51 +152,44 @@ where
             .unwrap();
         }
 
-        let mut detected_points_tree: KdTree<F, 2> =
-            KdTree::with_capacity(detected_points_list.len());
-
-        let mut detected_points_removed_index_list: Vec<_> =
-            Vec::with_capacity(detected_points_list.len());
-
-        for (idx, point) in detected_points_list.iter().enumerate() {
-            let query = [point.x.az::<F>(), point.y.az::<F>()];
-            let mut near_neighbours = detected_points_tree.nearest_n_within::<SquaredEuclidean>(
-                &query,
-                POINT_EXCLUSION_DIST.az::<F>(),
-                NonZero::new(usize::MAX).unwrap(),
-                false,
-            );
-
-            near_neighbours.sort_unstable_by_key(|nn| {
-                OrderedFloat(detected_points_list[nn.item as usize].amplitude)
-            });
-            if let Some(brightest) = near_neighbours.pop() {
-                let brightest_point = &detected_points_list[brightest.item as usize];
-                if brightest_point.amplitude < point.amplitude {
-                    detected_points_tree.remove(
-                        &[brightest_point.x.az::<F>(), brightest_point.y.az::<F>()],
-                        brightest.item,
-                    );
-                    detected_points_removed_index_list.push(brightest.item);
-                    detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
-                }
-            } else {
-                detected_points_tree.add(&[point.x.az::<F>(), point.y.az::<F>()], idx as u64);
-            }
-            for close_point_result in near_neighbours {
-                let point = &detected_points_list[close_point_result.item as usize];
-                detected_points_tree.remove(
-                    &[point.x.az::<F>(), point.y.az::<F>()],
-                    close_point_result.item,
-                );
-                detected_points_removed_index_list.push(close_point_result.item);
-            }
-        }
-
-        detected_points_removed_index_list.sort_unstable();
-        for &idx in detected_points_removed_index_list.iter().rev() {
-            detected_points_list.remove(idx as usize);
-        }
+        // Build once from the full set. Incremental insertion rebuilds the tree
+        // repeatedly and can fail for dense groups of detections.
+        let point_coords: Vec<[F; 2]> = detected_points_list
+            .iter()
+            .map(|point| [point.x.az::<F>(), point.y.az::<F>()])
+            .collect();
+        let all_points_amplitude: Vec<F> = detected_points_list
+            .iter()
+            .map(|point| point.amplitude)
+            .collect();
+        let all_points_tree: MutableKdTree<F, 2> = MutableKdTree::new_from_slice(&point_coords)
+            .expect("detection tree construction failed");
+        let retained: Vec<_> = detected_points_list
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, point)| {
+                !all_points_tree
+                    .query(&point_coords[*idx])
+                    .within::<SquaredEuclidean<F>>(POINT_EXCLUSION_DIST.az::<F>())
+                    .execute()
+                    .iter()
+                    .any(|near| {
+                        let other_idx = near.item as usize;
+                        // Equal amplitudes keep the first detection.
+                        let other_amplitude = all_points_amplitude[other_idx];
+                        other_amplitude > point.amplitude
+                            || (other_amplitude == point.amplitude && other_idx < *idx)
+                    })
+            })
+            .map(|(_, point)| point)
+            .collect();
+        let detected_points_list = retained;
+        let retained_coords: Vec<[F; 2]> = detected_points_list
+            .iter()
+            .map(|point| [point.x.az::<F>(), point.y.az::<F>()])
+            .collect();
+        let detected_points_tree = MutableKdTree::new_from_slice(&retained_coords)
+            .expect("retained detection tree construction failed");
 
         info!(detected_point_qty = detected_points_list.len());
 
@@ -295,11 +288,12 @@ where
             }
         }
 
-        self.star_candidates_tree = KdTree::with_capacity(self.star_candidates.len());
+        self.star_candidates_tree =
+            MutableKdTree::new_from_slice(&[]).expect("empty tree construction failed");
 
         for (cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
             self.star_candidates_tree
-                .add(&[cand.x, cand.y], cand_idx as u64);
+                .add(&[cand.x, cand.y], cand_idx as u32);
         }
     }
 
@@ -313,7 +307,8 @@ where
 
         // reset the star candidate tree so that positions are updated
         // before the next frame
-        self.star_candidates_tree = KdTree::with_capacity(self.star_candidates.len());
+        self.star_candidates_tree =
+            MutableKdTree::new_from_slice(&[]).expect("empty tree construction failed");
 
         for (cand_idx, cand) in self.star_candidates.iter_mut().enumerate() {
             cand.age += 1;
@@ -338,7 +333,7 @@ where
             }
 
             self.star_candidates_tree
-                .add(&[cand.x, cand.y], cand_idx as u64);
+                .add(&[cand.x, cand.y], cand_idx as u32);
         }
 
         info!(

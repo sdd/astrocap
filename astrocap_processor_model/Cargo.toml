@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+vyd = { workspace = true }
 astrocap_core = { workspace = true }
 anyhow = { workspace = true }
 argmin = "0.8"
 argmin-math = { version = "0.3", features = ["ndarray_latest-serde", "nalgebra_latest-serde"] }
 az = { workspace = true }
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 ndarray = "0.15"
 nonmax = { version = "0.5", features = ["serde"] }
 num-traits = "0.2"

@@ -6,13 +6,13 @@ fn test_build_simplest_pipeline_from_toml() {
     // Create a TOML configuration for the test pipeline
     let toml_config = r#"
 [source]
-stage_type = "astrocap_core::DummySource"
+stage_type = "vyd::DummySource"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#;
 
     // Parse the TOML configuration
@@ -25,7 +25,7 @@ stage_type = "astrocap_core::DummySink"
     // Verify that the pipeline components were created correctly
     assert_eq!(
         format!("{:?}", pipeline),
-        "Pipeline { source: \"astrocap_core::DummySource\", stages: [\"astrocap_core::DummyProcessor\"], sink: \"astrocap_core::DummySink\" }"
+        "Pipeline { source: \"vyd::DummySource\", stages: [\"vyd::DummyProcessor\"], sink: \"vyd::DummySink\" }"
     );
 }
 
@@ -33,16 +33,16 @@ stage_type = "astrocap_core::DummySink"
 fn test_build_pipeline_with_multiple_processors() {
     let toml_config = r#"
 [source]
-stage_type = "astrocap_core::DummySource"
+stage_type = "vyd::DummySource"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#;
 
     let config: PipelineConfig =
@@ -52,7 +52,7 @@ stage_type = "astrocap_core::DummySink"
 
     assert_eq!(
         format!("{:?}", pipeline),
-        "Pipeline { source: \"astrocap_core::DummySource\", stages: [\"astrocap_core::DummyProcessor\", \"astrocap_core::DummyProcessor\"], sink: \"astrocap_core::DummySink\" }"
+        "Pipeline { source: \"vyd::DummySource\", stages: [\"vyd::DummyProcessor\", \"vyd::DummyProcessor\"], sink: \"vyd::DummySink\" }"
     );
 }
 
@@ -61,13 +61,13 @@ fn test_run_pipeline_integration() {
     // Create a simple pipeline configuration
     let toml_config = r#"
 [source]
-stage_type = "astrocap_core::DummySource"
+stage_type = "vyd::DummySource"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#;
 
     // Parse the TOML configuration
@@ -83,12 +83,12 @@ stage_type = "astrocap_core::DummySink"
     // Verify initial state
     assert_eq!(
         format!("{:?}", pipeline),
-        "Pipeline { source: \"astrocap_core::DummySource\", stages: [\"astrocap_core::DummyProcessor\"], sink: \"astrocap_core::DummySink\" }"
+        "Pipeline { source: \"vyd::DummySource\", stages: [\"vyd::DummyProcessor\"], sink: \"vyd::DummySink\" }"
     );
 
     // Run the pipeline - this should process all frames from the dummy source
     // The dummy source produces 5 frames, so this should process all of them
-    let final_context = run_pipeline(pipeline_context, pipeline, None);
+    let final_context = run_pipeline(pipeline_context, pipeline, None).unwrap();
 
     println!("Pipeline execution completed successfully!");
 
@@ -123,16 +123,16 @@ stage_type = "astrocap_core::DummySink"
 fn test_run_pipeline_with_multiple_processors() {
     let toml_config = r#"
 [source]
-stage_type = "astrocap_core::DummySource"
+stage_type = "vyd::DummySource"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#;
 
     let config: PipelineConfig =
@@ -142,7 +142,7 @@ stage_type = "astrocap_core::DummySink"
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline, None);
+    let final_context = run_pipeline(pipeline_context, pipeline, None).unwrap();
 
     // With 2 processors, frames_processed should be 10 (5 frames × 2 processors)
     let frames_sourced = final_context

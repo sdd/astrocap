@@ -1,9 +1,9 @@
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::Detection;
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessor, FrameProcessorResult};
 use std::fs::File;
 use tracing::{debug, error, info};
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 use crate::config::Config;
 

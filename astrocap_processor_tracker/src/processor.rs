@@ -1,11 +1,11 @@
 use rerun::RecordingStream;
 use toml::Value;
 
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::Detection;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, DumpManager, FrameContext, FrameProcessorResult};
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 use crate::config::Config;
 use crate::model::Track;

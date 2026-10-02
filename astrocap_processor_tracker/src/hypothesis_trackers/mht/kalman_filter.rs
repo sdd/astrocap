@@ -1,6 +1,5 @@
 use nalgebra::{
-    Matrix2, Matrix2x4, Matrix3, Matrix3x5, Matrix4, Matrix5, Matrix5x3,
-    Vector3, Vector5,
+    Matrix2, Matrix2x4, Matrix3, Matrix3x5, Matrix4, Matrix5, Matrix5x3, Vector3, Vector5,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -269,7 +268,7 @@ impl KalmanFilter {
     }
 
     pub fn a(&self) -> f32 {
-        self.state.z
+        self.state[4]
     }
 
     pub fn covariance(&self) -> &Matrix5<f32> {
@@ -762,6 +761,7 @@ mod tests {
     #[test]
     fn test_kf_update_pulls_toward_detection() {
         use astrocap_core::structs::Detection;
+        use nalgebra::Vector2;
 
         // Start at (0,0) with zero velocity and amplitude 0
         let init_state = Vector5::new(0.0, 0.0, 0.0, 0.0, 0.0);

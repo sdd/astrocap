@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use test_log::test;
 
-use astrocap_core::pipeline::{build_pipeline, run_pipeline, PipelineConfig, PipelineContext};
+use vyd::pipeline::{build_pipeline, run_pipeline, PipelineConfig, PipelineContext};
 
 use astrocap_source_gstreamer_gpu::GstGpuSource;
 
@@ -22,10 +22,10 @@ stage_type = "astrocap_source_gstreamer::GstSource"
 file_path = "{file_path}"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#
     );
 
@@ -39,7 +39,7 @@ stage_type = "astrocap_core::DummySink"
     // Verify that the pipeline components were created correctly
     assert_eq!(
         format!("{:?}", pipeline),
-        "Pipeline { source: \"astrocap_source_gstreamer::GstSource\", stages: [\"astrocap_core::DummyProcessor\"], sink: \"astrocap_core::DummySink\" }"
+        "Pipeline { source: \"astrocap_source_gstreamer::GstSource\", stages: [\"vyd::DummyProcessor\"], sink: \"vyd::DummySink\" }"
     );
 }
 
@@ -59,10 +59,10 @@ stage_type = "astrocap_source_gstreamer::GstSource"
 file_path = "{file_path}"
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#
     );
 
@@ -79,12 +79,12 @@ stage_type = "astrocap_core::DummySink"
     // Verify initial state
     assert_eq!(
         format!("{:?}", pipeline),
-        "Pipeline { source: \"astrocap_source_gstreamer::GstSource\", stages: [\"astrocap_core::DummyProcessor\"], sink: \"astrocap_core::DummySink\" }"
+        "Pipeline { source: \"astrocap_source_gstreamer::GstSource\", stages: [\"vyd::DummyProcessor\"], sink: \"vyd::DummySink\" }"
     );
 
     // Run the pipeline - this should process all frames from the dummy source
     // The dummy source produces 5 frames, so this should process all of them
-    let final_context = run_pipeline(pipeline_context, pipeline, None);
+    let final_context = run_pipeline(pipeline_context, pipeline, None).unwrap();
 
     println!("Pipeline execution completed successfully!");
 
@@ -131,11 +131,11 @@ file_path = "{file_path}"
 pseudo_live = true
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 # processing_delay_ms = 200
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#
     );
 
@@ -147,7 +147,7 @@ stage_type = "astrocap_core::DummySink"
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline, None);
+    let final_context = run_pipeline(pipeline_context, pipeline, None).unwrap();
     let duration = start_time.elapsed();
 
     // Assert on the statistics recorded in the pipeline context
@@ -205,11 +205,11 @@ file_path = "{file_path}"
 pseudo_live = false
 
 [[stages]]
-stage_type = "astrocap_core::DummyProcessor"
+stage_type = "vyd::DummyProcessor"
 processing_delay_ms = 200
 
 [sink]
-stage_type = "astrocap_core::DummySink"
+stage_type = "vyd::DummySink"
 "#
     );
 
@@ -221,7 +221,7 @@ stage_type = "astrocap_core::DummySink"
     let pipeline_context = PipelineContext::new();
 
     // Run the pipeline
-    let final_context = run_pipeline(pipeline_context, pipeline, None);
+    let final_context = run_pipeline(pipeline_context, pipeline, None).unwrap();
     let duration = start_time.elapsed();
 
     // Get counters

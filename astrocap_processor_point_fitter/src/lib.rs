@@ -3,4 +3,4 @@ pub mod fitters;
 pub mod point_fitter;
 
 pub use point_fitter::PointFitterProcessor;
-astrocap_core::register_astrocap_frame_processor!(PointFitterProcessor);
+vyd::register_vyd_frame_processor!(PointFitterProcessor);

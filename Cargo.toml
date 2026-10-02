@@ -39,6 +39,7 @@ debug = true
 
 [workspace.dependencies]
 astrocap_core = { path = "./astrocap_core" }
+vyd = { path = "../vidd/crates/vyd" }
 astrocap_processor_frame_stacker = { path = "./astrocap_processor_frame_stacker" }
 astrocap_processor_mask = { path = "./astrocap_processor_mask" }
 astrocap_processor_median_sub = { path = "./astrocap_processor_median_sub" }
@@ -75,5 +76,5 @@ serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 thiserror = "2"
 toml = { version = "0.9", features = ["serde"] }
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 serde_json = "1"

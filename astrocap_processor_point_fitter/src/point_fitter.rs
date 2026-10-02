@@ -1,12 +1,12 @@
 use crate::config::PointFitterConfig;
 use crate::fitters::nelder_mead::PointFitterGaussianNelderMead;
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::structs::{Detection, FittedPoint};
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
 use rerun::RecordingStream;
 use std::sync::Arc;
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 pub struct PointFitterProcessor {
     point_fitter: Arc<dyn PointFitter>,

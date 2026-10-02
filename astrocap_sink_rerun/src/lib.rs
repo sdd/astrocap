@@ -1,9 +1,10 @@
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::FrameSink;
-use astrocap_core::{AstrocapError, FrameContext, register_astrocap_frame_sink};
+use astrocap_core::{AstrocapError, FrameContext};
 use rerun::RecordingStream;
 use toml::Value;
+use vyd::pipeline::PipelineContext;
+use vyd::register_vyd_frame_sink;
+use vyd::statistics::ProcessingType;
 
 pub struct RerunSink;
 
@@ -66,4 +67,4 @@ impl FrameSink for RerunSink {
     }
 }
 
-register_astrocap_frame_sink!(RerunSink);
+register_vyd_frame_sink!(RerunSink);

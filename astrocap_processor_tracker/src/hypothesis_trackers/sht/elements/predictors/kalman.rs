@@ -170,7 +170,6 @@ mod tests {
         // Create a track at position (10, 20) with zero velocity
         let mut track = Track {
             id: 1,
-            parent_id: None,
             state: TrackState {
                 state: Vector4::new(10.0, 20.0, 0.0, 0.0),
                 covariance: Matrix4::identity(),
@@ -207,7 +206,6 @@ mod tests {
         // Create a track at position (10, 20) with velocity (2, -1)
         let mut track = Track {
             id: 1,
-            parent_id: None,
             state: TrackState {
                 state: Vector4::new(10.0, 20.0, 2.0, -1.0),
                 covariance: Matrix4::identity(),
@@ -236,7 +234,6 @@ mod tests {
 
         let mut track = Track {
             id: 1,
-            parent_id: None,
             state: TrackState {
                 state: Vector4::new(0.0, 0.0, 4.0, -2.0),
                 covariance: Matrix4::identity(),
@@ -261,7 +258,6 @@ mod tests {
 
         let mut track = Track {
             id: 1,
-            parent_id: None,
             state: TrackState {
                 state: Vector4::new(0.0, 0.0, 0.0, 0.0),
                 covariance: Matrix4::identity(),
@@ -323,7 +319,6 @@ mod tests {
 
         let mut track = Track {
             id: 1,
-            parent_id: None,
             state: TrackState {
                 state: Vector4::new(0.0, 0.0, 0.0, 0.0),
                 covariance: Matrix4::identity() * 1e-8, // Very small initial covariance

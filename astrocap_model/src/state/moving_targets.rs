@@ -2,7 +2,7 @@ use argmin_math::{ArgminAdd, ArgminMul, ArgminSub};
 use az::{Az, Cast};
 use std::num::NonZero;
 
-use kiddo::{KdTree, SquaredEuclidean};
+use kiddo::{MutableKdTree, SquaredEuclidean};
 use nalgebra::Vector2;
 use ndarray::{ArrayBase, Dim, OwnedRepr};
 use nonmax::NonMaxUsize;
@@ -86,12 +86,14 @@ where
             // fit against predicted position
             let best_match = curr_frame_state
                 .detected_points_tree
-                .nearest_one::<SquaredEuclidean>(predicted_pos.as_ref());
+                .query(predicted_pos.as_ref())
+                .nearest_one::<SquaredEuclidean<F>>()
+                .execute();
 
             let score = MAX_MOVING_ITEM_JITTER.az::<F>() - best_match.distance;
             moving_target.latest_score = score;
 
-            if score > F::zero() {
+            if score > <F as num_traits::Zero>::zero() {
                 warn!(idx, score = score.az::<f32>(), "moving point matched");
                 moving_target.log_odds += score;
 
@@ -117,10 +119,11 @@ where
             self.moving_targets.remove(idx);
         }
 
-        self.moving_targets_tree = KdTree::new();
+        self.moving_targets_tree =
+            MutableKdTree::new_from_slice(&[]).expect("empty tree construction failed");
         for (idx, mt) in self.moving_targets.iter().enumerate() {
             self.moving_targets_tree
-                .add(mt.position.as_ref(), idx as u64);
+                .add(mt.position.as_ref(), idx as u32);
         }
     }
 
@@ -151,7 +154,9 @@ where
             if self.moving_targets_tree.size() > 0 {
                 let nearest_existing_mt = self
                     .moving_targets_tree
-                    .nearest_one::<SquaredEuclidean>(latest_position.as_ref());
+                    .query(latest_position.as_ref())
+                    .nearest_one::<SquaredEuclidean<F>>()
+                    .execute();
                 if nearest_existing_mt.distance < MOVING_ITEM_EXCLUSION_DIST2.az::<F>() {
                     continue;
                 }
@@ -161,7 +166,9 @@ where
             if self.star_candidates_tree.size() > 0 {
                 let nearest_existing_mt = self
                     .star_candidates_tree
-                    .nearest_one::<SquaredEuclidean>(latest_position.as_ref());
+                    .query(latest_position.as_ref())
+                    .nearest_one::<SquaredEuclidean<F>>()
+                    .execute();
                 if nearest_existing_mt.distance < MOVING_ITEM_EXCLUSION_DIST2.az::<F>() {
                     continue;
                 }
@@ -169,15 +176,15 @@ where
 
             let prev_frame_matches = prev_frame_state
                 .detected_points_tree
-                .nearest_n_within::<SquaredEuclidean>(
-                    latest_position.as_ref(),
-                    MAX_FRAME_DELTA.az::<F>(),
-                    NonZero::new(usize::MAX).unwrap(),
-                    false,
-                );
+                .query(latest_position.as_ref())
+                .within::<SquaredEuclidean<F>>(MAX_FRAME_DELTA.az::<F>())
+                .execute();
 
             let mut best_score = <F as FloatCore>::neg_infinity();
-            let mut best_velocity = Vector2::new(F::zero(), F::zero());
+            let mut best_velocity = Vector2::new(
+                <F as num_traits::Zero>::zero(),
+                <F as num_traits::Zero>::zero(),
+            );
             let mut best_pos_history = vec![];
 
             let mut curr_frame_position = latest_position;
@@ -197,7 +204,7 @@ where
                 let mut frame_delta = curr_frame_position - prev_candidate_position;
                 curr_frame_position = prev_candidate_position;
 
-                let mut score: F = F::zero();
+                let mut score: F = <F as num_traits::Zero>::zero();
                 let mut curr_candidate_pos_history = pos_history.clone();
 
                 for lookback_frame_index in 2..MOVING_ITEM_LOOKBACK_WINDOW {
@@ -215,7 +222,9 @@ where
 
                     let frame_match = frame_state
                         .detected_points_tree
-                        .nearest_one::<SquaredEuclidean>(query_pos.as_ref());
+                        .query(query_pos.as_ref())
+                        .nearest_one::<SquaredEuclidean<F>>()
+                        .execute();
 
                     let frame_match_point =
                         &frame_state.detected_points_list[frame_match.item as usize];

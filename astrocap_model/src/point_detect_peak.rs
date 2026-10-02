@@ -130,7 +130,7 @@ mod tests {
     use image::{GrayImage, ImageBuffer, Luma};
     use imageproc::filter::median_filter;
     use imageproc::map::map_colors2;
-    use kiddo::float::kdtree::KdTree;
+    use kiddo::MutableKdTree;
     use kiddo::SquaredEuclidean;
     use std::collections::HashSet;
     use std::fs::File;
@@ -139,7 +139,7 @@ mod tests {
     use crate::point_detect_peak::PointDetectPeak;
     use crate::traits::PointDetector;
 
-    type Tree = KdTree<f64, usize, 2, 32, u32>;
+    type Tree = MutableKdTree<f64, 2>;
 
     struct Point {
         x: usize,
@@ -188,9 +188,10 @@ mod tests {
         )
         .unwrap();
 
-        let mut tree: Tree = Tree::new();
+        let mut tree: Tree = Tree::new_from_slice(&[]).unwrap();
         for (idx, point) in results.iter().enumerate() {
-            tree.add(&[point.x as f64, point.y as f64], idx);
+            tree.add(&[point.x as f64, point.y as f64], idx as u32)
+                .unwrap();
         }
 
         let known_good = [
@@ -219,18 +220,21 @@ mod tests {
         // assert that the known good stars are detected
         let mut matched_indexes: HashSet<usize> = HashSet::new();
         for point in known_good.iter() {
-            let nearest = tree.nearest_one::<SquaredEuclidean>(&[point.x as f64, point.y as f64]);
+            let nearest = tree
+                .query(&[point.x as f64, point.y as f64])
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .execute();
             assert!(nearest.distance < MAX_PERMITTED_MATCH_DIST2);
-            matched_indexes.insert(nearest.item);
+            matched_indexes.insert(nearest.item as usize);
         }
         assert_eq!(matched_indexes.len(), known_good.len());
 
         // assert that there are no stars within an exclusion zone around each known good star
         for point in known_good.iter() {
-            let nearest = tree.within::<SquaredEuclidean>(
-                &[point.x as f64, point.y as f64],
-                MATCH_EXCLUSION_DIST2,
-            );
+            let nearest = tree
+                .query(&[point.x as f64, point.y as f64])
+                .within::<SquaredEuclidean<f64>>(MATCH_EXCLUSION_DIST2)
+                .execute();
             assert_eq!(nearest.len(), 1);
         }
 

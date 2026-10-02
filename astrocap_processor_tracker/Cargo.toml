@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+vyd = { workspace = true }
 astrocap_core = { path = "../astrocap_core" }
 
 az = "1"
@@ -17,13 +18,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 toml = { workspace = true }
 tracing = { workspace = true }
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 nonmax = "0.5.5"
 statrs = "0.18.0"
 
 
 [dev-dependencies]
-kiddo = { version = "5" }
+kiddo = { version = "6.3" }
 
 [lib]
 name = "astrocap_processor_tracker"

@@ -3,4 +3,4 @@ pub mod source;
 
 pub use source::RecordedDetectionsSource;
 
-astrocap_core::register_astrocap_frame_source!(RecordedDetectionsSource);
+vyd::register_vyd_frame_source!(RecordedDetectionsSource);

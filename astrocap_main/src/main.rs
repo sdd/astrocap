@@ -4,12 +4,12 @@ mod config;
 
 use std::sync::Arc;
 
-use astrocap_core::pipeline::run_pipeline_with_config_file_path;
-use astrocap_core::statistics::PipelineStatistics;
 use astrocap_processor_detection_export::DetectionExportProcessor;
 use astrocap_processor_frame_stacker::FrameStackerProcessor;
 use astrocap_processor_mask::MaskProcessor;
 use astrocap_processor_median_sub::{ImgSubberProcessor, MedianProcessor};
+use vyd::pipeline::run_pipeline_with_config_file_path;
+use vyd::statistics::PipelineStatistics;
 // use astrocap_processor_model::ModelState;
 use astrocap_processor_point_detector::PointDetectorProcessor;
 use astrocap_processor_point_fitter::PointFitterProcessor;
@@ -25,7 +25,7 @@ use astrocap_source_recorded_detections::RecordedDetectionsSource;
 
 use crate::config::Config;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_target(false)
@@ -58,8 +58,9 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    run_pipeline_with_config_file_path(&config.config, stats.clone(), Some("./dumps".into()));
+    run_pipeline_with_config_file_path(&config.config, stats.clone(), Some("./dumps".into()))?;
 
     // If we reach here, the pipeline completed naturally
     stats.print_final_stats();
+    Ok(())
 }

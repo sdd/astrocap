@@ -55,17 +55,17 @@ where
     let total_variance = calculate_patch_variance(img, centre_x, centre_y);
 
     // R-squared equivalent (fraction of variance explained)
-    let r_squared = if total_variance > F::zero() {
+    let r_squared = if total_variance > <F as num_traits::Zero>::zero() {
         (total_variance - residual_sum_squares) / total_variance
     } else {
-        F::zero()
+        <F as num_traits::Zero>::zero()
     };
 
     // Estimate noise from residuals (RMS)
     let rms_residual = (residual_sum_squares / dof).sqrt();
 
     // Signal-to-noise ratio (amplitude vs noise)
-    let snr = if rms_residual > F::zero() {
+    let snr = if rms_residual > <F as num_traits::Zero>::zero() {
         amplitude / rms_residual
     } else {
         amplitude // If no noise, SNR is just the amplitude
@@ -172,13 +172,13 @@ where
     };*/
 
     /*// 6. NEGATIVE RADIUS PENALTY - Smooth penalty for fitting artifacts
-    let negative_radius_penalty = if fitted_point.radius_x < F::zero() || fitted_point.radius_y < F::zero() {
+    let negative_radius_penalty = if fitted_point.radius_x < <F as num_traits::Zero>::zero() || fitted_point.radius_y < <F as num_traits::Zero>::zero() {
         // Mild penalty - your data shows this can happen with real stars
-        let neg_x_penalty = if fitted_point.radius_x < F::zero() { fitted_point.radius_x.abs() } else { F::zero() };
-        let neg_y_penalty = if fitted_point.radius_y < F::zero() { fitted_point.radius_y.abs() } else { F::zero() };
+        let neg_x_penalty = if fitted_point.radius_x < <F as num_traits::Zero>::zero() { fitted_point.radius_x.abs() } else { <F as num_traits::Zero>::zero() };
+        let neg_y_penalty = if fitted_point.radius_y < <F as num_traits::Zero>::zero() { fitted_point.radius_y.abs() } else { <F as num_traits::Zero>::zero() };
         -(neg_x_penalty + neg_y_penalty) * 2.0f64.az::<F>()
     } else {
-        F::zero()
+        <F as num_traits::Zero>::zero()
     };*/
 
     /*// 7. REDUCED CHI-SQUARED - Gentle sigmoid around ideal value of 1.0
@@ -279,7 +279,7 @@ where
             radius_x: best[2],
             radius_y: best[3],
             amplitude: best[4],
-            score: F::zero(),
+            score: <F as num_traits::Zero>::zero(),
             fit_quality,
         };
 
@@ -287,7 +287,7 @@ where
         let score = calculate_star_score(&response);
         response.score = score;
 
-        if cost == F::zero() {
+        if cost == <F as num_traits::Zero>::zero() {
             warn!(?result.state, "Cost of zero")
         }
 
@@ -343,7 +343,7 @@ where
     type Output = F;
 
     fn cost(&self, params: &Self::Param) -> Result<Self::Output, argmin::core::Error> {
-        let mut residual = F::zero();
+        let mut residual = <F as num_traits::Zero>::zero();
         let mut within_image = false;
 
         let x_range = (self.centre_x.az::<i32>() - PATCH_SIZE.az::<i32>()).max(0) as u32
@@ -414,7 +414,7 @@ where
 mod tests {
     use image::io::Reader as ImageReader;
     use image::{ImageBuffer, Luma};
-    use kiddo::float::kdtree::KdTree;
+    use kiddo::MutableKdTree;
     use kiddo::SquaredEuclidean;
     use std::collections::HashSet;
     use std::fs::File;
@@ -430,7 +430,7 @@ mod tests {
         amp: u8,
     }
 
-    type Tree<F> = KdTree<F, usize, 2, 32, u32>;
+    type Tree<F> = MutableKdTree<F, 2>;
 
     const MAX_GOOD_STAR_MATCH_RADIUS: f64 = 10.0;
 
@@ -496,19 +496,22 @@ mod tests {
         )
         .unwrap();
 
-        let mut tree: Tree<f64> = Tree::new();
+        let mut tree: Tree<f64> = Tree::new_from_slice(&[]).unwrap();
         for (idx, point) in results.iter().enumerate() {
-            tree.add(&[point.x, point.y], idx);
+            tree.add(&[point.x, point.y], idx as u32).unwrap();
         }
 
         // assert that the known good stars are detected
         let mut matched_indexes: HashSet<usize> = HashSet::new();
         let mut matched_candidates: Vec<_> = Vec::new();
         for point in known_good.iter() {
-            let nearest = tree.nearest_one::<SquaredEuclidean>(&[point.x as f64, point.y as f64]);
+            let nearest = tree
+                .query(&[point.x as f64, point.y as f64])
+                .nearest_one::<SquaredEuclidean<f64>>()
+                .execute();
             assert!(nearest.distance < MAX_GOOD_STAR_MATCH_RADIUS);
-            matched_indexes.insert(nearest.item);
-            matched_candidates.push(&results[nearest.item]);
+            matched_indexes.insert(nearest.item as usize);
+            matched_candidates.push(&results[nearest.item as usize]);
         }
 
         assert_eq!(matched_indexes.len(), known_good.len());
@@ -545,9 +548,9 @@ where
     u32: Cast<F>,
     F: Cast<i32>,
 {
-    let mut sum = F::zero();
-    let mut sum_squared = F::zero();
-    let mut count = F::zero();
+    let mut sum = <F as num_traits::Zero>::zero();
+    let mut sum_squared = <F as num_traits::Zero>::zero();
+    let mut count = <F as num_traits::Zero>::zero();
 
     let x_range = (centre_x.az::<i32>() - PATCH_SIZE.az::<i32>()).max(0) as u32
         ..(centre_x.az::<i32>() + PATCH_SIZE.az::<i32>()).min((img.width() - 1).az::<i32>()) as u32;
@@ -566,12 +569,12 @@ where
         }
     }
 
-    if count > F::zero() {
+    if count > <F as num_traits::Zero>::zero() {
         let mean = sum / count;
 
         (sum_squared / count) - (mean * mean)
     } else {
-        F::zero()
+        <F as num_traits::Zero>::zero()
     }
 }
 
@@ -608,11 +611,11 @@ where
     let amplitude_estimate = max_amplitude.az::<F>();
 
     let initial_params = vec![
-        F::zero(),               // x_offset
-        F::zero(),               // y_offset
-        initial_sigma.az::<F>(), // sigma_x
-        initial_sigma.az::<F>(), // sigma_y
-        amplitude_estimate,      // amplitude
+        <F as num_traits::Zero>::zero(), // x_offset
+        <F as num_traits::Zero>::zero(), // y_offset
+        initial_sigma.az::<F>(),         // sigma_x
+        initial_sigma.az::<F>(),         // sigma_y
+        amplitude_estimate,              // amplitude
     ];
 
     let perturbations = vec![
@@ -651,7 +654,7 @@ where
             MIN_SIGMA.az::<F>(),
         ),
         // Amplitude should be positive
-        FloatCore::max(params[4], F::zero()),
+        FloatCore::max(params[4], <F as num_traits::Zero>::zero()),
     ]
 }
 

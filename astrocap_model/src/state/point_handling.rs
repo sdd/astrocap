@@ -139,12 +139,10 @@ where
 
             let nearby_detected_points = curr_frame_state
                 .detected_points_tree
-                .nearest_n_within::<SquaredEuclidean>(
-                    &[cand.x, cand.y],
-                    search_radius * search_radius,
-                    NonZero::new(5).unwrap(),
-                    false,
-                );
+                .query(&[cand.x, cand.y])
+                .nearest_n::<SquaredEuclidean<F>>(NonZero::new(5).unwrap())
+                .within(search_radius * search_radius)
+                .execute();
 
             if nearby_detected_points.is_empty() {
                 unmatched_cand_count += 1;
@@ -295,13 +293,13 @@ where
             // skip points that are too close to existing star candidates
             let close_candidates = self
                 .star_candidates_tree
-                .nearest_n_within::<SquaredEuclidean>(
-                    &[detected_point.x.az::<F>(), detected_point.y.az::<F>()],
+                .query(&[detected_point.x.az::<F>(), detected_point.y.az::<F>()])
+                .nearest_n::<SquaredEuclidean<F>>(NonZero::new(1).unwrap())
+                .within(
                     self.model_config.max_existing_candidate_match_dist
                         * self.model_config.max_existing_candidate_match_dist,
-                    NonZero::new(1).unwrap(),
-                    false,
-                );
+                )
+                .execute();
             if !close_candidates.is_empty() {
                 continue;
             }
@@ -312,8 +310,8 @@ where
 
             let fitted_point = &detected_point.fitted_point.clone().unwrap();
 
-            if fitted_point.x >= F::zero()
-                && fitted_point.y >= F::zero()
+            if fitted_point.x >= <F as num_traits::Zero>::zero()
+                && fitted_point.y >= <F as num_traits::Zero>::zero()
                 && fitted_point.x < img_w.az::<F>()
                 && fitted_point.y < img_h.az::<F>()
                 && fitted_point.score > self.model_config.min_new_star_candidate_score
@@ -354,7 +352,12 @@ where
             log_likelihood: score,
             match_name: None,
             detected_point_match_history: Vec::new(),
-            kalman_state: [x, y, F::zero(), F::zero()], // Initial velocity = 0
+            kalman_state: [
+                x,
+                y,
+                <F as num_traits::Zero>::zero(),
+                <F as num_traits::Zero>::zero(),
+            ], // Initial velocity = 0
             kalman_covariance: Self::initial_covariance(),
             kalman_initialized: false,
         }

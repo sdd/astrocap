@@ -12,9 +12,9 @@ use tracing::info;
 
 use crate::config::ModelConfig;
 
-use astrocap_core::frame::CpuFrame;
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
+use vyd::frame::CpuFrame;
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 use astrocap_core::structs::DetectedPoint;
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};

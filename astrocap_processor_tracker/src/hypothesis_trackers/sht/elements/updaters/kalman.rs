@@ -72,6 +72,10 @@ impl Updater for Kalman {
     /// - x is the state vector [x, y, vx, vy]
     /// - P is the state covariance matrix
     fn update(&self, track: &mut Track, detection: &Detection) {
+        if track.confidence < self.config.min_confidence {
+            return;
+        }
+
         // Measurement vector z = [x_measured, y_measured]
         let measurement = Vector2::new(detection.position.x, detection.position.y);
 
@@ -218,7 +222,6 @@ mod tests {
     fn create_test_track() -> Track {
         Track {
             id: 1,
-            parent_id: None,
             state: TrackState {
                 state: Vector4::new(10.0, 20.0, 1.0, -0.5), // position (10,20), velocity (1,-0.5)
                 covariance: Matrix4::identity() * 2.0,      // Initial uncertainty

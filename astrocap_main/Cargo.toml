@@ -7,6 +7,7 @@ description.workspace = true
 documentation.workspace = true
 
 [dependencies]
+vyd = { workspace = true }
 astrocap_core = { workspace = true }
 astrocap_processor_detection_export = { workspace = true }
 astrocap_processor_frame_stacker = { workspace = true }

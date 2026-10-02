@@ -1,14 +1,14 @@
 use arc_swap::ArcSwapOption;
 use rerun::components::ShowLabels;
 use rerun::RecordingStream;
-use solvastro::k5_v2::verified_solution::{ItemMatchResult, VerifiedSolution};
+use solvastro::dynamic_index::verified_solution::{ItemMatchResult, VerifiedSolution};
 use std::sync::Arc;
 use toml::Value;
 
-use astrocap_core::pipeline::PipelineContext;
-use astrocap_core::statistics::ProcessingType;
 use astrocap_core::traits::{FrameProcessor, StarCandidate};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
+use vyd::pipeline::PipelineContext;
+use vyd::statistics::ProcessingType;
 
 use crate::config::SolvastroProcessorConfig;
 use crate::solvastro_adapter::SolvastroAdapter;
