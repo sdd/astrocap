@@ -815,50 +815,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arrow2"
-version = "0.17.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59c468daea140b747d781a1da9f7db5f0a8e6636d4af20cc539e43d05b0604fa"
-dependencies = [
- "ahash",
- "bytemuck",
- "chrono",
- "dyn-clone",
- "either",
- "ethnum",
- "foreign_vec",
- "getrandom 0.2.17",
- "hash_hasher",
- "num-traits 0.2.19",
- "rustc_version",
- "simdutf8",
-]
-
-[[package]]
-name = "arrow2_convert"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e907cf50c3406c79e3a6f4c36d177df9ce99edb7e39ca448d947e6945725034e"
-dependencies = [
- "arrow2",
- "arrow2_convert_derive",
- "chrono",
- "err-derive",
-]
-
-[[package]]
-name = "arrow2_convert_derive"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b159d799b7c3bec80793e79e2b7f49443b34313aa2cfe6002fb91a9bf28d90c"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -964,25 +920,15 @@ name = "astrocap_core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array 56.2.1",
- "arrow-schema 56.2.1",
- "arrow2_convert",
  "chrono",
- "dashmap",
- "image 0.24.9",
- "inventory",
  "nalgebra 0.32.6",
- "once_cell",
- "parquet 56.2.1",
- "paste",
  "rand 0.8.5",
  "serde 1.0.229",
- "serde_arrow",
  "serde_json",
- "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "vyd",
+ "vyd_telemetry",
 ]
 
 [[package]]
@@ -1010,6 +956,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vyd",
+ "vyd_telemetry",
 ]
 
 [[package]]
@@ -1237,47 +1184,24 @@ dependencies = [
 name = "astrocap_source_gstreamer"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "astrocap_core",
- "astrocap_source_gstreamer",
- "bytes",
  "gstreamer",
- "gstreamer-allocators",
  "gstreamer-app",
- "gstreamer-base",
- "gstreamer-video",
- "http",
- "image 0.24.9",
- "metrics",
- "once_cell",
  "test-log",
- "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "vyd",
+ "vyd_gstreamer",
 ]
 
 [[package]]
 name = "astrocap_source_gstreamer_gpu"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "astrocap_core",
- "astrocap_source_gstreamer_gpu",
- "bytes",
- "gstreamer",
- "gstreamer-allocators",
- "gstreamer-base",
- "gstreamer-video",
- "http",
- "image 0.24.9",
- "metrics",
- "once_cell",
  "test-log",
- "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
- "tracing",
  "vyd",
+ "vyd_gstreamer_gpu",
 ]
 
 [[package]]
@@ -2928,12 +2852,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
-
-[[package]]
 name = "ecolor"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3478,20 +3396,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "err-derive"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c34a887c8df3ed90498c1c437ce21f211c8e27672921a8ffa293cb8d6d4caa9e"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 1.0.109",
- "synstructure 0.12.6",
-]
-
-[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3515,12 +3419,6 @@ name = "error-code"
 version = "3.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59"
-
-[[package]]
-name = "ethnum"
-version = "1.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40404c3f5f511ec4da6fe866ddf6a717c309fdbb69fbbad7b0f3edab8f2e835f"
 
 [[package]]
 name = "event-listener"
@@ -3701,12 +3599,6 @@ name = "foreign-types-shared"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
-
-[[package]]
-name = "foreign_vec"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee1b05cbd864bcaecbd3455d6d967862d446e4ebfc3c2e5e5b9841e53cba6673"
 
 [[package]]
 name = "form_urlencoded"
@@ -4485,12 +4377,6 @@ dependencies = [
  "num-traits 0.2.19",
  "zerocopy 0.8.59",
 ]
-
-[[package]]
-name = "hash_hasher"
-version = "2.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b4b9ebce26001bad2e6366295f64e381c1e9c479109202149b9e15e154973e9"
 
 [[package]]
 name = "hashbrown"
@@ -9707,18 +9593,6 @@ checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 
 [[package]]
 name = "synstructure"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f36bdaa60a83aca3921b5259d5400cbf5e90fc51931376a9bd4a0eb79aa7210f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "unicode-xid",
-]
-
-[[package]]
-name = "synstructure"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
@@ -10671,23 +10545,73 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vyd"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "arrow-array 56.2.1",
- "arrow-schema 56.2.1",
  "chrono",
  "dashmap",
  "image 0.24.9",
  "inventory",
- "once_cell",
- "parquet 56.2.1",
  "paste",
+ "serde 1.0.229",
+ "thiserror 2.0.21",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "vyd_gstreamer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "gstreamer",
+ "gstreamer-allocators",
+ "gstreamer-base",
+ "gstreamer-video",
+ "http",
+ "image 0.24.9",
+ "metrics",
+ "once_cell",
+ "thiserror 2.0.21",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "vyd",
+]
+
+[[package]]
+name = "vyd_gstreamer_gpu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "gstreamer",
+ "gstreamer-allocators",
+ "gstreamer-base",
+ "gstreamer-video",
+ "http",
+ "image 0.24.9",
+ "metrics",
+ "once_cell",
+ "thiserror 2.0.21",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "vyd",
+ "vyd_gstreamer",
+]
+
+[[package]]
+name = "vyd_telemetry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow-schema 56.2.1",
+ "chrono",
+ "parquet 56.2.1",
  "rand 0.8.5",
  "serde 1.0.229",
  "serde_arrow",
  "serde_json",
- "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
+ "vyd",
 ]
 
 [[package]]

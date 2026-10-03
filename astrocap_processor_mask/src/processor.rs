@@ -57,7 +57,7 @@ impl FrameProcessor for MaskProcessor {
     ) -> FrameProcessorResult {
         let start = std::time::Instant::now();
 
-        let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
+        let Ok(frame) = frame_ctx.frame.to_cpu(None) else {
             tracing::warn!("could not get CPU Frame");
             return Skip;
         };

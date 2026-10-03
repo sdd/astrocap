@@ -1,8 +1,8 @@
 #[allow(unused_imports)]
 use astrocap_source_gstreamer::GstSource;
 
-use astrocap_source_gstreamer::astrocap_gst_allocator::AstrocapGstAllocator;
 use astrocap_source_gstreamer::create_shared_pool;
+use astrocap_source_gstreamer::vyd_gst_allocator::VydGstAllocator;
 use gst::prelude::*;
 
 #[test]
@@ -25,7 +25,7 @@ fn test_allocator_in_simple_pipeline() {
     src.link(&sink).unwrap();
 
     // Create our custom allocator
-    let allocator = AstrocapGstAllocator::new();
+    let allocator = VydGstAllocator::new();
 
     // Test that we can create the allocator and it's a valid GStreamer object
     assert!(allocator.is::<gst::Allocator>());
@@ -33,7 +33,7 @@ fn test_allocator_in_simple_pipeline() {
 
     // Test GObject type system integration
     let gtype = allocator.type_();
-    assert_eq!(gtype.name(), "AstrocapGstAllocator");
+    assert_eq!(gtype.name(), "VydGstAllocator");
 
     // Test that it's properly registered in the GStreamer type hierarchy
     assert!(gtype.is_a(gst::Allocator::static_type()));
@@ -41,7 +41,7 @@ fn test_allocator_in_simple_pipeline() {
 
     // Test that we can downcast it
     let as_allocator: &gst::Allocator = allocator.upcast_ref();
-    assert!(as_allocator.is::<AstrocapGstAllocator>());
+    assert!(as_allocator.is::<VydGstAllocator>());
 
     // Set pipeline to ready state to validate the pipeline structure
     let state_change_result = pipeline.set_state(gst::State::Ready);
@@ -62,7 +62,7 @@ fn test_allocator_pool_configuration() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create our custom allocator
-    let allocator = AstrocapGstAllocator::new();
+    let allocator = VydGstAllocator::new();
 
     // Initially, allocator should have no pool configured
     assert!(allocator.pool().is_none());
@@ -99,7 +99,7 @@ fn test_allocator_with_pool_allocation_attempt() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create allocator and pool
-    let allocator = AstrocapGstAllocator::new();
+    let allocator = VydGstAllocator::new();
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
@@ -139,7 +139,7 @@ fn test_allocator_size_mismatch() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create allocator and pool
-    let allocator = AstrocapGstAllocator::new();
+    let allocator = VydGstAllocator::new();
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
@@ -165,7 +165,7 @@ fn test_allocator_pool_exhaustion() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create allocator and small pool
-    let allocator = AstrocapGstAllocator::new();
+    let allocator = VydGstAllocator::new();
     let buffer_size = 1920 * 1080;
     let buffer_count = 2; // Small pool for testing exhaustion
     let pool = create_shared_pool(buffer_size, buffer_count);

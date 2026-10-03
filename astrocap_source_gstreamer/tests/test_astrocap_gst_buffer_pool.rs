@@ -4,7 +4,7 @@ use test_log::test;
 use astrocap_source_gstreamer::GstSource;
 
 use astrocap_source_gstreamer::create_shared_pool;
-use astrocap_source_gstreamer::AstrocapGstBufferPool;
+use astrocap_source_gstreamer::VydGstBufferPool;
 use gst::prelude::*;
 
 #[test]
@@ -27,7 +27,7 @@ fn test_buffer_pool_in_simple_pipeline() {
     src.link(&sink).unwrap();
 
     // Create our custom buffer pool
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
 
     // Test that we can create the buffer pool and it's a valid GStreamer object
     assert!(buffer_pool.is::<gst::BufferPool>());
@@ -35,7 +35,7 @@ fn test_buffer_pool_in_simple_pipeline() {
 
     // Test GObject type system integration
     let gtype = buffer_pool.type_();
-    assert_eq!(gtype.name(), "AstrocapGstBufferPool");
+    assert_eq!(gtype.name(), "VydGstBufferPool");
 
     // Test that it's properly registered in the GStreamer type hierarchy
     assert!(gtype.is_a(gst::BufferPool::static_type()));
@@ -43,7 +43,7 @@ fn test_buffer_pool_in_simple_pipeline() {
 
     // Test that we can downcast it
     let as_buffer_pool: &gst::BufferPool = buffer_pool.upcast_ref();
-    assert!(as_buffer_pool.is::<AstrocapGstBufferPool>());
+    assert!(as_buffer_pool.is::<VydGstBufferPool>());
 
     // Set pipeline to ready state to validate the pipeline structure
     let state_change_result = pipeline.set_state(gst::State::Ready);
@@ -64,7 +64,7 @@ fn test_buffer_pool_pool_configuration() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create our custom buffer pool
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
 
     // Create a frame buffer pool
     let buffer_size = 1920 * 1080; // 1080p frame size
@@ -100,7 +100,7 @@ fn test_buffer_pool_with_pool_acquisition_attempt() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create buffer pool and pool
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
@@ -145,7 +145,7 @@ fn test_buffer_pool_size_mismatch() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create buffer pool and pool
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
     let buffer_size = 1920 * 1080;
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
@@ -179,7 +179,7 @@ fn test_buffer_pool_pool_exhaustion() {
     gst::init().expect("Failed to initialize GStreamer");
 
     // Create buffer pool and small pool
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
     let buffer_size = 1920 * 1080;
     let buffer_count = 2; // Small pool for testing exhaustion
     let pool = create_shared_pool(buffer_size, buffer_count);
@@ -242,7 +242,7 @@ fn test_buffer_pool_direct_usage_with_caps_negotiation() {
     let buffer_size = 640 * 480; // GRAY8 format
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
     buffer_pool.set_frame_buffer_pool(pool.clone());
 
     tracing::info!("Testing direct BufferPool usage with caps negotiation...");
@@ -345,7 +345,7 @@ fn test_buffer_pool_exhaustion_and_recovery() {
     let buffer_size = 1024;
     let buffer_count = 2; // Small pool for testing exhaustion
     let pool = create_shared_pool(buffer_size, buffer_count);
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
     buffer_pool.set_frame_buffer_pool(pool.clone());
 
     tracing::info!("Testing BufferPool exhaustion and recovery...");
