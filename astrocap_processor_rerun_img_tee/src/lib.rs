@@ -59,10 +59,7 @@ impl FrameProcessor for RerunTeeProcessor {
     ) -> FrameProcessorResult {
         let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
 
-        let Some((width, height)) = frame_ctx.frame.dimensions() else {
-            tracing::warn!("No frame dimensions");
-            return Skip;
-        };
+        let (width, height) = frame_ctx.frame.dimensions();
 
         let pixels = match &self.key {
             Some(key) => match frame_ctx.try_get_as::<Arc<Frame>>(key) {

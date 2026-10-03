@@ -527,9 +527,11 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
         manager
             .dumper::<MhtTrackNode>()
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
             .lock()
-            .unwrap()
-            .dumps(leaf_rows, frame_idx);
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
+            .dumps(leaf_rows, frame_idx)
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?;
 
         // dump KFs
         let kfs = self
@@ -539,9 +541,11 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
         manager
             .dumper::<KalmanFilter>()
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
             .lock()
-            .unwrap()
-            .dumps(kfs, frame_idx);
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
+            .dumps(kfs, frame_idx)
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?;
 
         Ok(())
     }

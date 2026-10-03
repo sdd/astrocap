@@ -41,7 +41,7 @@ impl FrameProcessor for ImgSubberProcessor {
             frame_ctx.metadata.keys().collect::<Vec<_>>()
         );
 
-        let Ok(frame) = frame_ctx.take_frame().to_cpu(None) else {
+        let Ok(frame) = frame_ctx.frame.to_cpu(None) else {
             tracing::warn!("No frame to process");
             return Skip;
         };

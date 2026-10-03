@@ -56,10 +56,7 @@ impl FrameProcessor for SolvastroProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let Some(dims) = frame_ctx.frame.dimensions() else {
-            tracing::warn!("Could not get frame dimensions");
-            return FrameProcessorResult::Skip;
-        };
+        let dims = frame_ctx.frame.dimensions();
 
         let Ok(star_candidates) =
             frame_ctx.try_get_as::<Arc<Vec<StarCandidate>>>("solvastro/star_candidates")

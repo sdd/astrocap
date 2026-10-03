@@ -3,7 +3,7 @@ pub mod structs;
 pub mod traits;
 
 pub mod dump_manager {
-    pub use vyd::dump_manager::*;
+    pub use vyd_telemetry::dump_manager::*;
 }
 pub mod error {
     pub use vyd::VydError as AstrocapError;
@@ -25,6 +25,7 @@ pub use vyd::VydError as AstrocapError;
 pub use vyd::register_vyd_frame_processor as register_astrocap_frame_processor;
 pub use vyd::register_vyd_frame_sink as register_astrocap_frame_sink;
 pub use vyd::register_vyd_frame_source as register_astrocap_frame_source;
-pub use vyd::{DumpManager, Frame, FrameContext, FrameProcessorResult, ParquetDumper};
-pub use vyd::{Dumpable, FrameProcessor, FrameSink, FrameSource, StageFactory};
+pub use vyd::{Frame, FrameContext, FrameProcessorResult};
+pub use vyd::{FrameProcessor, FrameSink, FrameSource, StageFactory};
 pub use vyd::{inventory, paste};
+pub use vyd_telemetry::{DumpManager, Dumpable, ParquetDumper};

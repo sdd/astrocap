@@ -4,22 +4,22 @@ use std::time::Duration;
 use test_log::test;
 
 use astrocap_core::Frame;
-use astrocap_source_gstreamer::astrocap_frame_queue::{AstrocapFrameQueue, FrameInfo};
-use astrocap_source_gstreamer::astrocap_gst_sink::AstrocapGstSink;
 use astrocap_source_gstreamer::frame_buffer_pool::{create_shared_pool, SharedFrameBufferPool};
+use astrocap_source_gstreamer::vyd_frame_queue::{FrameInfo, VydFrameQueue};
+use astrocap_source_gstreamer::vyd_gst_sink::VydGstSink;
 
 #[test]
-fn test_astrocapsink_zero_copy_integration() {
+fn test_vydsink_zero_copy_integration() {
     gst::init().unwrap();
 
-    tracing::info!("Testing zero-copy with videotestsrc → videoconvert → astrocapsink pipeline...");
+    tracing::info!("Testing zero-copy with videotestsrc → videoconvert → vydsink pipeline...");
 
     // 1. Create shared frame buffer pool
     let buffer_size = 1920 * 1080; // GRAY8 format
     let buffer_count = 4;
     let pool = create_shared_pool(buffer_size, buffer_count);
 
-    // 2. Create AstrocapFrameQueue for receiving frames
+    // 2. Create VydFrameQueue for receiving frames
     let frame_info = FrameInfo {
         width: 1920,
         height: 1080,
@@ -27,15 +27,15 @@ fn test_astrocapsink_zero_copy_integration() {
         timestamp: 0,
         frame_size: buffer_size,
     };
-    let astrocap_frame_queue = Arc::new(AstrocapFrameQueue::new(frame_info, 10, false));
+    let vyd_frame_queue = Arc::new(VydFrameQueue::new(frame_info, 10, false));
 
-    // 3. Create astrocapsink and configure it
-    let astrocapsink = AstrocapGstSink::new();
-    astrocapsink.set_frame_buffer_pool(pool.clone());
-    astrocapsink.set_astrocap_frame_queue(astrocap_frame_queue.clone());
+    // 3. Create vydsink and configure it
+    let vydsink = VydGstSink::new();
+    vydsink.set_frame_buffer_pool(pool.clone());
+    vydsink.set_vyd_frame_queue(vyd_frame_queue.clone());
 
-    // 4. Create pipeline: videotestsrc → videoconvert → astrocapsink
-    let pipeline = gst::Pipeline::with_name("astrocapsink-zero-copy-test");
+    // 4. Create pipeline: videotestsrc → videoconvert → vydsink
+    let pipeline = gst::Pipeline::with_name("vydsink-zero-copy-test");
 
     let videotestsrc = gst::ElementFactory::make("videotestsrc")
         .name("test-src")
@@ -64,16 +64,14 @@ fn test_astrocapsink_zero_copy_integration() {
         .build();
 
     pipeline
-        .add_many([&videotestsrc, &videoconvert, astrocapsink.upcast_ref()])
+        .add_many([&videotestsrc, &videoconvert, vydsink.upcast_ref()])
         .unwrap();
 
     // Link with caps (crucial to include videoconvert!)
     videotestsrc
         .link_filtered(&videoconvert, &src_caps)
         .unwrap();
-    videoconvert
-        .link_filtered(&astrocapsink, &sink_caps)
-        .unwrap();
+    videoconvert.link_filtered(&vydsink, &sink_caps).unwrap();
 
     // 5. Track statistics for verification
     let frames_rendered = Arc::new(Mutex::new(0u32));
@@ -133,7 +131,7 @@ fn test_astrocapsink_zero_copy_integration() {
     });
 
     // 6. Start pipeline
-    tracing::info!("Starting astrocapsink pipeline...");
+    tracing::info!("Starting vydsink pipeline...");
     pipeline.set_state(gst::State::Playing).unwrap();
 
     // 7. Wait for frames to be processed
@@ -161,7 +159,7 @@ fn test_astrocapsink_zero_copy_integration() {
         }
 
         // Check if we have frames in the queue to consume
-        if let Some(frame_with_timing) = astrocap_frame_queue.try_read_frame() {
+        if let Some(frame_with_timing) = vyd_frame_queue.try_read_frame() {
             let mut rendered_count = frames_rendered_clone.lock().unwrap();
             *rendered_count += 1;
 
@@ -263,15 +261,15 @@ fn test_astrocapsink_zero_copy_integration() {
         tracing::warn!("⚠️ Zero-copy not working - all frames were copied");
     }
 
-    tracing::info!("✅ Zero-copy astrocapsink integration test completed!");
+    tracing::info!("✅ Zero-copy vydsink integration test completed!");
 }
 
 #[test]
-fn test_astrocapsink_direct_gray8() {
+fn test_vydsink_direct_gray8() {
     // Test without videoconvert to see if zero-copy works with direct GRAY8 input
     gst::init().unwrap();
 
-    tracing::info!("Testing zero-copy with direct videotestsrc → astrocapsink (GRAY8 only)...");
+    tracing::info!("Testing zero-copy with direct videotestsrc → vydsink (GRAY8 only)...");
 
     let buffer_size = 1920 * 1080; // GRAY8 format
     let buffer_count = 4;
@@ -284,14 +282,14 @@ fn test_astrocapsink_direct_gray8() {
         timestamp: 0,
         frame_size: buffer_size,
     };
-    let astrocap_frame_queue = Arc::new(AstrocapFrameQueue::new(frame_info, 10, false));
+    let vyd_frame_queue = Arc::new(VydFrameQueue::new(frame_info, 10, false));
 
-    let astrocapsink = AstrocapGstSink::new();
-    astrocapsink.set_frame_buffer_pool(pool.clone());
-    astrocapsink.set_astrocap_frame_queue(astrocap_frame_queue.clone());
+    let vydsink = VydGstSink::new();
+    vydsink.set_frame_buffer_pool(pool.clone());
+    vydsink.set_vyd_frame_queue(vyd_frame_queue.clone());
 
-    // Direct pipeline: videotestsrc → astrocapsink (no videoconvert)
-    let pipeline = gst::Pipeline::with_name("astrocapsink-direct-test");
+    // Direct pipeline: videotestsrc → vydsink (no videoconvert)
+    let pipeline = gst::Pipeline::with_name("vydsink-direct-test");
 
     let videotestsrc = gst::ElementFactory::make("videotestsrc")
         .name("test-src")
@@ -309,9 +307,9 @@ fn test_astrocapsink_direct_gray8() {
         .build();
 
     pipeline
-        .add_many([&videotestsrc, astrocapsink.upcast_ref()])
+        .add_many([&videotestsrc, vydsink.upcast_ref()])
         .unwrap();
-    videotestsrc.link_filtered(&astrocapsink, &caps).unwrap();
+    videotestsrc.link_filtered(&vydsink, &caps).unwrap();
 
     let frames_received = Arc::new(Mutex::new(0u32));
     let frames_from_pool = Arc::new(Mutex::new(0u32));
@@ -348,7 +346,7 @@ fn test_astrocapsink_direct_gray8() {
             }
         }
 
-        if let Some(frame_with_timing) = astrocap_frame_queue.try_read_frame() {
+        if let Some(frame_with_timing) = vyd_frame_queue.try_read_frame() {
             let mut received_count = frames_received_clone.lock().unwrap();
             *received_count += 1;
 

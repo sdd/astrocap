@@ -14,8 +14,8 @@ pub struct MedianProcessor {
 }
 
 struct AsyncState {
-    frame: Arc<Mutex<Arc<Frame>>>,
-    median: Arc<Mutex<Arc<Frame>>>,
+    frame: Arc<Mutex<Option<Arc<Frame>>>>,
+    median: Arc<Mutex<Option<Arc<Frame>>>>,
 }
 
 impl MedianProcessor {
@@ -55,7 +55,7 @@ impl MedianProcessor {
         _ctx: &mut PipelineContext,
         async_state: &AsyncState,
     ) -> FrameProcessorResult {
-        let frame = frame_ctx.take_frame();
+        let frame = frame_ctx.frame.clone();
         let Some(cpu_frame) = frame.to_cpu_frame() else {
             tracing::error!("No frame");
             return FrameProcessorResult::Continue;
@@ -64,12 +64,14 @@ impl MedianProcessor {
         let frame = Frame::Cpu(cpu_frame.to_shared());
         let cloned_frame = frame.clone();
         {
-            *async_state.frame.lock().unwrap() = Arc::new(cloned_frame);
+            *async_state.frame.lock().unwrap() = Some(Arc::new(cloned_frame));
         }
 
         let median = { async_state.median.lock().unwrap().clone() };
 
-        frame_ctx.put("video/median", median);
+        if let Some(median) = median {
+            frame_ctx.put("video/median", median);
+        }
 
         frame_ctx.frame = frame;
 
@@ -82,8 +84,8 @@ impl FrameProcessor for MedianProcessor {
         let window_size = self.config.window_size;
 
         let async_state = if self.config.r#async {
-            let frame = Arc::new(Mutex::new(Arc::new(Frame::None)));
-            let median = Arc::new(Mutex::new(Arc::new(Frame::None)));
+            let frame = Arc::new(Mutex::new(None::<Arc<Frame>>));
+            let median = Arc::new(Mutex::new(None::<Arc<Frame>>));
 
             let frame_clone = frame.clone();
             let median_clone = median.clone();
@@ -91,13 +93,13 @@ impl FrameProcessor for MedianProcessor {
             std::thread::spawn(move || loop {
                 let frame = { frame_clone.lock().unwrap().clone() };
 
-                if let Some(img) = frame.as_cpu_image() {
+                if let Some(img) = frame.as_ref().and_then(|frame| frame.as_cpu_image()) {
                     let img_median: GrayImage = median_filter(img, window_size, window_size);
 
                     let median = Arc::new(Frame::from_img(img_median));
 
                     {
-                        *median_clone.lock().unwrap() = median;
+                        *median_clone.lock().unwrap() = Some(median);
                     }
                 } else {
                     tracing::debug!("No frame yet");

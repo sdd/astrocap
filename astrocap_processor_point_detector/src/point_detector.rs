@@ -81,11 +81,15 @@ impl FrameProcessor for PointDetectorProcessor {
                 .downcast_mut::<DumpManager>()
                 .expect("dump_manager is not a DumpManager");
 
-            dump_manager
-                .dumper::<Detection>()
-                .lock()
-                .unwrap()
-                .dumps(detected_points_list.iter(), frame_ctx.frame_index);
+            let result = dump_manager.dumper::<Detection>().and_then(|dumper| {
+                dumper
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("dumper lock poisoned: {e}"))?
+                    .dumps(detected_points_list.iter(), frame_ctx.frame_index)
+            });
+            if let Err(error) = result {
+                tracing::warn!(?error, "Failed to dump detections");
+            }
         }
 
         frame_ctx.metadata.insert(

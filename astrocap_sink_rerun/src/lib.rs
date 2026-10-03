@@ -40,10 +40,7 @@ impl FrameSink for RerunSink {
     fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
         let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
 
-        let Some((width, height)) = frame_ctx.frame.dimensions() else {
-            tracing::warn!("No frame dimensions");
-            return;
-        };
+        let (width, height) = frame_ctx.frame.dimensions();
 
         let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
             tracing::warn!("No frame to process");
