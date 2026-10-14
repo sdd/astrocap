@@ -4,7 +4,7 @@ input_path = "tests/processed_crop_1_detections.json"
 
 [[stages]]
 stage_type = "astrocap_processor_tracker::TrackerProcessor"
-initiator = "mht"
+tracker_strategy = "MultiHypothesis"
 max_association_distance = 4          # Conservative distance for star tracking
 confirmation_frames = 4                 # Require 3 supporting detections
 max_hypothesis_age = 8                # Maximum frames to keep unconfirmed hypotheses

@@ -1,14 +1,13 @@
-use rerun::RecordingStream;
+use astrocap_core::pipeline_services::RerunRecording;
 use toml::Value;
 
-use astrocap_core::structs::Detection;
+use astrocap_core::frame_metadata::{DetectedPoints, TrackSummaries};
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, DumpManager, FrameContext, FrameProcessorResult};
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
 
 use crate::config::Config;
-use crate::model::Track;
 use crate::traits::HypothesisTracker;
 
 pub struct TrackerProcessor {
@@ -36,24 +35,28 @@ impl FrameProcessor for TrackerProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let detections = frame_ctx.get_as::<Vec<Detection>>("detected_points");
-
-        // map DetectedPoint to Detection
-        let detections = detections
-            .iter()
-            .map(|d| Detection::new(d.position.x, d.position.y, d.amplitude))
-            .collect::<Vec<_>>();
-
-        frame_ctx.put("tracker/detections", detections.clone());
+        let Some(detections) = frame_ctx.get_typed::<DetectedPoints>() else {
+            tracing::warn!(
+                frame_index = frame_ctx.frame_index,
+                "tracker input has no detected points"
+            );
+            return FrameProcessorResult::Skip;
+        };
 
         tracing::debug!("processing frame");
 
         self.tracker
-            .process_frame(&detections, frame_ctx.frame_index);
+            .process_frame(&detections.0, frame_ctx.frame_index);
+        frame_ctx.put_typed(TrackSummaries(self.tracker.track_summaries()));
 
         // TODO: ensure that tracks are reportable for any tracker
-        if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
-            self.tracker.log_to_rerun(&rec, frame_ctx);
+        match ctx.services().latest::<RerunRecording>() {
+            Ok(Some(rec)) => self.tracker.log_to_rerun(&rec.0, frame_ctx),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::error!(%error, "Rerun service lookup failed");
+                return FrameProcessorResult::Skip;
+            }
         }
 
         // Get the dump manager from the pipeline context
@@ -70,12 +73,6 @@ impl FrameProcessor for TrackerProcessor {
         }
 
         FrameProcessorResult::Continue
-    }
-
-    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.put("model/tracks", Vec::<Track>::new());
-
-        Ok(())
     }
 
     fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {

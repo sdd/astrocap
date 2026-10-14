@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use test_log::test;
 
-use astrocap_source_gstreamer::{create_shared_pool, AstrocapGstBufferPool};
+use astrocap_source_gstreamer::{create_shared_pool, VydGstBufferPool};
 
 #[test]
 fn test_buffer_pool_video_zero_copy_with_videoconvert() {
@@ -13,7 +13,7 @@ fn test_buffer_pool_video_zero_copy_with_videoconvert() {
     let buffer_size = 320 * 240 * 3;
     let buffer_count = 8;
     let pool = create_shared_pool(buffer_size, buffer_count);
-    let buffer_pool = AstrocapGstBufferPool::new();
+    let buffer_pool = VydGstBufferPool::new();
     buffer_pool.set_frame_buffer_pool(pool.clone());
 
     tracing::info!(

@@ -1030,7 +1030,7 @@ impl PointDetectorEvaluatorSink {
                     position_deltas_y,
                     velocity_deltas_x,
                     velocity_deltas_y,
-                }
+                };
             }
         };
 
@@ -1149,7 +1149,9 @@ impl FrameSink for PointDetectorEvaluatorSink {
         // Get ground truth for this frame
         let ground_truth = self.annotations.objects_at_frame(frame_number);
 
-        let Ok(detections) = frame_ctx.try_get_as::<Vec<Detection>>("detected_points") else {
+        let Some(detections) =
+            frame_ctx.get_typed::<astrocap_core::frame_metadata::DetectedPoints>()
+        else {
             warn!(
                 "No detected points metadata found for frame {}",
                 frame_number
@@ -1165,8 +1167,12 @@ impl FrameSink for PointDetectorEvaluatorSink {
             .copied();
 
         // Evaluate this frame
-        let frame_result =
-            self.evaluate_frame(frame_number, &ground_truth, &detections, processing_time_us);
+        let frame_result = self.evaluate_frame(
+            frame_number,
+            &ground_truth,
+            &detections.0,
+            processing_time_us,
+        );
 
         // Log progress periodically
         if frame_number % 100 == 0

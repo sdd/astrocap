@@ -54,8 +54,12 @@ impl SolvastroAdapter {
 
         tracing::info!(?solvastro_config);
 
-        let file = File::open("../solvastro/v2.sidx")
-            .map_err(|e| AstrocapError::GeneralPluginError(format!("{:?}", e)))?;
+        let file = File::open(&config.index_path).map_err(|e| {
+            AstrocapError::GeneralPluginError(format!(
+                "cannot open Solvastro index {}: {e}",
+                config.index_path.display()
+            ))
+        })?;
         let buf = unsafe {
             MmapOptions::new()
                 .map(&file)

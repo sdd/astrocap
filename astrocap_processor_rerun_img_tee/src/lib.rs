@@ -1,9 +1,10 @@
 use astrocap_core::FrameProcessorResult::{Continue, Skip};
+use astrocap_core::pipeline_services::RerunRecording;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
-use rerun::RecordingStream;
 use std::sync::Arc;
 use toml::Value;
+use vyd::frame::pool::WaitPolicy;
 use vyd::pipeline::PipelineContext;
 use vyd::register_vyd_frame_processor;
 use vyd::statistics::ProcessingType;
@@ -32,22 +33,24 @@ impl RerunTeeProcessor {
 
 impl FrameProcessor for RerunTeeProcessor {
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.entry("rerun".to_string()).or_insert_with(|| {
-            Box::new(
-                rerun::RecordingStreamBuilder::new("astrocap")
-                    .connect_grpc()
-                    .inspect(|_| {
-                        tracing::info!("Initialized Rerun connection");
-                    })
-                    .map_err(|err| {
-                        AstrocapError::GeneralPluginError(format!(
-                            "Failed to connect to rerun: {}",
-                            err
-                        ))
-                    })
-                    .unwrap(),
-            )
-        });
+        if ctx
+            .services()
+            .latest::<RerunRecording>()
+            .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?
+            .is_none()
+        {
+            let recording = rerun::RecordingStreamBuilder::new("astrocap")
+                .connect_grpc()
+                .map_err(|error| {
+                    AstrocapError::GeneralPluginError(format!(
+                        "Failed to connect to rerun: {error}"
+                    ))
+                })?;
+            ctx.services()
+                .publish(Arc::new(RerunRecording(recording)))
+                .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?;
+            tracing::info!("Initialized Rerun connection");
+        }
 
         Ok(())
     }
@@ -57,17 +60,24 @@ impl FrameProcessor for RerunTeeProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
-
-        let Some((width, height)) = frame_ctx.frame.dimensions() else {
-            tracing::warn!("No frame dimensions");
-            return Skip;
+        let rec = match ctx.services().latest::<RerunRecording>() {
+            Ok(Some(rec)) => rec,
+            Ok(None) => {
+                tracing::error!("Rerun recording was not initialized");
+                return Skip;
+            }
+            Err(error) => {
+                tracing::error!(%error, "Rerun service lookup failed");
+                return Skip;
+            }
         };
+
+        let (width, height) = frame_ctx.frame.dimensions();
 
         let pixels = match &self.key {
             Some(key) => match frame_ctx.try_get_as::<Arc<Frame>>(key) {
                 Ok(frame) => {
-                    let Some(pixels) = frame.as_cpu_image() else {
+                    let Ok(pixels) = frame.try_read_cpu_luma8(WaitPolicy::Immediate) else {
                         tracing::warn!("No frame to process");
                         return Skip;
                     };
@@ -79,7 +89,7 @@ impl FrameProcessor for RerunTeeProcessor {
                 }
             },
             None => {
-                let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
+                let Ok(pixels) = frame_ctx.frame.try_read_cpu_luma8(WaitPolicy::Immediate) else {
                     tracing::warn!("No frame to process");
                     return Skip;
                 };
@@ -88,7 +98,7 @@ impl FrameProcessor for RerunTeeProcessor {
             }
         };
 
-        if let Err(err) = rec.log(
+        if let Err(err) = rec.0.log(
             format!("video/{}", self.tag),
             &rerun::Image::from_l8(pixels, [width, height]),
         ) {

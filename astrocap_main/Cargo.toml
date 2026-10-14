@@ -6,8 +6,13 @@ authors.workspace = true
 description.workspace = true
 documentation.workspace = true
 
+[features]
+gpu-wgpu = ["vyd/gpu-wgpu", "vyd_gstreamer/gpu-wgpu", "astrocap_processor_mask/gpu-wgpu", "astrocap_processor_median_sub/gpu-wgpu"]
+
 [dependencies]
 vyd = { workspace = true }
+vyd_telemetry = { workspace = true }
+vyd_gstreamer = { workspace = true }
 astrocap_core = { workspace = true }
 astrocap_processor_detection_export = { workspace = true }
 astrocap_processor_frame_stacker = { workspace = true }
@@ -30,3 +35,9 @@ clap = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ctrlc = "3.4.7"
+serde = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+gst = { package = "gstreamer", version = "0.21", features = ["v1_20"] }
+serde_json = { workspace = true }

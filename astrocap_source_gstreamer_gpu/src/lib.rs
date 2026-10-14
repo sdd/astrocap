@@ -1,12 +1,5 @@
-mod config;
-mod frame_buffer;
-mod gst_buffer_timing_meta;
-pub mod gst_gpu_source;
-mod gst_pipeline;
-mod ring_buffer_sink;
+pub use vyd_gstreamer_gpu::*;
 
-use vyd::register_vyd_frame_source;
+use vyd::_register_vyd_stage_impl;
 
-pub use crate::gst_gpu_source::GstGpuSource;
-
-register_vyd_frame_source!(GstGpuSource);
+_register_vyd_stage_impl!("astrocap_source_gstreamer_gpu", GstGpuSource, FrameSource);
