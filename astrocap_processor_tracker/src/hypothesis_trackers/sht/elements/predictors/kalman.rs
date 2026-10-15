@@ -176,6 +176,10 @@ mod tests {
             },
             age: 0,
             confidence: 0.8,
+            first_seen: 0,
+            start_x: 10.0,
+            start_y: 20.0,
+            amplitude: 0.0,
         };
 
         let original_position = (track.state.state[0], track.state.state[1]);
@@ -212,6 +216,10 @@ mod tests {
             },
             age: 0,
             confidence: 0.8,
+            first_seen: 0,
+            start_x: 10.0,
+            start_y: 20.0,
+            amplitude: 0.0,
         };
 
         // Predict one step (dt = 1.0)
@@ -240,6 +248,10 @@ mod tests {
             },
             age: 0,
             confidence: 0.8,
+            first_seen: 0,
+            start_x: 10.0,
+            start_y: 20.0,
+            amplitude: 0.0,
         };
 
         kalman.predict(&mut track);
@@ -264,6 +276,10 @@ mod tests {
             },
             age: 0,
             confidence: 0.8,
+            first_seen: 0,
+            start_x: 10.0,
+            start_y: 20.0,
+            amplitude: 0.0,
         };
 
         let initial_covariance = track.state.covariance[(0, 0)];
@@ -325,6 +341,10 @@ mod tests {
             },
             age: 0,
             confidence: 0.8,
+            first_seen: 0,
+            start_x: 10.0,
+            start_y: 20.0,
+            amplitude: 0.0,
         };
 
         // Run many predictions to test numerical stability

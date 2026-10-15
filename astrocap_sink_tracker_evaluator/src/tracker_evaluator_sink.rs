@@ -214,7 +214,8 @@ impl FrameSink for TrackerEvaluatorSink {
         // Get ground truth for this frame
         let ground_truth = self.annotations.objects_at_frame(frame_number);
 
-        let Ok(tracks) = frame_ctx.try_get_as::<Vec<TrackSummary>>("tracker/tracks") else {
+        let Some(tracks) = frame_ctx.get_typed::<astrocap_core::frame_metadata::TrackSummaries>()
+        else {
             warn!(
                 "No detected tracks metadata found for frame {}",
                 frame_number
@@ -231,14 +232,14 @@ impl FrameSink for TrackerEvaluatorSink {
 
         // Evaluate this frame
         let frame_result =
-            self.evaluate_frame(frame_number, &ground_truth, &tracks, processing_time_us);
+            self.evaluate_frame(frame_number, &ground_truth, &tracks.0, processing_time_us);
 
         // Log progress periodically
         if frame_number % 100 == 0 {
             info!(
                 "Frame {}: {} tracks, {} annotations, {} associated",
                 frame_number,
-                tracks.len(),
+                tracks.0.len(),
                 ground_truth.len(),
                 frame_result.tracks_associated
             );
@@ -319,9 +320,15 @@ impl TrackerEvaluatorSink {
 
             self.annotation_velocities = velocities;
 
-            info!("Annotation velocity stats: mean=({:.3}, {:.3}), std=({:.3}, {:.3}), magnitude_mean={:.3}±{:.3}",
-                  mean_velocity.x, mean_velocity.y, std_dev_velocity.x, std_dev_velocity.y,
-                  mean_magnitude, std_magnitude);
+            info!(
+                "Annotation velocity stats: mean=({:.3}, {:.3}), std=({:.3}, {:.3}), magnitude_mean={:.3}±{:.3}",
+                mean_velocity.x,
+                mean_velocity.y,
+                std_dev_velocity.x,
+                std_dev_velocity.y,
+                mean_magnitude,
+                std_magnitude
+            );
         } else {
             warn!("No velocity data available from annotations");
         }
@@ -491,8 +498,10 @@ impl TrackerEvaluatorSink {
                 let likely_true_positive = velocity_match_score > 0.9; // Configurable threshold
 
                 if likely_true_positive {
-                    info!("Unassociated track {} has good velocity match (score: {:.3}) - likely true positive",
-                          track_id, velocity_match_score);
+                    info!(
+                        "Unassociated track {} has good velocity match (score: {:.3}) - likely true positive",
+                        track_id, velocity_match_score
+                    );
                 }
 
                 let unassociated_info = UnassociatedTrackInfo {

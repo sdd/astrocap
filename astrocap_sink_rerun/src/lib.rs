@@ -1,6 +1,7 @@
+use astrocap_core::pipeline_services::RerunRecording;
 use astrocap_core::traits::FrameSink;
 use astrocap_core::{AstrocapError, FrameContext};
-use rerun::RecordingStream;
+use std::sync::Arc;
 use toml::Value;
 use vyd::pipeline::PipelineContext;
 use vyd::register_vyd_frame_sink;
@@ -16,41 +17,52 @@ impl RerunSink {
 
 impl FrameSink for RerunSink {
     fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.entry("rerun".to_string()).or_insert_with(|| {
-            Box::new(
-                rerun::RecordingStreamBuilder::new("astrocap")
-                    .connect_grpc()
-                    .map(|res| {
-                        tracing::info!("Initialized Rerun connection");
-                        res
-                    })
-                    .map_err(|err| {
-                        AstrocapError::GeneralPluginError(format!(
-                            "Failed to connect to rerun: {}",
-                            err
-                        ))
-                    })
-                    .unwrap(),
-            )
-        });
+        if ctx
+            .services()
+            .latest::<RerunRecording>()
+            .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?
+            .is_none()
+        {
+            let recording = rerun::RecordingStreamBuilder::new("astrocap")
+                .connect_grpc()
+                .map_err(|error| {
+                    AstrocapError::GeneralPluginError(format!(
+                        "Failed to connect to rerun: {error}"
+                    ))
+                })?;
+            ctx.services()
+                .publish(Arc::new(RerunRecording(recording)))
+                .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?;
+            tracing::info!("Initialized Rerun connection");
+        }
 
         Ok(())
     }
 
     fn consume(&mut self, frame_ctx: &mut FrameContext, ctx: &mut PipelineContext) {
-        let rec = ctx.try_get_as::<RecordingStream>("rerun").unwrap();
-
-        let Some((width, height)) = frame_ctx.frame.dimensions() else {
-            tracing::warn!("No frame dimensions");
-            return;
+        let rec = match ctx.services().latest::<RerunRecording>() {
+            Ok(Some(rec)) => rec,
+            Ok(None) => {
+                tracing::error!("Rerun recording was not initialized");
+                return;
+            }
+            Err(error) => {
+                tracing::error!(%error, "Rerun service lookup failed");
+                return;
+            }
         };
 
-        let Ok(pixels) = frame_ctx.frame.get_pixels(None) else {
+        let (width, height) = frame_ctx.frame.dimensions();
+
+        let Ok(pixels) = frame_ctx
+            .frame
+            .try_read_cpu_luma8(vyd::frame::pool::WaitPolicy::Immediate)
+        else {
             tracing::warn!("No frame to process");
             return;
         };
 
-        if let Err(err) = rec.log(
+        if let Err(err) = rec.0.log(
             "video/final",
             &rerun::Image::from_l8(pixels, [width, height]),
         ) {

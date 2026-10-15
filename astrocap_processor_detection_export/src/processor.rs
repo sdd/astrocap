@@ -1,6 +1,8 @@
+use astrocap_core::frame_metadata::DetectedPoints;
 use astrocap_core::structs::Detection;
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessor, FrameProcessorResult};
 use std::fs::File;
+use std::io::{BufWriter, Write};
 use tracing::{debug, error, info};
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
@@ -38,8 +40,12 @@ impl DetectionExportProcessor {
                 "Could not open file for detection export".to_string(),
             )
         })?;
-        serde_json::to_writer_pretty(file, &self.detections).map_err(|_| {
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, &self.detections).map_err(|_| {
             AstrocapError::GeneralPluginError("Could not write detections to file".to_string())
+        })?;
+        writer.flush().map_err(|_| {
+            AstrocapError::GeneralPluginError("Could not flush detections to file".to_string())
         })?;
         info!(
             "Exported {} frames of detections to {:?}",
@@ -56,10 +62,11 @@ impl FrameProcessor for DetectionExportProcessor {
         frame_ctx: &mut FrameContext,
         _ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let frame_detections = if let Ok(detected_points) =
-            frame_ctx.try_get_as::<Vec<Detection>>("detected_points")
+        let frame_detections = if let Some(detected_points) =
+            frame_ctx.get_typed::<DetectedPoints>()
         {
             detected_points
+                .0
                 .iter()
                 .map(|point| Detection::new(point.position.x, point.position.y, point.amplitude))
                 .collect()
@@ -91,5 +98,28 @@ impl FrameProcessor for DetectionExportProcessor {
 
     fn processing_type(&self) -> ProcessingType {
         ProcessingType::Cpu
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use astrocap_core::Frame;
+    use astrocap_core::frame_metadata::DetectedPoints;
+
+    #[test]
+    fn exporter_reads_typed_detector_output() {
+        let mut processor = DetectionExportProcessor::new(None).unwrap();
+        let mut frame = FrameContext::new(Frame::from_raw(1, 1, vec![0]).unwrap(), 0);
+        frame.put_typed(DetectedPoints(vec![Detection::new(2.0, 3.0, 4.0)]));
+        let mut context = PipelineContext::new();
+        assert!(matches!(
+            processor.process(&mut frame, &mut context),
+            FrameProcessorResult::Continue
+        ));
+        assert_eq!(processor.detections.len(), 1);
+        assert_eq!(processor.detections[0].len(), 1);
+        assert_eq!(processor.detections[0][0].position.x, 2.0);
+        assert_eq!(processor.detections[0][0].amplitude, 4.0);
     }
 }

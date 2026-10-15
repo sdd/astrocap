@@ -56,10 +56,7 @@ impl FrameProcessor for SolvastroProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
-        let Some(dims) = frame_ctx.frame.dimensions() else {
-            tracing::warn!("Could not get frame dimensions");
-            return FrameProcessorResult::Skip;
-        };
+        let dims = frame_ctx.frame.dimensions();
 
         let Ok(star_candidates) =
             frame_ctx.try_get_as::<Arc<Vec<StarCandidate>>>("solvastro/star_candidates")
@@ -75,8 +72,11 @@ impl FrameProcessor for SolvastroProcessor {
             tracing::info!("Found solution");
             frame_ctx.put("solvastro/solution", solution.clone());
 
-            if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
-                self.log_solution_to_rerun(solution, rec);
+            if let Ok(Some(rec)) = ctx
+                .services()
+                .latest::<astrocap_core::pipeline_services::RerunRecording>()
+            {
+                self.log_solution_to_rerun(solution, &rec.0);
             } else {
                 tracing::error!("could not get a ref to rerun");
             }

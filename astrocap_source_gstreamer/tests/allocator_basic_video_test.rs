@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use test_log::test;
 
-use astrocap_source_gstreamer::{create_shared_pool, AstrocapGstAllocator};
+use astrocap_source_gstreamer::{create_shared_pool, VydGstAllocator};
 
 #[test]
 fn test_alloc_video_zero_copy_with_videoconvert() {
@@ -13,7 +13,7 @@ fn test_alloc_video_zero_copy_with_videoconvert() {
     let buffer_size = 320 * 240 * 3;
     let buffer_count = 8;
     let pool = create_shared_pool(buffer_size, buffer_count);
-    let allocator = AstrocapGstAllocator::new();
+    let allocator = VydGstAllocator::new();
     allocator.set_pool(pool.clone());
 
     tracing::info!("Testing zero-copy with videotestsrc ! videoconvert ! appsink pipeline...");

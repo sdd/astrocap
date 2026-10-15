@@ -8,8 +8,6 @@ pub struct Config {
     /// Path to the JSON annotations file
     pub annotations_file: PathBuf,
 
-    pub confirmation_threshold: f32,
-
     /// Distance threshold for considering a detection a match (pixels)
     #[serde(default = "default_distance_threshold")]
     pub distance_threshold: f32,

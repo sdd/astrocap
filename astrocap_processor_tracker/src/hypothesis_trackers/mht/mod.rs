@@ -14,7 +14,7 @@ use statrs::statistics::Statistics;
 use toml::Value;
 
 use crate::traits::HypothesisTracker;
-use astrocap_core::traits::{Dumpable, StarCandidate};
+use astrocap_core::traits::{Dumpable, StarCandidate, TrackSummary};
 use astrocap_core::{structs::Detection, AstrocapError, DumpManager, FrameContext};
 
 use config::MhtConfig;
@@ -263,6 +263,41 @@ impl MultiHypothesisTracker {
 }
 
 impl HypothesisTracker for MultiHypothesisTracker {
+    fn track_summaries(&self) -> Vec<TrackSummary> {
+        // The evaluator needs one confirmed hypothesis per founder. Use the
+        // same selection and confirmation threshold as the Rerun view.
+        let mut best_by_founder: HashMap<u64, &MhtTrackNode> = HashMap::new();
+        for leaf_id in &self.leaf_ids {
+            if let Some(node) = self.track_node_store.track_nodes.get(leaf_id) {
+                best_by_founder
+                    .entry(node.founder_id)
+                    .and_modify(|best| {
+                        if node.cum_conf.lo > best.cum_conf.lo {
+                            *best = node;
+                        }
+                    })
+                    .or_insert(node);
+            }
+        }
+        let mut summaries: Vec<_> = best_by_founder
+            .values()
+            .filter(|track| track.cum_conf.lo > self.config.track_confirmation_level)
+            .map(|track| TrackSummary {
+                id: track.founder_id,
+                x: track.state.x(),
+                y: track.state.y(),
+                amplitude: track.amplitude,
+                age: track.age,
+                log_odds: track.cum_conf.lo,
+                first_seen: track.first_seen,
+                start_x: track.start_x,
+                start_y: track.start_y,
+            })
+            .collect();
+        summaries.sort_by_key(|track| track.id);
+        summaries
+    }
+
     fn process_frame(&mut self, detections: &[Detection], frame_number: usize) {
         // build detection k-d tree
         let detection_coords: Vec<[f32; 2]> = detections
@@ -527,9 +562,11 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
         manager
             .dumper::<MhtTrackNode>()
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
             .lock()
-            .unwrap()
-            .dumps(leaf_rows, frame_idx);
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
+            .dumps(leaf_rows, frame_idx)
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?;
 
         // dump KFs
         let kfs = self
@@ -539,9 +576,11 @@ impl HypothesisTracker for MultiHypothesisTracker {
 
         manager
             .dumper::<KalmanFilter>()
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
             .lock()
-            .unwrap()
-            .dumps(kfs, frame_idx);
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
+            .dumps(kfs, frame_idx)
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?;
 
         Ok(())
     }

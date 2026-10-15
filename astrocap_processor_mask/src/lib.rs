@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "gpu-wgpu", recursion_limit = "256")]
+
 mod map_colors;
 mod processor;
 
