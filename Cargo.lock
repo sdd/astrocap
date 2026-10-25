@@ -415,7 +415,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -933,7 +933,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vyd",
- "vyd-gstreamer 0.2.0",
+ "vyd-gstreamer",
 ]
 
 [[package]]
@@ -1168,7 +1168,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "vyd",
- "vyd-gstreamer 0.2.1",
+ "vyd-gstreamer",
 ]
 
 [[package]]
@@ -3400,7 +3400,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3732,7 +3732,7 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.2.1",
+ "windows-link 0.1.3",
  "windows-result 0.4.1",
 ]
 
@@ -3852,7 +3852,7 @@ dependencies = [
  "gobject-sys 0.21.5",
  "libc",
  "system-deps 7.0.8",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4693,7 +4693,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.58.0",
 ]
 
 [[package]]
@@ -5022,7 +5022,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.3",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6200,7 +6200,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8917,7 +8917,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9555,6 +9555,8 @@ dependencies = [
 [[package]]
 name = "solvastro"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4f51da78625f87e777a52b7e90541d310d28271440ece6f5257d2d480d71843"
 dependencies = [
  "anyhow",
  "approx 0.4.0",
@@ -9891,7 +9893,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9900,7 +9902,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c27177b12a6399ffc08b98f76f7c9a1f4fe9fc967c784c5a071fa8d93cf7e1"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10784,24 +10786,9 @@ checksum = "465aadb853d8742b8479b5f168156e1f30ed3e4e8a2228e702dff9f3b4aca5c1"
 dependencies = [
  "parse-size",
  "toml 0.9.12+spec-1.1.0",
- "vyd-core 0.1.1",
- "vyd-gstreamer 0.2.1",
+ "vyd-core",
+ "vyd-gstreamer",
  "vyd-telemetry",
-]
-
-[[package]]
-name = "vyd-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "dashmap",
- "image 0.24.9",
- "inventory",
- "paste",
- "serde 1.0.229",
- "thiserror 2.0.21",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
 ]
 
 [[package]]
@@ -10825,28 +10812,6 @@ dependencies = [
 
 [[package]]
 name = "vyd-gstreamer"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "bytes",
- "gstreamer 0.21.3",
- "gstreamer-allocators",
- "gstreamer-base",
- "gstreamer-video",
- "http",
- "image 0.24.9",
- "metrics",
- "once_cell",
- "serde 1.0.229",
- "thiserror 2.0.21",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "tracing-gstreamer",
- "vyd-core 0.1.0",
-]
-
-[[package]]
-name = "vyd-gstreamer"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a25e5f0aacfcf606f1fe89a1e8b6857b0f3d31229bbf2e9d9fb26324c12638f"
@@ -10866,12 +10831,14 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-gstreamer",
- "vyd-core 0.1.1",
+ "vyd-core",
 ]
 
 [[package]]
 name = "vyd-gstreamer-gpu"
-version = "0.2.0"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c29b8f26ebeabb2a3d9bba3b421a1e71980f1f4a21e699f57b96c2ea8c0d7278"
 dependencies = [
  "anyhow",
  "bytes",
@@ -10886,8 +10853,8 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
- "vyd-core 0.1.0",
- "vyd-gstreamer 0.2.0",
+ "vyd-core",
+ "vyd-gstreamer",
 ]
 
 [[package]]
@@ -10906,7 +10873,7 @@ dependencies = [
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
- "vyd-core 0.1.1",
+ "vyd-core",
 ]
 
 [[package]]
@@ -11501,7 +11468,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -11594,19 +11561,6 @@ dependencies = [
  "windows-link 0.1.3",
  "windows-result 0.3.4",
  "windows-strings 0.4.2",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
- "windows-link 0.2.1",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
 ]
 
 [[package]]
@@ -11730,15 +11684,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]

@@ -34,7 +34,7 @@ mod tests {
         let mut source = RecordedDetectionsSource::new(Some(&config)).unwrap();
         let mut ctx = PipelineContext::new();
         ctx.set_frame_factory(FrameFactory::new(BufferPoolManager::new(
-            PoolLimits::new(1, 6).unwrap(),
+            PoolLimits::new(Some(1), Some(6)).unwrap(),
         )));
         let first = source.try_next_frame(&mut ctx).unwrap().unwrap();
         assert_eq!(first.get_typed::<DetectedPoints>().unwrap().0.len(), 0);

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 vyd = { workspace = true }
-vyd-gstreamer = { workspace = true }
+vyd_gstreamer = { workspace = true }
 
 [dev-dependencies]
 astrocap_core = { path = "../astrocap_core" }

@@ -11,7 +11,7 @@ gpu-wgpu = ["vyd/gpu-wgpu", "astrocap_processor_mask/gpu-wgpu", "astrocap_proces
 
 [dependencies]
 vyd = { workspace = true }
-vyd_gstreamer = { package = "vyd-gstreamer", path = "../../vidd/crates/vyd_gstreamer" }
+vyd_gstreamer = { workspace = true }
 astrocap_core = { workspace = true }
 astrocap_processor_detection_export = { workspace = true }
 astrocap_processor_frame_stacker = { workspace = true }
