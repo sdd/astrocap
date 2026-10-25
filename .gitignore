@@ -1,1 +1,6 @@
 /target
+/.idea/
+/dumps/
+/detections.json
+/astrocap_tracker_comparison.toml
+/astrocap_tracker_gpu_median.toml

@@ -3,6 +3,7 @@ use crate::model::Track;
 use crate::processor::hsv_to_rgb;
 use crate::traits::{Associator, HypothesisTracker, Initiator, Predictor, Terminator, Updater};
 use astrocap_core::structs::Detection;
+use astrocap_core::traits::{TrackSummarize, TrackSummary};
 use astrocap_core::{AstrocapError, FrameContext};
 use rerun::RecordingStream;
 use toml::Value;
@@ -42,7 +43,7 @@ impl SingleHypothesisTracker {
 }
 
 impl HypothesisTracker for SingleHypothesisTracker {
-    fn process_frame(&mut self, detections: &[Detection], _frame_index: usize) {
+    fn process_frame(&mut self, detections: &[Detection], frame_index: usize) {
         // associate detections with existing tracks
         let (associations, unassociated_detections) =
             self.associator.associate(&detections, &self.tracks);
@@ -66,13 +67,20 @@ impl HypothesisTracker for SingleHypothesisTracker {
             .map(|idx| &detections[*idx])
             .collect::<Vec<_>>();
 
-        let new_tracks = self.initiator.initiate(unassociated_detections.as_slice());
+        let mut new_tracks = self.initiator.initiate(unassociated_detections.as_slice());
+        for track in &mut new_tracks {
+            track.first_seen = frame_index;
+        }
 
         self.tracks.extend(new_tracks);
 
         // run all tracks through the reaper
         self.tracks
             .retain(|track| !self.terminator.should_terminate(track));
+    }
+
+    fn track_summaries(&self) -> Vec<TrackSummary> {
+        self.tracks.iter().map(TrackSummarize::summarize).collect()
     }
 
     fn log_to_rerun(&self, rec: &RecordingStream, _frame_ctx: &mut FrameContext) {

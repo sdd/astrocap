@@ -1,9 +1,10 @@
 use crate::config::PointFitterConfig;
 use crate::fitters::nelder_mead::PointFitterGaussianNelderMead;
-use astrocap_core::structs::{Detection, FittedPoint};
+use astrocap_core::frame_metadata::{DetectedPoints, FittedPoints};
+use astrocap_core::pipeline_services::RerunRecording;
+use astrocap_core::structs::FittedPoint;
 use astrocap_core::traits::{FrameProcessor, PointFitter};
 use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
-use rerun::RecordingStream;
 use std::sync::Arc;
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
@@ -30,11 +31,6 @@ impl PointFitterProcessor {
 }
 
 impl FrameProcessor for PointFitterProcessor {
-    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
-        ctx.put("point_fitter", self.point_fitter.clone());
-
-        Ok(())
-    }
     fn process(
         &mut self,
         frame_ctx: &mut FrameContext,
@@ -45,7 +41,7 @@ impl FrameProcessor for PointFitterProcessor {
             return FrameProcessorResult::Skip;
         };
 
-        let Ok(detected_points_list) = frame_ctx.try_get_as::<Vec<Detection>>("detected_points")
+        let Some(DetectedPoints(detected_points_list)) = frame_ctx.get_typed::<DetectedPoints>()
         else {
             return FrameProcessorResult::Skip;
         };
@@ -55,19 +51,27 @@ impl FrameProcessor for PointFitterProcessor {
             .map(|detected_point| self.point_fitter.fit(frame, detected_point))
             .collect();
 
-        if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
-            rec.log(
-                "model/fitted_points".to_string(),
-                &rerun::Points2D::new(
-                    detected_points_list
-                        .iter()
-                        .map(|cand| (cand.position[0], cand.position[1])),
-                ),
-            )
-            .unwrap();
+        match ctx.services().latest::<RerunRecording>() {
+            Ok(Some(rec)) => {
+                rec.0
+                    .log(
+                        "model/fitted_points".to_string(),
+                        &rerun::Points2D::new(
+                            detected_points_list
+                                .iter()
+                                .map(|cand| (cand.position[0], cand.position[1])),
+                        ),
+                    )
+                    .unwrap();
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::error!(%error, "Rerun service lookup failed");
+                return FrameProcessorResult::Skip;
+            }
         }
 
-        frame_ctx.put("fitted_points", fitted_points_list);
+        frame_ctx.put_typed(FittedPoints(fitted_points_list));
 
         FrameProcessorResult::Continue
     }

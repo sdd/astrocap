@@ -1,6 +1,6 @@
 use image::{GenericImageView, ImageBuffer, Pixel};
 use std::cmp::{max, min};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 #[must_use = "the function does not modify the original image"]
 pub fn median_filter<C, P>(
@@ -19,29 +19,87 @@ where
     }
 
     let mut out = ImageBuffer::<P, Vec<u8>>::new(width, height);
+    median_filter_into(image, &mut out, x_radius, y_radius);
+    out
+}
+
+/// Fill an already allocated image with the median-filtered pixels. The caller
+/// can supply a borrowed pooled buffer as the output container.
+pub(crate) fn median_filter_into<C, P, D>(
+    image: &ImageBuffer<P, C>,
+    out: &mut ImageBuffer<P, D>,
+    x_radius: u32,
+    y_radius: u32,
+) where
+    P: Pixel<Subpixel = u8>,
+    C: Deref<Target = [P::Subpixel]>,
+    D: DerefMut<Target = [P::Subpixel]>,
+{
+    let completed = median_filter_into_with_cancel(image, out, x_radius, y_radius, || false);
+    debug_assert!(completed);
+}
+
+/// Return false when the caller cancels between columns. A partially filled
+/// output must be discarded by the caller.
+pub(crate) fn median_filter_into_with_cancel<C, P, D>(
+    image: &ImageBuffer<P, C>,
+    out: &mut ImageBuffer<P, D>,
+    x_radius: u32,
+    y_radius: u32,
+    mut cancelled: impl FnMut() -> bool,
+) -> bool
+where
+    P: Pixel<Subpixel = u8>,
+    C: Deref<Target = [P::Subpixel]>,
+    D: DerefMut<Target = [P::Subpixel]>,
+{
+    assert_eq!(image.dimensions(), out.dimensions());
+    let (width, height) = image.dimensions();
+    if cancelled() {
+        return false;
+    }
+    if width == 0 || height == 0 {
+        return true;
+    }
     let rx = x_radius as i32;
     let ry = y_radius as i32;
 
-    let mut hist = initialise_histogram_for_top_left_pixel(image, x_radius, y_radius);
-    slide_down_column(&mut hist, image, &mut out, 0, rx, ry);
+    let Some(mut hist) =
+        initialise_histogram_for_top_left_pixel(image, x_radius, y_radius, &mut cancelled)
+    else {
+        return false;
+    };
+    if !slide_down_column(&mut hist, image, out, 0, rx, ry, &mut cancelled) {
+        return false;
+    }
 
     for x in 1..width {
+        if cancelled() {
+            return false;
+        }
         if x % 2 == 0 {
-            slide_right(&mut hist, image, x, 0, rx, ry);
-            slide_down_column(&mut hist, image, &mut out, x, rx, ry);
+            if !slide_right(&mut hist, image, x, 0, rx, ry, &mut cancelled)
+                || !slide_down_column(&mut hist, image, out, x, rx, ry, &mut cancelled)
+            {
+                return false;
+            }
         } else {
-            slide_right(&mut hist, image, x, height - 1, rx, ry);
-            slide_up_column(&mut hist, image, &mut out, x, rx, ry);
+            if !slide_right(&mut hist, image, x, height - 1, rx, ry, &mut cancelled)
+                || !slide_up_column(&mut hist, image, out, x, rx, ry, &mut cancelled)
+            {
+                return false;
+            }
         }
     }
-    out
+    true
 }
 
 fn initialise_histogram_for_top_left_pixel<P, C>(
     image: &ImageBuffer<P, C>,
     x_radius: u32,
     y_radius: u32,
-) -> HistSet
+    cancelled: &mut impl FnMut() -> bool,
+) -> Option<HistSet>
 where
     P: Pixel<Subpixel = u8>,
     C: Deref<Target = [P::Subpixel]>,
@@ -55,6 +113,9 @@ where
     let ry = y_radius as i32;
 
     for dy in -ry..(ry + 1) {
+        if cancelled() {
+            return None;
+        }
         let py = min(max(0, dy), height as i32 - 1) as u32;
 
         for dx in -rx..(rx + 1) {
@@ -64,7 +125,7 @@ where
         }
     }
 
-    hist
+    Some(hist)
 }
 
 fn slide_right<P, C>(
@@ -74,7 +135,9 @@ fn slide_right<P, C>(
     y: u32,
     rx: i32,
     ry: i32,
-) where
+    cancelled: &mut impl FnMut() -> bool,
+) -> bool
+where
     P: Pixel<Subpixel = u8>,
     C: Deref<Target = [P::Subpixel]>,
 {
@@ -84,28 +147,38 @@ fn slide_right<P, C>(
     let next_x = min(x as i32 + rx, width as i32 - 1) as u32;
 
     for dy in -ry..(ry + 1) {
+        if cancelled() {
+            return false;
+        }
         let py = min(max(0, y as i32 + dy), (height - 1) as i32) as u32;
 
         hist.decr(image, prev_x, py);
         hist.incr(image, next_x, py);
     }
+    true
 }
 
-fn slide_down_column<P, C>(
+fn slide_down_column<P, C, D>(
     hist: &mut HistSet,
     image: &ImageBuffer<P, C>,
-    out: &mut ImageBuffer<P, Vec<u8>>,
+    out: &mut ImageBuffer<P, D>,
     x: u32,
     rx: i32,
     ry: i32,
-) where
+    cancelled: &mut impl FnMut() -> bool,
+) -> bool
+where
     P: Pixel<Subpixel = u8>,
     C: Deref<Target = [P::Subpixel]>,
+    D: DerefMut<Target = [P::Subpixel]>,
 {
     let (width, height) = image.dimensions();
     hist.set_to_median(out, x, 0);
 
     for y in 1..height {
+        if cancelled() {
+            return false;
+        }
         let prev_y = max(0, y as i32 - ry - 1) as u32;
         let next_y = min(y as i32 + ry, height as i32 - 1) as u32;
 
@@ -118,23 +191,30 @@ fn slide_down_column<P, C>(
 
         hist.set_to_median(out, x, y);
     }
+    true
 }
 
-fn slide_up_column<P, C>(
+fn slide_up_column<P, C, D>(
     hist: &mut HistSet,
     image: &ImageBuffer<P, C>,
-    out: &mut ImageBuffer<P, Vec<u8>>,
+    out: &mut ImageBuffer<P, D>,
     x: u32,
     rx: i32,
     ry: i32,
-) where
+    cancelled: &mut impl FnMut() -> bool,
+) -> bool
+where
     P: Pixel<Subpixel = u8>,
     C: Deref<Target = [P::Subpixel]>,
+    D: DerefMut<Target = [P::Subpixel]>,
 {
     let (width, height) = image.dimensions();
     hist.set_to_median(out, x, height - 1);
 
     for y in (0..(height - 1)).rev() {
+        if cancelled() {
+            return false;
+        }
         let prev_y = min(y as i32 + ry + 1, height as i32 - 1) as u32;
         let next_y = max(0, y as i32 - ry) as u32;
 
@@ -147,6 +227,7 @@ fn slide_up_column<P, C>(
 
         hist.set_to_median(out, x, y);
     }
+    true
 }
 
 // A collection of 256-slot histograms, one per image channel.
@@ -207,9 +288,10 @@ impl HistSet {
         }
     }
 
-    fn set_to_median<P>(&self, image: &mut ImageBuffer<P, Vec<u8>>, x: u32, y: u32)
+    fn set_to_median<P, D>(&self, image: &mut ImageBuffer<P, D>, x: u32, y: u32)
     where
         P: Pixel<Subpixel = u8>,
+        D: DerefMut<Target = [P::Subpixel]>,
     {
         unsafe {
             let target = image.get_pixel_mut(x, y);

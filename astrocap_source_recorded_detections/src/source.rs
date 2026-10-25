@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
 use std::fs::File;
 
 use crate::config::Config;
+use astrocap_core::frame_metadata::DetectedPoints;
 use astrocap_core::structs::Detection;
-use astrocap_core::{AstrocapError, Frame, FrameContext, FrameSource};
-use vyd::frame::CpuFrame;
+use astrocap_core::{AstrocapError, FrameContext, FrameSource};
+use vyd::frame::pool::WaitPolicy;
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
 
@@ -12,6 +12,58 @@ pub struct RecordedDetectionsSource {
     config: Config,
     frame_index: usize,
     detections: Vec<Vec<Detection>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vyd::frame::CpuAllocationOrigin;
+    use vyd::frame::factory::FrameFactory;
+    use vyd::frame::pool::{BufferPoolManager, PoolLimits};
+
+    #[test]
+    fn configured_dummy_frames_use_pool_and_retry_after_exhaustion() {
+        let path =
+            std::env::temp_dir().join(format!("recorded-detections-{}.json", std::process::id()));
+        std::fs::write(&path, "[[],[]]").unwrap();
+        let config: toml::Value = toml::from_str(&format!(
+            "input_path = '{}'\nframe_width = 3\nframe_height = 2",
+            path.display()
+        ))
+        .unwrap();
+        let mut source = RecordedDetectionsSource::new(Some(&config)).unwrap();
+        let mut ctx = PipelineContext::new();
+        ctx.set_frame_factory(FrameFactory::new(BufferPoolManager::new(
+            PoolLimits::new(1, 6).unwrap(),
+        )));
+        let first = source.try_next_frame(&mut ctx).unwrap().unwrap();
+        assert_eq!(first.get_typed::<DetectedPoints>().unwrap().0.len(), 0);
+        assert!(first.metadata.get("detected_points").is_none());
+        assert_eq!(first.frame.dimensions(), (3, 2));
+        assert_eq!(first.frame.as_cpu_ref().unwrap(), &[0; 6]);
+        assert_eq!(
+            first
+                .frame
+                .to_cpu(None)
+                .unwrap()
+                .img
+                .as_raw()
+                .allocation_origin(),
+            CpuAllocationOrigin::Pool
+        );
+        assert!(source.try_next_frame(&mut ctx).is_err());
+        assert_eq!(source.frame_index, 1);
+        drop(first);
+        assert!(source.try_next_frame(&mut ctx).unwrap().is_some());
+        assert!(source.try_next_frame(&mut ctx).unwrap().is_none());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_zero_dimensions() {
+        let config: toml::Value = toml::from_str("frame_width = 0\nframe_height = 2").unwrap();
+        assert!(RecordedDetectionsSource::new(Some(&config)).is_err());
+    }
 }
 
 impl RecordedDetectionsSource {
@@ -25,6 +77,33 @@ impl RecordedDetectionsSource {
             })?,
             None => Config::default(),
         };
+        if config.frame_width == 0 || config.frame_height == 0 {
+            return Err(AstrocapError::PluginInvalidConfigError(
+                "recorded detections frame dimensions must be positive".into(),
+            ));
+        }
+        if let Some(pixels) = &config.frame_pixels {
+            let expected = usize::try_from(config.frame_width)
+                .ok()
+                .and_then(|width| {
+                    usize::try_from(config.frame_height)
+                        .ok()
+                        .and_then(|height| width.checked_mul(height))
+                })
+                .ok_or_else(|| {
+                    AstrocapError::PluginInvalidConfigError(
+                        "recorded frame dimensions overflow".into(),
+                    )
+                })?;
+            if pixels.len() != expected {
+                return Err(AstrocapError::PluginInvalidConfigError(format!(
+                    "recorded frame_pixels has {} bytes; expected {expected} for {}x{} packed GRAY8",
+                    pixels.len(),
+                    config.frame_width,
+                    config.frame_height
+                )));
+            }
+        }
 
         // Load the detections from the JSON file
         let detections = Self::load_detections(&config.input_path)?;
@@ -63,16 +142,47 @@ impl RecordedDetectionsSource {
 }
 
 impl FrameSource for RecordedDetectionsSource {
-    fn next_frame(&mut self, _ctx: &mut PipelineContext) -> Option<FrameContext> {
+    fn next_frame(&mut self, ctx: &mut PipelineContext) -> Option<FrameContext> {
+        match self.try_next_frame(ctx) {
+            Ok(frame) => frame,
+            Err(error) => {
+                tracing::error!(%error, "recorded detections source failed");
+                None
+            }
+        }
+    }
+
+    fn try_next_frame(
+        &mut self,
+        ctx: &mut PipelineContext,
+    ) -> Result<Option<FrameContext>, AstrocapError> {
         // Check if we've reached the end of our recorded detections
         if self.frame_index >= self.detections.len() {
-            return None;
+            return Ok(None);
         }
 
         // Create a dummy frame
-        let dummy_frame = Frame::Cpu(
-            CpuFrame::from_vec(10, 10, vec![0; 100]).expect("Failed to create dummy frame"),
-        );
+        let dummy_frame = ctx
+            .frame_factory()
+            .create_luma8_with(
+                self.config.frame_width,
+                self.config.frame_height,
+                WaitPolicy::Immediate,
+                |output| {
+                    if let Some(pixels) = &self.config.frame_pixels {
+                        output.copy_from_slice(pixels);
+                    } else {
+                        output.fill(0);
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(|error| {
+                AstrocapError::GeneralPluginError(format!(
+                    "recorded detections frame {}: {error}",
+                    self.frame_index
+                ))
+            })?;
 
         // Create frame context
         let mut frame_ctx = FrameContext::new(dummy_frame, self.frame_index);
@@ -83,11 +193,11 @@ impl FrameSource for RecordedDetectionsSource {
 
         // Inject the detections into the frame context metadata
         // This is the same key that the point detector processor uses
-        frame_ctx.put("detected_points", detected_points);
+        frame_ctx.put_typed(DetectedPoints(detected_points));
 
         self.frame_index += 1;
 
-        Some(frame_ctx)
+        Ok(Some(frame_ctx))
     }
 
     fn name(&self) -> &str {
