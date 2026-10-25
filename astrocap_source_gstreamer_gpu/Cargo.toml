@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 vyd = { workspace = true }
-vyd_gstreamer_gpu = { package = "vyd-gstreamer-gpu", path = "../../vidd/crates/vyd_gstreamer_gpu" }
+vyd_gstreamer_gpu = { workspace = true }
 
 [dev-dependencies]
 test-log = { version = "0.2", features = ["trace"] }

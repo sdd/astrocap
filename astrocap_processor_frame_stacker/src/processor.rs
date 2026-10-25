@@ -481,7 +481,7 @@ mod tests {
         let mut processor = stacker(1, "None");
         let mut ctx = PipelineContext::new();
         ctx.set_frame_factory(FrameFactory::new(BufferPoolManager::new(
-            PoolLimits::new(2, 8).unwrap(),
+            PoolLimits::new(Some(2), Some(8)).unwrap(),
         )));
         let mut first = FrameContext::new(Frame::from_raw(2, 1, vec![10, 20]).unwrap(), 0);
         processor.try_process(&mut first, &mut ctx).unwrap();

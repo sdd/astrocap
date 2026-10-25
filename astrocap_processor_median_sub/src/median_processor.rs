@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn worker_pool_failure_reaches_processing_and_finalization() {
-        let pool = BufferPoolManager::new(PoolLimits::new(1, 1).unwrap());
+        let pool = BufferPoolManager::new(PoolLimits::new(Some(1), Some(1)).unwrap());
         let mut context = PipelineContext::new();
         context.set_frame_factory(FrameFactory::new(pool.clone()));
         let mut processor = async_processor(0);
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn pool_exhaustion_does_not_publish_median() {
-        let pool = BufferPoolManager::new(PoolLimits::new(1, 9).unwrap());
+        let pool = BufferPoolManager::new(PoolLimits::new(Some(1), Some(9)).unwrap());
         let factory = FrameFactory::new(pool.clone());
         let held = factory.create_luma8(3, 3, WaitPolicy::Immediate).unwrap();
         let mut context = PipelineContext::new();

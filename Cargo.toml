@@ -39,8 +39,10 @@ debug = true
 
 [workspace.dependencies]
 vyd = { version = "0.2.1" }
-vyd-gstreamer = { version = "0.2.1" }
+vyd_gstreamer = { package = "vyd-gstreamer", version = "0.2.1" }
+vyd_gstreamer_gpu = { package = "vyd-gstreamer-gpu", version = "0.2.1" }
 vyd-telemetry = { version = "0.2.1" }
+solvastro = "0.1.1"
 
 astrocap_core = { path = "./astrocap_core" }
 astrocap_processor_frame_stacker = { path = "./astrocap_processor_frame_stacker" }
