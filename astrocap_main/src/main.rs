@@ -2,14 +2,10 @@
 
 mod config;
 
-use std::sync::Arc;
-
 use astrocap_processor_detection_export::DetectionExportProcessor;
 use astrocap_processor_frame_stacker::FrameStackerProcessor;
 use astrocap_processor_mask::MaskProcessor;
 use astrocap_processor_median_sub::{ImgSubberProcessor, MedianProcessor};
-use vyd::statistics::PipelineStatistics;
-use vyd_telemetry::run_pipeline_with_config_file_path;
 // use astrocap_processor_model::ModelState;
 use astrocap_processor_point_detector::PointDetectorProcessor;
 use astrocap_processor_point_fitter::PointFitterProcessor;
@@ -36,23 +32,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compact()
         .init();
 
-    // Parse command line arguments
     let config = Config::parse_args();
+    let builder =
+        vyd::PipelineBuilder::from_config_file(&config.config_path)?.with_dump_dir("./dumps")?;
 
-    // Create shared statistics
-    let stats = Arc::new(PipelineStatistics::new());
-    let stats_for_signal = stats.clone();
+    let pipeline = builder.build();
+    let stats = pipeline.statistics();
 
     // Set up Ctrl+C handler
+    let stats_for_signal = stats.clone();
     ctrlc::set_handler(move || {
         println!("\nShutting down...");
         stats_for_signal.stop();
     })
     .expect("Error setting Ctrl-C handler");
 
-    run_pipeline_with_config_file_path(&config.config, stats.clone(), Some("./dumps".into()))?;
+    pipeline.run()?;
 
-    // If we reach here, the pipeline completed naturally
     stats.print_final_stats();
     Ok(())
 }

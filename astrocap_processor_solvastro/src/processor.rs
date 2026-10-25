@@ -72,8 +72,11 @@ impl FrameProcessor for SolvastroProcessor {
             tracing::info!("Found solution");
             frame_ctx.put("solvastro/solution", solution.clone());
 
-            if let Ok(rec) = ctx.try_get_as::<RecordingStream>("rerun") {
-                self.log_solution_to_rerun(solution, rec);
+            if let Ok(Some(rec)) = ctx
+                .services()
+                .latest::<astrocap_core::pipeline_services::RerunRecording>()
+            {
+                self.log_solution_to_rerun(solution, &rec.0);
             } else {
                 tracing::error!("could not get a ref to rerun");
             }

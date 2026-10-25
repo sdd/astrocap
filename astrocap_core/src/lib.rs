@@ -1,4 +1,6 @@
 pub mod annotations;
+pub mod frame_metadata;
+pub mod pipeline_services;
 pub mod structs;
 pub mod traits;
 

@@ -2,6 +2,7 @@ mod config;
 mod frame_exporter;
 
 use astrocap_core::FrameProcessorResult::{Continue, Skip};
+use astrocap_core::pipeline_services::IntegratedFrame;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use vyd::pipeline::PipelineContext;
@@ -15,7 +16,7 @@ use frame_exporter::FrameExporter;
 
 pub struct VideoExportProcessor {
     config: Config,
-    frame_counter: usize,
+    exporter: Option<Arc<Mutex<FrameExporter>>>,
 }
 
 impl VideoExportProcessor {
@@ -30,38 +31,60 @@ impl VideoExportProcessor {
 
         Ok(Self {
             config,
-            frame_counter: 0,
+            exporter: None,
         })
     }
 
-    fn get_frame_to_export<'a>(
+    fn get_frame_to_export(
         &self,
-        frame_ctx: &'a FrameContext,
-        ctx: &'a PipelineContext,
-    ) -> &'a Frame {
+        frame_ctx: &FrameContext,
+        ctx: &PipelineContext,
+    ) -> Result<Frame, AstrocapError> {
         if let Some(key) = &self.config.key {
-            // Try to get frame from pipeline context using the specified key
-            if let Ok(frame) = ctx.try_get_as::<Frame>(key) {
-                frame
-            } else {
-                tracing::warn!(
-                    "Frame key '{}' not found in pipeline context, using current frame",
-                    key
-                );
-                &frame_ctx.frame
+            if key == "video/integrated" {
+                return ctx
+                    .services()
+                    .latest::<IntegratedFrame>()
+                    .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?
+                    .map(|frame| Frame::Cpu(frame.0.clone()))
+                    .ok_or_else(|| {
+                        AstrocapError::GeneralPluginError(format!(
+                            "video export frame key '{key}' has no published frame"
+                        ))
+                    })
+                    .map_err(|error| {
+                        AstrocapError::GeneralPluginError(format!(
+                            "video export frame key '{key}': {error}"
+                        ))
+                    });
             }
+            ctx.try_get_as::<Frame>(key).cloned().map_err(|error| {
+                AstrocapError::GeneralPluginError(format!(
+                    "video export frame key '{key}': {error}"
+                ))
+            })
         } else {
-            &frame_ctx.frame
+            Ok(frame_ctx.frame.clone())
         }
     }
 }
 
 impl FrameProcessor for VideoExportProcessor {
-    fn pipeline_ctx_init(&mut self, ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+    fn pipeline_ctx_init(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
         let exporter = FrameExporter::new(&self.config.output_path, &self.config)?;
-        ctx.put("exports/video", Arc::new(Mutex::new(exporter)));
+        self.exporter = Some(Arc::new(Mutex::new(exporter)));
 
         Ok(())
+    }
+
+    fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {
+        let Some(exporter) = self.exporter.take() else {
+            return Ok(());
+        };
+        exporter
+            .lock()
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
+            .close()
     }
 
     fn process(
@@ -69,10 +92,24 @@ impl FrameProcessor for VideoExportProcessor {
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
     ) -> FrameProcessorResult {
+        match self.try_process(frame_ctx, ctx) {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::error!(%error, "video export failed");
+                Skip
+            }
+        }
+    }
+
+    fn try_process(
+        &mut self,
+        frame_ctx: &mut FrameContext,
+        ctx: &mut PipelineContext,
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         // Check if we should start exporting
         if let Some(start_frame_index) = self.config.start_frame_index {
             if frame_ctx.frame_index < start_frame_index {
-                return Continue;
+                return Ok(Continue);
             }
 
             if frame_ctx.frame_index == start_frame_index {
@@ -85,33 +122,42 @@ impl FrameProcessor for VideoExportProcessor {
         if let Some(end_frame_index) = self.config.end_frame_index {
             if frame_ctx.frame_index == end_frame_index {
                 tracing::warn!(end_frame_index, "Ending video export");
-                let mut exporter = ctx
-                    .get_as::<Arc<Mutex<FrameExporter>>>("exports/video")
+                let exporter = self
+                    .exporter
+                    .as_ref()
+                    .ok_or_else(|| {
+                        AstrocapError::GeneralPluginError(
+                            "video exporter has not been initialized".into(),
+                        )
+                    })?
+                    .clone();
+                exporter
                     .lock()
-                    .unwrap();
-                if let Err(e) = exporter.close() {
-                    tracing::error!("Failed to close video exporter: {}", e);
-                }
+                    .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
+                    .close()?;
+                return Ok(Continue);
             }
 
             if frame_ctx.frame_index > end_frame_index {
-                return Continue;
+                return Ok(Continue);
             }
         }
 
         // Export the frame (ensure_open will be called automatically on first frame)
-        let exporter = ctx.get_as::<Arc<Mutex<FrameExporter>>>("exports/video");
-        let mut exporter = exporter.lock().unwrap();
-        let frame_to_export = self.get_frame_to_export(frame_ctx, ctx);
-        if let Err(e) = exporter.write_frame(frame_to_export) {
-            tracing::error!(
-                frame_index = frame_ctx.frame_index,
-                "Failed to write frame: {}",
-                e
-            );
-        }
+        let exporter = self
+            .exporter
+            .as_ref()
+            .ok_or_else(|| {
+                AstrocapError::GeneralPluginError("video exporter has not been initialized".into())
+            })?
+            .clone();
+        let mut exporter = exporter
+            .lock()
+            .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?;
+        let frame_to_export = self.get_frame_to_export(frame_ctx, ctx)?;
+        exporter.write_frame(&frame_to_export, ctx)?;
 
-        Continue
+        Ok(Continue)
     }
 
     fn name(&self) -> &str {
@@ -124,3 +170,29 @@ impl FrameProcessor for VideoExportProcessor {
 }
 
 vyd::register_vyd_frame_processor!(VideoExportProcessor);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vyd::frame::CpuFrame;
+
+    #[test]
+    fn integrated_frame_key_reads_stacker_output_and_missing_key_errors() {
+        let mut config = Config::default();
+        config.key = Some("video/integrated".into());
+        let processor = VideoExportProcessor {
+            config,
+            exporter: None,
+        };
+        let mut ctx = PipelineContext::new();
+        let current = FrameContext::new(Frame::from_raw(1, 1, vec![1]).unwrap(), 0);
+        assert!(processor.get_frame_to_export(&current, &ctx).is_err());
+        ctx.services()
+            .publish(Arc::new(IntegratedFrame(
+                CpuFrame::from_vec(1, 1, vec![9]).unwrap(),
+            )))
+            .unwrap();
+        let selected = processor.get_frame_to_export(&current, &ctx).unwrap();
+        assert_eq!(selected.as_cpu_ref().unwrap(), &[9]);
+    }
+}

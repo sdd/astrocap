@@ -15,6 +15,10 @@ pub struct Track {
     pub state: TrackState,
     pub age: usize,
     pub confidence: f32,
+    pub first_seen: usize,
+    pub start_x: f32,
+    pub start_y: f32,
+    pub amplitude: f32,
 }
 
 impl Track {
@@ -26,6 +30,10 @@ impl Track {
             state,
             age: 0,
             confidence,
+            first_seen: 0,
+            start_x: d.position.x,
+            start_y: d.position.y,
+            amplitude: d.amplitude,
         }
     }
 }
@@ -36,13 +44,13 @@ impl TrackSummarize for Track {
             id: self.id,
             x: self.state.state.x,
             y: self.state.state.y,
-            amplitude: 0.0f32,
+            amplitude: self.amplitude,
             age: self.age,
             log_odds: self.confidence,
 
-            start_x: 0.0,
-            start_y: 0.0,
-            first_seen: 0,
+            start_x: self.start_x,
+            start_y: self.start_y,
+            first_seen: self.first_seen,
         }
     }
 }

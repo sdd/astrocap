@@ -3,6 +3,9 @@ name = "astrocap_processor_median_sub"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+gpu-wgpu = ["vyd/gpu-wgpu"]
+
 [dependencies]
 vyd = { workspace = true }
 astrocap_core = { path = "../astrocap_core" }

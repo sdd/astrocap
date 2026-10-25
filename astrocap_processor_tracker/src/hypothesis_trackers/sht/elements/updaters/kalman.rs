@@ -228,6 +228,10 @@ mod tests {
             },
             age: 5,
             confidence: 0.8,
+            first_seen: 0,
+            start_x: 10.0,
+            start_y: 20.0,
+            amplitude: 0.0,
         }
     }
 

@@ -10,6 +10,8 @@ pub struct Config {
     pub frame_width: u32,
     /// Frame height for dummy frames
     pub frame_height: u32,
+    /// Optional packed GRAY8 pixels repeated for each recorded frame.
+    pub frame_pixels: Option<Vec<u8>>,
 }
 
 impl Default for Config {
@@ -18,6 +20,7 @@ impl Default for Config {
             input_path: PathBuf::from("detections_export.json"),
             frame_width: 1920,
             frame_height: 1080,
+            frame_pixels: None,
         }
     }
 }
