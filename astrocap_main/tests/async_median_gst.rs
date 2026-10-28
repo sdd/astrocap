@@ -30,7 +30,7 @@ impl FrameSource for ValuesSource {
                 Ok(())
             })
             .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?;
-        let frame = FrameContext::new(frame, self.0);
+        let frame = FrameContext::new(frame, self.0.try_into().unwrap());
         self.0 += 1;
         Ok(Some(frame))
     }
@@ -58,7 +58,7 @@ impl FrameProcessor for SpaceAdmissions {
     }
 }
 
-struct CheckSink(Arc<Mutex<Vec<(usize, u8)>>>);
+struct CheckSink(Arc<Mutex<Vec<(u64, u8)>>>);
 
 impl FrameSink for CheckSink {
     fn consume(&mut self, frame: &mut FrameContext, _: &mut PipelineContext) {

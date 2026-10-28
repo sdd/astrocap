@@ -12,7 +12,7 @@ The optional `gpu-wgpu` feature enables GPU processor paths when a config sets `
 cargo run --release -p astrocap_main --features gpu-wgpu -- --config astrocap.toml
 ```
 
-Vyd 0.2.2 and Solvastro are resolved from crates.io. The GStreamer crates also require system GStreamer libraries.
+Vyd 0.3.0 and Solvastro are resolved from crates.io. The GStreamer crates also require system GStreamer libraries.
 
 Set `dump = true` on a detector or tracker stage to write its outputs to a per-stage Vortex file. The detector recording includes IDs, positions and amplitudes. The tracker recording includes selected summaries and, for the MHT backend, leaf hypotheses and Kalman state. After the final pipeline statistics, the CLI prints the recording path and per-stage sizes. Replace `dump = true` with `replay = "dumps/RUN/00-PointDetectorProcessor.vortex"` to replay a completed detector recording; the path is relative to the TOML file.
 

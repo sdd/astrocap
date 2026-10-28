@@ -5,8 +5,8 @@ use serde::Deserialize;
 pub(crate) struct Config {
     pub(crate) output_path: String,
     pub(crate) key: Option<String>,
-    pub(crate) start_frame_index: Option<usize>,
-    pub(crate) end_frame_index: Option<usize>,
+    pub(crate) start_frame_index: Option<u64>,
+    pub(crate) end_frame_index: Option<u64>,
     pub(crate) crop_left_px: usize,
     pub(crate) crop_right_px: usize,
     pub(crate) crop_top_px: usize,

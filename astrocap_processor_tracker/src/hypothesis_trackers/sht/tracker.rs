@@ -43,7 +43,7 @@ impl SingleHypothesisTracker {
 }
 
 impl HypothesisTracker for SingleHypothesisTracker {
-    fn process_frame(&mut self, detections: &[Detection], frame_index: usize) {
+    fn process_frame(&mut self, detections: &[Detection], frame_index: u64) {
         // associate detections with existing tracks
         let (associations, unassociated_detections) =
             self.associator.associate(&detections, &self.tracks);
@@ -112,5 +112,27 @@ impl HypothesisTracker for SingleHypothesisTracker {
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to log tracks to rerun: {}", e);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::Vector2;
+
+    #[test]
+    fn preserves_large_frame_indices_in_track_summaries() {
+        let config = Value::Table(Default::default());
+        let mut tracker = SingleHypothesisTracker::new(Some(&config)).unwrap();
+        let frame_index = u64::from(u32::MAX) + 1;
+        let detection = Detection {
+            id: 1,
+            position: Vector2::new(10.0, 20.0),
+            amplitude: 80.0,
+        };
+        tracker.process_frame(&[detection], frame_index);
+        let tracks = tracker.track_summaries();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].first_seen, frame_index);
     }
 }
