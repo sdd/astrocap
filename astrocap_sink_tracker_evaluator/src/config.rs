@@ -29,12 +29,7 @@ impl TryFrom<Value> for Config {
     type Error = AstrocapError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let config: Config = value.try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!(
-                "Failed to deserialize PointDetectorEvaluator config: {}",
-                e
-            ))
-        })?;
+        let config: Config = value.try_into()?;
 
         // Validate that annotations file exists
         if !config.annotations_file.exists() {

@@ -3,11 +3,12 @@ use toml::Value;
 
 use astrocap_core::frame_metadata::{DetectedPoints, TrackSummaries};
 use astrocap_core::traits::FrameProcessor;
-use astrocap_core::{AstrocapError, DumpManager, FrameContext, FrameProcessorResult};
+use astrocap_core::{AstrocapError, FrameContext, FrameProcessorResult};
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
 
 use crate::config::Config;
+use crate::recording::TrackerDiagnostics;
 use crate::traits::HypothesisTracker;
 
 pub struct TrackerProcessor {
@@ -17,9 +18,7 @@ pub struct TrackerProcessor {
 impl TrackerProcessor {
     pub fn new(raw_config: Option<&Value>) -> Result<Self, AstrocapError> {
         let config: Config = match raw_config {
-            Some(config_value) => config_value.clone().try_into().map_err(|e| {
-                AstrocapError::PluginInvalidConfigError(format!("Tracker: {}", e.to_string()))
-            })?,
+            Some(config_value) => config_value.clone().try_into()?,
             None => Config::default(),
         };
 
@@ -48,6 +47,7 @@ impl FrameProcessor for TrackerProcessor {
         self.tracker
             .process_frame(&detections.0, frame_ctx.frame_index);
         frame_ctx.put_typed(TrackSummaries(self.tracker.track_summaries()));
+        frame_ctx.put_typed::<TrackerDiagnostics>(self.tracker.recording_diagnostics());
 
         // TODO: ensure that tracks are reportable for any tracker
         match ctx.services().latest::<RerunRecording>() {
@@ -56,19 +56,6 @@ impl FrameProcessor for TrackerProcessor {
             Err(error) => {
                 tracing::error!(%error, "Rerun service lookup failed");
                 return FrameProcessorResult::Skip;
-            }
-        }
-
-        // Get the dump manager from the pipeline context
-        let entry = ctx.entry("dump_manager");
-        if let std::collections::hash_map::Entry::Occupied(mut entry) = entry {
-            let dump_manager = entry
-                .get_mut()
-                .downcast_mut::<DumpManager>()
-                .expect("dump_manager is not a DumpManager");
-
-            if let Err(e) = self.tracker.dump(dump_manager, frame_ctx.frame_index) {
-                tracing::error!("Error dumping: {}", e);
             }
         }
 

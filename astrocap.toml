@@ -7,6 +7,7 @@ file_path = "tests/test.mkv"
 
 [[stages]]
 stage_type = "astrocap_processor_point_detector::PointDetectorProcessor"
+dump = true
 algorithm = "LocalMaxima"
 centroid_window = 3
 min_separation = 10

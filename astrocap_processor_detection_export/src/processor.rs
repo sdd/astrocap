@@ -19,12 +19,7 @@ pub struct DetectionExportProcessor {
 impl DetectionExportProcessor {
     pub fn new(config: Option<&toml::Value>) -> Result<Self, AstrocapError> {
         let config = match config {
-            Some(config_value) => config_value.clone().try_into().map_err(|e| {
-                AstrocapError::PluginInvalidConfigError(format!(
-                    "DetectionExportProcessor: {}",
-                    e.to_string()
-                ))
-            })?,
+            Some(config_value) => config_value.clone().try_into()?,
             None => Config::default(),
         };
 

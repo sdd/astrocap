@@ -164,7 +164,7 @@ fn test_vydsink_zero_copy_integration() {
             *rendered_count += 1;
 
             // Verify this frame came from our pool
-            if let Frame::Cpu(cpu_frame) = &frame_with_timing.frame {
+            if let Frame::Cpu(cpu_frame) = &frame_with_timing.context.frame {
                 // Get the raw data pointer from the ImageBuffer
                 let data_ptr = cpu_frame.img.as_raw().as_ptr();
 
@@ -350,7 +350,7 @@ fn test_vydsink_direct_gray8() {
             let mut received_count = frames_received_clone.lock().unwrap();
             *received_count += 1;
 
-            if let Frame::Cpu(cpu_frame) = &frame_with_timing.frame {
+            if let Frame::Cpu(cpu_frame) = &frame_with_timing.context.frame {
                 let data_ptr = cpu_frame.img.as_raw().as_ptr();
                 let pool_guard = pool_clone.lock().unwrap();
                 if pool_guard.is_from_pool(data_ptr) {

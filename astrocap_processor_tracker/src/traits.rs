@@ -1,7 +1,8 @@
 use crate::model::Track;
+use crate::recording::TrackerDiagnostics;
 use astrocap_core::traits::TrackSummary;
+use astrocap_core::AstrocapError;
 use astrocap_core::{structs::Detection, FrameContext};
-use astrocap_core::{AstrocapError, DumpManager};
 use rerun::RecordingStream;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -14,10 +15,7 @@ pub trait ConfigurableConfig:
     Default + for<'de> Deserialize<'de> + Send + Sync + Sized + 'static
 {
     fn from_toml_value(value: &Value) -> Result<Self, AstrocapError> {
-        value
-            .clone()
-            .try_into()
-            .map_err(|e: toml::de::Error| AstrocapError::PluginInvalidConfigError(e.to_string()))
+        Ok(value.clone().try_into()?)
     }
 }
 
@@ -28,12 +26,12 @@ pub trait Configurable: Send + Sync + 'static {
 }
 
 pub trait HypothesisTracker: Send + Sync + 'static {
-    fn process_frame(&mut self, detections: &[Detection], frame_index: usize);
+    fn process_frame(&mut self, detections: &[Detection], frame_index: u64);
     fn track_summaries(&self) -> Vec<TrackSummary>;
     fn log_to_rerun(&self, rec: &RecordingStream, frame_ctx: &mut FrameContext);
 
-    fn dump(&self, _manager: &mut DumpManager, _frame_idx: usize) -> Result<(), AstrocapError> {
-        Ok(())
+    fn recording_diagnostics(&self) -> TrackerDiagnostics {
+        TrackerDiagnostics::default()
     }
 }
 

@@ -19,10 +19,7 @@ impl PointFitterProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let _config: PointFitterConfig = config
-            .clone()
-            .try_into()
-            .map_err(|e| AstrocapError::PluginInvalidConfigError(e.to_string()))?;
+        let _config: PointFitterConfig = config.clone().try_into()?;
 
         let point_fitter: Arc<dyn PointFitter> = Arc::new(PointFitterGaussianNelderMead {});
 

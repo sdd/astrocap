@@ -4,7 +4,6 @@ use crate::structs::{Detection, FittedPoint};
 use std::sync::Arc;
 
 pub use vyd::traits::{FrameProcessor, FrameSink, FrameSource, StageFactory};
-pub use vyd_telemetry::Dumpable;
 
 #[derive(Debug, Clone)]
 pub struct TrackSummary {
@@ -15,7 +14,7 @@ pub struct TrackSummary {
     pub age: usize,
     pub log_odds: f32,
 
-    pub first_seen: usize,
+    pub first_seen: u64,
     pub start_x: f32,
     pub start_y: f32,
 }

@@ -24,7 +24,7 @@ fn config(root: &Path, native: bool) -> String {
         ""
     };
     format!(
-        "[source]\nstage_type = 'astrocap_source_recorded_detections::RecordedDetectionsSource'\ninput_path = '{}'\nframe_width = 4\nframe_height = 2\nframe_pixels = [32, 64, 96, 128, 48, 80, 112, 160]\n\n[[stages]]\nstage_type = 'astrocap_processor_detection_export::DetectionExportProcessor'\noutput_path = '{}'\n\n[[stages]]\nstage_type = 'astrocap_processor_video_export::VideoExportProcessor'\noutput_path = '{}'\ncrop_right_px = {width}\ncrop_bottom_px = 2\n\n[sink]\nstage_type = 'vyd::DummySink'\n{scale}",
+        "[source]\nstage_type = 'astrocap_source_recorded_detections::RecordedDetectionsSource'\ninput_path = '{}'\nframe_width = 4\nframe_height = 2\nframe_pixels = [32, 64, 96, 128, 48, 80, 112, 160]\n\n[[stages]]\nstage_type = 'astrocap_processor_detection_export::DetectionExportProcessor'\noutput_path = '{}'\n\n[[stages]]\nstage_type = 'astrocap_processor_video_export::VideoExportProcessor'\noutput_path = '{}'\ncrop_right_px = {width}\ncrop_bottom_px = 2\n\n[[stages]]\nstage_type = 'astrocap_processor_tracker::TrackerProcessor'\ntracker_strategy = 'SingleHypothesis'\ndump = true\n\n[sink]\nstage_type = 'vyd::DummySink'\n{scale}\n[recording]\nrun_name = 'native-scale'\n",
         root.join("input.json").display(),
         root.join("detections-output.json").display(),
         root.join("output.mkv").display(),
@@ -100,9 +100,12 @@ fn native_scale_runs_through_real_cli_and_invalidates_recorded_points() {
         );
     }
 
-    let metadata = fs::read_to_string(scaled.join("dumps/run_metadata.json")).unwrap();
-    assert!(metadata.contains("[[gstreamer_nodes]]"));
-    let stats = fs::read_to_string(scaled.join("dumps/run_statistics.json")).unwrap();
+    let run_dir = scaled.join("dumps/native-scale");
+    let manifest = vyd::telemetry::read_manifest(&run_dir).unwrap();
+    assert!(manifest.config.contains("[[gstreamer_nodes]]"));
+    assert_eq!(manifest.status, vyd::telemetry::RunStatus::Completed);
+    assert!(run_dir.join(&manifest.stages[0].file).is_file());
+    let stats = fs::read_to_string(run_dir.join("run_statistics.json")).unwrap();
     assert!(stats.contains("gst-adapter/pack_zero_copy"));
     assert!(stats.contains("gst-adapter/unpack_zero_copy"));
     if std::env::var_os("ASTROCAP_M34_KEEP_ARTIFACTS").is_some() {

@@ -15,7 +15,7 @@ pub struct Track {
     pub state: TrackState,
     pub age: usize,
     pub confidence: f32,
-    pub first_seen: usize,
+    pub first_seen: u64,
     pub start_x: f32,
     pub start_y: f32,
     pub amplitude: f32,
