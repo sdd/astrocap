@@ -27,13 +27,7 @@ impl SolvastroProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let config: SolvastroProcessorConfig = config.clone().try_into().map_err(|e| {
-            tracing::error!(?e, "config error");
-            AstrocapError::PluginInvalidConfigError(format!(
-                "SolvastroProcessor:: {}",
-                e.to_string()
-            ))
-        })?;
+        let config: SolvastroProcessorConfig = config.clone().try_into()?;
 
         let star_candidates = Arc::new(ArcSwapOption::from(None));
         let solution = Arc::new(ArcSwapOption::from(None));

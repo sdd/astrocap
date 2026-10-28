@@ -25,9 +25,7 @@ impl VideoExportProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let config: Config = config.clone().try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!("VideoExportProcessor:: {}", e))
-        })?;
+        let config: Config = config.clone().try_into()?;
 
         Ok(Self {
             config,

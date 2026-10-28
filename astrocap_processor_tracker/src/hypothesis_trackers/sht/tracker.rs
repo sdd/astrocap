@@ -24,12 +24,12 @@ impl SingleHypothesisTracker {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        // Create components using the raw config Value
-        let initiator = SingleHypothesisTrackerElementFactory::create_initiator(raw_config)?;
-        let terminator = SingleHypothesisTrackerElementFactory::create_terminator(raw_config)?;
-        let associator = SingleHypothesisTrackerElementFactory::create_associator(raw_config)?;
-        let updater = SingleHypothesisTrackerElementFactory::create_updater(raw_config)?;
-        let predictor = SingleHypothesisTrackerElementFactory::create_predictor(raw_config)?;
+        let factory = SingleHypothesisTrackerElementFactory::new(raw_config)?;
+        let initiator = factory.create_initiator()?;
+        let terminator = factory.create_terminator()?;
+        let associator = factory.create_associator()?;
+        let updater = factory.create_updater()?;
+        let predictor = factory.create_predictor()?;
 
         Ok(Self {
             initiator,

@@ -69,12 +69,7 @@ mod tests {
 impl RecordedDetectionsSource {
     pub fn new(params: Option<&toml::Value>) -> Result<Self, AstrocapError> {
         let config = match params {
-            Some(params_value) => params_value.clone().try_into().map_err(|e| {
-                AstrocapError::PluginInvalidConfigError(format!(
-                    "RecordedDetectionsSource: {}",
-                    e.to_string()
-                ))
-            })?,
+            Some(params_value) => params_value.clone().try_into()?,
             None => Config::default(),
         };
         if config.frame_width == 0 || config.frame_height == 0 {

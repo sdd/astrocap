@@ -5,9 +5,8 @@ use crate::detectors::peak::PointDetectPeak;
 use astrocap_core::frame_metadata::{DetectedPoints, MedianFrame};
 use astrocap_core::pipeline_services::MaskFrame;
 use astrocap_core::pipeline_services::RerunRecording;
-use astrocap_core::structs::Detection;
 use astrocap_core::traits::{FrameProcessor, PointDetector};
-use astrocap_core::{AstrocapError, DumpManager, Frame, FrameContext, FrameProcessorResult};
+use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
 use std::sync::Arc;
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
@@ -22,12 +21,7 @@ impl PointDetectorProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let config: PointExtractorConfig = config.clone().try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!(
-                "PointDetectorProcessor: {}",
-                e.to_string()
-            ))
-        })?;
+        let config: PointExtractorConfig = config.clone().try_into()?;
 
         let point_detector: Box<dyn PointDetector> = match config {
             PointExtractorConfig::Peak(config) => Box::new(PointDetectPeak { config }),
@@ -105,25 +99,6 @@ impl FrameProcessor for PointDetectorProcessor {
             Err(error) => {
                 tracing::error!(%error, "Rerun service lookup failed");
                 return FrameProcessorResult::Skip;
-            }
-        }
-
-        // Get the dump manager from the pipeline context
-        let entry = ctx.entry("dump_manager");
-        if let std::collections::hash_map::Entry::Occupied(mut entry) = entry {
-            let dump_manager = entry
-                .get_mut()
-                .downcast_mut::<DumpManager>()
-                .expect("dump_manager is not a DumpManager");
-
-            let result = dump_manager.dumper::<Detection>().and_then(|dumper| {
-                dumper
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("dumper lock poisoned: {e}"))?
-                    .dumps(detected_points_list.iter(), frame_ctx.frame_index)
-            });
-            if let Err(error) = result {
-                tracing::warn!(?error, "Failed to dump detections");
             }
         }
 

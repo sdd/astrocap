@@ -1,3 +1,4 @@
+use crate::config::Config;
 use astrocap_core::pipeline_services::MaskFrame;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
@@ -45,24 +46,11 @@ pub struct MaskProcessor {
 
 impl MaskProcessor {
     pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
-        let Some(file_path) = config
-            .and_then(|c| c.get("file_path"))
-            .and_then(|d| d.as_str())
-        else {
-            return Err(AstrocapError::PluginInvalidConfigError(
-                "missing file_path in MaskProcessor Config".to_string(),
-            ));
-        };
-
-        let gpu_enabled = match config.and_then(|c| c.get("gpu")) {
-            None => false,
-            Some(Value::Boolean(enabled)) => *enabled,
-            Some(_) => {
-                return Err(AstrocapError::PluginInvalidConfigError(
-                    "MaskProcessor gpu must be a boolean".to_string(),
-                ))
-            }
-        };
+        let config: Config = config
+            .ok_or(AstrocapError::PluginMissingConfigError)?
+            .clone()
+            .try_into()?;
+        let gpu_enabled = config.gpu;
         #[cfg(not(feature = "gpu-wgpu"))]
         if gpu_enabled {
             return Err(AstrocapError::PluginInvalidConfigError(
@@ -70,7 +58,7 @@ impl MaskProcessor {
             ));
         }
         Ok(Self {
-            file_path: file_path.to_string(),
+            file_path: config.file_path,
             gpu_enabled,
             #[cfg(feature = "gpu-wgpu")]
             gpu_mask: None,

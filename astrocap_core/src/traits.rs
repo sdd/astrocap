@@ -4,7 +4,6 @@ use crate::structs::{Detection, FittedPoint};
 use std::sync::Arc;
 
 pub use vyd::traits::{FrameProcessor, FrameSink, FrameSource, StageFactory};
-pub use vyd_telemetry::Dumpable;
 
 #[derive(Debug, Clone)]
 pub struct TrackSummary {

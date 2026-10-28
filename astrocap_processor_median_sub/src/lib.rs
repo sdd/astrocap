@@ -2,6 +2,7 @@
 
 use vyd::register_vyd_frame_processor;
 
+mod img_subber_config;
 mod img_subber_processor;
 mod map_colors;
 mod median_config;

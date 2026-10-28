@@ -1,6 +1,6 @@
 # Astrocap with Vyd
 
-Astrocap runs its processors on Vyd's pipeline. `astrocap.toml` is a finite example using the checked-in `tests/test.mkv` clip; it writes `detections.json` and telemetry under `dumps/`.
+Astrocap runs its processors on Vyd's pipeline. `astrocap.toml` is a finite example using the checked-in `tests/test.mkv` clip; it writes `detections.json` and a per-frame detector recording under `dumps/`.
 
 ```sh
 cargo run --release -p astrocap_main -- --config astrocap.toml
@@ -12,7 +12,9 @@ The optional `gpu-wgpu` feature enables GPU processor paths when a config sets `
 cargo run --release -p astrocap_main --features gpu-wgpu -- --config astrocap.toml
 ```
 
-Vyd and Solvastro are resolved from crates.io. The GStreamer crates also require system GStreamer libraries.
+Vyd 0.2.2 and Solvastro are resolved from crates.io. The GStreamer crates also require system GStreamer libraries.
+
+Set `dump = true` on a detector or tracker stage to write its outputs to a per-stage Vortex file. The detector recording includes IDs, positions and amplitudes. The tracker recording includes selected summaries and, for the MHT backend, leaf hypotheses and Kalman state. After the final pipeline statistics, the CLI prints the recording path and per-stage sizes. Replace `dump = true` with `replay = "dumps/RUN/00-PointDetectorProcessor.vortex"` to replay a completed detector recording; the path is relative to the TOML file.
 
 To use `astrocap_processor_solvastro::SolvastroProcessor`, set `index_path` in its stage configuration to a Solvastro `.sidx` file. Relative paths are resolved from the process working directory:
 

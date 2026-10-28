@@ -33,22 +33,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = Config::parse_args();
-    let builder =
-        vyd::PipelineBuilder::from_config_file(&config.config_path)?.with_dump_dir("./dumps")?;
-
-    let pipeline = builder.build();
+    let pipeline = vyd::PipelineBuilder::from_config_file(&config.config_path)?.build()?;
     let stats = pipeline.statistics();
 
     // Set up Ctrl+C handler
-    let stats_for_signal = stats.clone();
+    let cancellation = pipeline.cancellation_token();
     ctrlc::set_handler(move || {
         println!("\nShutting down...");
-        stats_for_signal.stop();
+        cancellation.cancel();
     })
     .expect("Error setting Ctrl-C handler");
 
-    pipeline.run()?;
+    let run = pipeline.run_with_outcome()?;
 
     stats.print_final_stats();
+    if let Some(recording) = run.recording {
+        println!("\n{recording}");
+    }
     Ok(())
 }

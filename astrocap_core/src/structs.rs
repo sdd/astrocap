@@ -1,4 +1,3 @@
-use crate::Dumpable;
 use nalgebra::Vector2;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,34 +17,6 @@ impl Detection {
             id: NEXT_DETECTION_ID.fetch_add(1, Ordering::AcqRel),
             position: Vector2::new(x, y),
             amplitude,
-        }
-    }
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct DetectionRow {
-    pub id: u64,
-    pub run_id: u64,
-    pub frame_index: usize,
-
-    pub x: f32,
-    pub y: f32,
-    pub amplitude: f32,
-}
-
-impl Dumpable for Detection {
-    type Row = DetectionRow;
-
-    const TABLE_NAME: &'static str = "detection";
-    const VERSION: u32 = 1;
-    fn to_row(&self, run_id: u64, frame_index: usize) -> Self::Row {
-        DetectionRow {
-            run_id,
-            frame_index,
-            id: self.id,
-            x: self.position.x,
-            y: self.position.y,
-            amplitude: self.amplitude,
         }
     }
 }
