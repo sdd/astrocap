@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Keep the selected Clippy groups strict without gating on every new nightly warning.
+  RUSTFLAGS: ""
+  CARGO_BUILD_WARNINGS: warn
+  CARGO_INCREMENTAL: "0"
+  # The GUI and telemetry dependencies otherwise produce very large CI artifacts.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  LIBGL_ALWAYS_SOFTWARE: "1"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formatting:
+    name: Formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: nightly
+          components: rustfmt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Workflow and configuration formatting
+        run: npx --yes prettier@3.6.2 --check ".github/**/*.{yml,yaml}" .commitlintrc.yaml codecov.yml
+
+  actionlint:
+    name: GitHub Actions lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+  commitlint:
+    name: Commit lint
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: .commitlintrc.yaml
+
+  clippy:
+    name: Clippy and rustdoc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: clippy
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D clippy::correctness -D clippy::suspicious
+      - name: Rustdoc links
+        run: RUSTDOCFLAGS='-D rustdoc::broken_intra_doc_links' cargo doc --workspace --all-features --no-deps --locked
+
+  test:
+    name: Tests and CLI smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-rust
+      - name: Test default features
+        run: cargo test --workspace --locked
+      - name: Test all features
+        run: cargo test --workspace --all-features --locked
+      - name: Run the checked-in video pipeline
+        run: cargo run --locked -p astrocap_main -- --config astrocap.toml
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate LCOV report
+        run: cargo llvm-cov --workspace --all-features --locked --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
+      - name: Check Codecov token
+        id: codecov-token
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [ -n "$CODECOV_TOKEN" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: codecov/codecov-action@v7
+        if: steps.codecov-token.outputs.available == 'true'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
