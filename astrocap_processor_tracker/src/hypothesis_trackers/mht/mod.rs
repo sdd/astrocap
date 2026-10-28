@@ -72,7 +72,7 @@ pub struct MhtTrackNode {
     pub cum_conf: LogProbs,
 
     pub amplitude: f32,
-    pub first_seen: usize,
+    pub first_seen: u64,
     pub start_x: f32,
     pub start_y: f32,
     pub start_amplitude: f32,
@@ -225,7 +225,7 @@ impl HypothesisTracker for MultiHypothesisTracker {
                 cum_ll: node.cum_conf.ll,
                 cum_lo: node.cum_conf.lo,
                 amplitude: node.amplitude,
-                first_seen: node.first_seen as u64,
+                first_seen: node.first_seen,
                 start_x: node.start_x,
                 start_y: node.start_y,
                 start_amplitude: node.start_amplitude,
@@ -279,7 +279,7 @@ impl HypothesisTracker for MultiHypothesisTracker {
         summaries
     }
 
-    fn process_frame(&mut self, detections: &[Detection], frame_number: usize) {
+    fn process_frame(&mut self, detections: &[Detection], frame_number: u64) {
         // build detection k-d tree
         let detection_coords: Vec<[f32; 2]> = detections
             .iter()
@@ -732,7 +732,7 @@ impl MultiHypothesisTracker {
         &self,
         detection: &Detection,
         idx: u64,
-        frame_number: usize,
+        frame_number: u64,
     ) -> MhtTrackNode {
         let conf = self.calc_birth_conf(detection);
         let id = NEXT_TRACK_ID.fetch_add(1, Ordering::AcqRel);

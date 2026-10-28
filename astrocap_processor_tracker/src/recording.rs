@@ -98,7 +98,7 @@ impl TypedStageCodec for TrackerCodec {
                     amplitude: track.amplitude,
                     age: track.age as u64,
                     log_odds: track.log_odds,
-                    first_seen: track.first_seen as u64,
+                    first_seen: track.first_seen,
                     start_x: track.start_x,
                     start_y: track.start_y,
                 })
@@ -134,11 +134,7 @@ impl TypedStageCodec for TrackerCodec {
                             )
                         })?,
                         log_odds: track.log_odds,
-                        first_seen: usize::try_from(track.first_seen).map_err(|_| {
-                            VydError::GeneralPluginError(
-                                "recorded frame index overflows usize".into(),
-                            )
-                        })?,
+                        first_seen: track.first_seen,
                         start_x: track.start_x,
                         start_y: track.start_y,
                     })
@@ -160,7 +156,9 @@ mod tests {
     fn track_rows_round_trip_through_arrow() {
         let codec = new_adapter::<TrackerCodec>().unwrap();
         let frame = Frame::from_raw(2, 2, vec![0; 4]).unwrap();
-        let mut source = FrameContext::new(frame.clone(), 7);
+        let first_seen = u64::from(u32::MAX) + 3;
+        let frame_index = first_seen + 4;
+        let mut source = FrameContext::new(frame.clone(), frame_index);
         source.put_typed(TrackSummaries(vec![TrackSummary {
             id: 42,
             x: 1.0,
@@ -168,7 +166,7 @@ mod tests {
             amplitude: 3.0,
             age: 4,
             log_odds: 2.0,
-            first_seen: 3,
+            first_seen,
             start_x: 0.5,
             start_y: 0.75,
         }]));
@@ -184,7 +182,7 @@ mod tests {
                 cum_ll: -2.0,
                 cum_lo: 3.0,
                 amplitude: 3.0,
-                first_seen: 3,
+                first_seen,
                 start_x: 0.5,
                 start_y: 0.75,
                 start_amplitude: 1.0,
@@ -203,7 +201,7 @@ mod tests {
         let batch = codec
             .capture_batch(&source, FrameProcessorResult::Continue)
             .unwrap();
-        let mut restored = FrameContext::new(frame, 7);
+        let mut restored = FrameContext::new(frame, frame_index);
         codec
             .restore_batch(&mut restored, FrameProcessorResult::Continue, &batch)
             .unwrap();
@@ -211,11 +209,12 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].id, 42);
         assert_eq!(tracks[0].age, 4);
-        assert_eq!(tracks[0].first_seen, 3);
+        assert_eq!(tracks[0].first_seen, first_seen);
         assert_eq!(tracks[0].x, 1.0);
         let diagnostics = restored.get_typed::<TrackerDiagnostics>().unwrap();
         assert_eq!(diagnostics.mht_nodes.len(), 1);
         assert_eq!(diagnostics.mht_nodes[0].kf_id, 8);
+        assert_eq!(diagnostics.mht_nodes[0].first_seen, first_seen);
         assert_eq!(diagnostics.kalman_filters[0].state, vec![1.0; 5]);
     }
 }

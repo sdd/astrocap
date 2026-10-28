@@ -10,7 +10,7 @@ use vyd::statistics::{PipelineStatistics, ProcessingType};
 use vyd::{FrameContext, FrameSink};
 use vyd_gstreamer::runtime::{NativeNode, run_pipeline, run_pipeline_with_native_nodes};
 
-struct CheckSink(Arc<Mutex<Vec<(usize, usize, usize)>>>);
+struct CheckSink(Arc<Mutex<Vec<(u64, usize, usize)>>>);
 
 impl FrameSink for CheckSink {
     fn consume(&mut self, frame: &mut FrameContext, _: &mut PipelineContext) {
@@ -39,7 +39,7 @@ fn run_graph(
     strategy: &str,
     native: bool,
 ) -> (
-    Vec<(usize, usize, usize)>,
+    Vec<(u64, usize, usize)>,
     std::collections::BTreeMap<String, u64>,
 ) {
     let path = std::env::temp_dir().join(format!(

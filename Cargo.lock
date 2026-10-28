@@ -11909,9 +11909,9 @@ dependencies = [
 
 [[package]]
 name = "vyd"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51e8888996a1579ba77dd0762803c19f930d4593fdce1e2ee3850280b2a29a80"
+checksum = "03968101485df66302340030be9624fe7403fe30aca6ca9b2d4b10ed7247b4fd"
 dependencies = [
  "anyhow",
  "clap 4.6.7",
@@ -11926,9 +11926,9 @@ dependencies = [
 
 [[package]]
 name = "vyd-core"
-version = "0.1.2"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b8b0083d969ccb4e2610fbcb9d7a1e95d86151db574deeb7028c366259d4409"
+checksum = "6a006a400ef16da28bc8e8111a6ba164ff7180c1d999d295b3494a05592c6827"
 dependencies = [
  "anyhow",
  "chrono",
@@ -11947,9 +11947,9 @@ dependencies = [
 
 [[package]]
 name = "vyd-gstreamer"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cb63cba75d910e5dc374c03e44aece246560e6f5585bc055229c0a75e3f7ca2"
+checksum = "d381f86bd4948fe5f70630f843e86731fd7bdb956d8497cb6d1598670f6a8f82"
 dependencies = [
  "anyhow",
  "bytes",
@@ -11969,9 +11969,9 @@ dependencies = [
 
 [[package]]
 name = "vyd-gstreamer-gpu"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "047a6f6ec477d87479182f8c271ae3ca62a0e42d4c9ede55d1b2356222f94e33"
+checksum = "1485f5bfaac3d84b4a3d80d5020ca3405e52cf3b73543bd861fe4dd272ff6a92"
 dependencies = [
  "anyhow",
  "bytes",
@@ -11991,9 +11991,9 @@ dependencies = [
 
 [[package]]
 name = "vyd-telemetry"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e622f7a4420d8a9e4f593eb5529a3ae176eab69646da7c5a390b97c6ecc829b3"
+checksum = "270ee68096edd2cb773b7b47f159e35e6bdbb2fd145eb19f49d736838d1c9f4f"
 dependencies = [
  "anyhow",
  "arrow-array 59.3.2",

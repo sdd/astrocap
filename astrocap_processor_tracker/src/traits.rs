@@ -26,7 +26,7 @@ pub trait Configurable: Send + Sync + 'static {
 }
 
 pub trait HypothesisTracker: Send + Sync + 'static {
-    fn process_frame(&mut self, detections: &[Detection], frame_index: usize);
+    fn process_frame(&mut self, detections: &[Detection], frame_index: u64);
     fn track_summaries(&self) -> Vec<TrackSummary>;
     fn log_to_rerun(&self, rec: &RecordingStream, frame_ctx: &mut FrameContext);
 

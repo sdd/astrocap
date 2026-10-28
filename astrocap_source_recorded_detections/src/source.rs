@@ -4,6 +4,8 @@ use crate::config::Config;
 use astrocap_core::frame_metadata::DetectedPoints;
 use astrocap_core::structs::Detection;
 use astrocap_core::{AstrocapError, FrameContext, FrameSource};
+use vyd::FrameTiming;
+use vyd::capture_timing::CaptureClock;
 use vyd::frame::pool::WaitPolicy;
 use vyd::pipeline::PipelineContext;
 use vyd::statistics::ProcessingType;
@@ -11,6 +13,7 @@ use vyd::statistics::ProcessingType;
 pub struct RecordedDetectionsSource {
     config: Config,
     frame_index: usize,
+    capture_clock: CaptureClock,
     detections: Vec<Vec<Detection>>,
 }
 
@@ -37,6 +40,8 @@ mod tests {
             PoolLimits::new(Some(1), Some(6)).unwrap(),
         )));
         let first = source.try_next_frame(&mut ctx).unwrap().unwrap();
+        assert_eq!(first.frame_index, 0);
+        assert!(first.frame_capture_ts.is_none());
         assert_eq!(first.get_typed::<DetectedPoints>().unwrap().0.len(), 0);
         assert!(first.metadata.get("detected_points").is_none());
         assert_eq!(first.frame.dimensions(), (3, 2));
@@ -54,7 +59,9 @@ mod tests {
         assert!(source.try_next_frame(&mut ctx).is_err());
         assert_eq!(source.frame_index, 1);
         drop(first);
-        assert!(source.try_next_frame(&mut ctx).unwrap().is_some());
+        let second = source.try_next_frame(&mut ctx).unwrap().unwrap();
+        assert_eq!(second.frame_index, 1);
+        assert!(second.frame_capture_ts.is_none());
         assert!(source.try_next_frame(&mut ctx).unwrap().is_none());
         std::fs::remove_file(path).unwrap();
     }
@@ -111,6 +118,7 @@ impl RecordedDetectionsSource {
         Ok(Self {
             config,
             frame_index: 0,
+            capture_clock: CaptureClock::new(false, 0, None),
             detections,
         })
     }
@@ -180,7 +188,9 @@ impl FrameSource for RecordedDetectionsSource {
             })?;
 
         // Create frame context
-        let mut frame_ctx = FrameContext::new(dummy_frame, self.frame_index);
+        let mut frame_ctx = self
+            .capture_clock
+            .ingest(dummy_frame, FrameTiming::default(), None);
 
         // Convert our Detection format to DetectedPoint format (what the pipeline expects)
         let detected_points: Vec<Detection> =

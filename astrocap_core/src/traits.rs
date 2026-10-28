@@ -14,7 +14,7 @@ pub struct TrackSummary {
     pub age: usize,
     pub log_odds: f32,
 
-    pub first_seen: usize,
+    pub first_seen: u64,
     pub start_x: f32,
     pub start_y: f32,
 }
