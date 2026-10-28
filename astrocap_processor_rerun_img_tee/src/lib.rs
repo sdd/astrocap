@@ -8,6 +8,7 @@ use vyd::frame::pool::WaitPolicy;
 use vyd::pipeline::PipelineContext;
 use vyd::register_vyd_frame_processor;
 use vyd::statistics::ProcessingType;
+mod config;
 
 pub struct RerunTeeProcessor {
     tag: String,
@@ -15,19 +16,20 @@ pub struct RerunTeeProcessor {
 }
 
 impl RerunTeeProcessor {
-    pub fn new(_config: Option<&Value>) -> Result<Self, AstrocapError> {
-        let key = _config
-            .and_then(|c| c.get("key"))
-            .and_then(|t| t.as_str())
-            .map(|t| t.to_string());
-
-        let tag = _config
-            .and_then(|c| c.get("tag"))
-            .and_then(|t| t.as_str())
-            .unwrap_or_else(|| key.as_deref().unwrap_or("default"))
-            .to_string();
-
-        Ok(Self { tag, key })
+    pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
+        let config: config::Config = config
+            .cloned()
+            .map(Value::try_into)
+            .transpose()?
+            .unwrap_or_default();
+        let tag = config
+            .tag
+            .or_else(|| config.key.clone())
+            .unwrap_or_else(|| "default".into());
+        Ok(Self {
+            tag,
+            key: config.key,
+        })
     }
 }
 

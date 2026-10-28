@@ -80,12 +80,7 @@ impl FrameStackerProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let config: FrameStackerConfig = config.clone().try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!(
-                "FrameStackerProcessor:: {}",
-                e.to_string()
-            ))
-        })?;
+        let config: FrameStackerConfig = config.clone().try_into()?;
 
         if config.stack_depth == 0 {
             return Err(AstrocapError::PluginInvalidConfigError(

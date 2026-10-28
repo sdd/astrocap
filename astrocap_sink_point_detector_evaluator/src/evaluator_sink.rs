@@ -373,9 +373,7 @@ impl PointDetectorEvaluatorSink {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let config: Config = config.clone().try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!("MedianProcessor:: {}", e.to_string()))
-        })?;
+        let config: Config = config.clone().try_into()?;
 
         // Load annotations
         let annotations = AnnotationSession::load_from_file(

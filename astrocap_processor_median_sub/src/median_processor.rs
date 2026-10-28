@@ -296,9 +296,7 @@ impl MedianProcessor {
             return Err(AstrocapError::PluginMissingConfigError);
         };
 
-        let config: MedianConfig = config.clone().try_into().map_err(|e| {
-            AstrocapError::PluginInvalidConfigError(format!("MedianProcessor:: {}", e.to_string()))
-        })?;
+        let config: MedianConfig = config.clone().try_into()?;
         if config.window_size > 32_767 {
             return Err(AstrocapError::PluginInvalidConfigError(
                 "MedianProcessor: window_size must be at most 32767".into(),

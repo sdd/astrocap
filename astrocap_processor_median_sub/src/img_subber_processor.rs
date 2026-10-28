@@ -1,3 +1,4 @@
+use crate::img_subber_config::Config;
 use astrocap_core::frame_metadata::MedianFrame;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::FrameProcessorResult::Skip;
@@ -45,26 +46,11 @@ pub struct ImgSubberProcessor {
 
 impl ImgSubberProcessor {
     pub fn new(config: Option<&Value>) -> Result<Self, AstrocapError> {
-        let subtractand_key = config
-            .and_then(|c| c.get("subtractand_key"))
-            .and_then(|d| d.as_str())
-            .map(|d| d.to_string());
-
-        let Some(subtractand_key) = subtractand_key else {
-            return Err(AstrocapError::GeneralPluginError(
-                "subtractand_key not present in ImgSubber Config".to_string(),
-            ));
-        };
-
-        let gpu_enabled = match config.and_then(|c| c.get("gpu")) {
-            None => false,
-            Some(Value::Boolean(enabled)) => *enabled,
-            Some(_) => {
-                return Err(AstrocapError::PluginInvalidConfigError(
-                    "ImgSubberProcessor gpu must be a boolean".into(),
-                ))
-            }
-        };
+        let config: Config = config
+            .ok_or(AstrocapError::PluginMissingConfigError)?
+            .clone()
+            .try_into()?;
+        let gpu_enabled = config.gpu;
         #[cfg(not(feature = "gpu-wgpu"))]
         if gpu_enabled {
             return Err(AstrocapError::PluginInvalidConfigError(
@@ -73,7 +59,7 @@ impl ImgSubberProcessor {
         }
 
         Ok(Self {
-            subtractand_key,
+            subtractand_key: config.subtractand_key,
             gpu_enabled,
             #[cfg(feature = "gpu-wgpu")]
             gpu_program: None,

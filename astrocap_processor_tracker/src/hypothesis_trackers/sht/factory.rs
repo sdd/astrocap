@@ -1,159 +1,119 @@
-use astrocap_core::AstrocapError;
-use toml::Value;
-
-use crate::traits::{
-    Associator, Configurable, ConfigurableConfig, Initiator, Predictor, Terminator, Updater,
-};
-
-// Import all available implementations
 use super::elements::{
     associators::nearest::NearestAssociator, initiators::threshold::ThresholdInitiator,
     predictors::kalman::Kalman as KalmanPredictor, terminators::simple::SimpleTerminator,
     updaters::kalman::Kalman as KalmanUpdater,
 };
+use crate::traits::{
+    Associator, Configurable, ConfigurableConfig, Initiator, Predictor, Terminator, Updater,
+};
+use astrocap_core::AstrocapError;
+use serde::Deserialize;
+use toml::Value;
 
 type Result<T> = std::result::Result<T, AstrocapError>;
 
-pub(crate) struct SingleHypothesisTrackerElementFactory {}
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ComponentConfig {
+    initiator: InitiatorType,
+    terminator: TerminatorType,
+    associator: AssociatorType,
+    updater: UpdaterType,
+    predictor: PredictorType,
+}
 
-impl SingleHypothesisTrackerElementFactory {
-    /// Create an initiator from configuration
-    ///
-    /// Expected configuration format:
-    /// ```toml
-    /// initiator = "threshold"  # component type
-    /// # ... other configuration
-    /// ```
-    pub(crate) fn create_initiator(config: &Value) -> Result<Box<dyn Initiator>> {
-        // Get the initiator type from config
-        let initiator_type = config
-            .get("initiator")
-            .and_then(|v| v.as_str())
-            .unwrap_or("threshold"); // Default to threshold
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum InitiatorType {
+    #[default]
+    Threshold,
+}
 
-        match initiator_type {
-            "threshold" => {
-                let component_config =
-                    <ThresholdInitiator as Configurable>::Config::from_toml_value(config)?;
-                let initiator = ThresholdInitiator::from_config(component_config)?;
-                Ok(initiator as Box<dyn Initiator>)
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum TerminatorType {
+    #[default]
+    Simple,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AssociatorType {
+    #[default]
+    Nearest,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum UpdaterType {
+    #[default]
+    Kalman,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum PredictorType {
+    #[default]
+    Kalman,
+}
+
+pub(crate) struct SingleHypothesisTrackerElementFactory<'a> {
+    raw: &'a Value,
+    config: ComponentConfig,
+}
+
+impl<'a> SingleHypothesisTrackerElementFactory<'a> {
+    pub(crate) fn new(raw: &'a Value) -> Result<Self> {
+        Ok(Self {
+            raw,
+            config: raw.clone().try_into()?,
+        })
+    }
+
+    pub(crate) fn create_initiator(&self) -> Result<Box<dyn Initiator>> {
+        match self.config.initiator {
+            InitiatorType::Threshold => {
+                let config =
+                    <ThresholdInitiator as Configurable>::Config::from_toml_value(self.raw)?;
+                Ok(ThresholdInitiator::from_config(config)?)
             }
-            _ => Err(AstrocapError::PluginInvalidConfigError(format!(
-                "Unknown initiator type: {}",
-                initiator_type
-            ))),
         }
     }
 
-    /// Create a terminator from configuration
-    ///
-    /// Expected configuration format:
-    /// ```toml
-    /// terminator = "simple"  # component type
-    /// # ... other configuration
-    /// ```
-    pub(crate) fn create_terminator(config: &Value) -> Result<Box<dyn Terminator>> {
-        // Get the terminator type from config
-        let terminator_type = config
-            .get("terminator")
-            .and_then(|v| v.as_str())
-            .unwrap_or("simple"); // Default to simple
-
-        match terminator_type {
-            "simple" => {
-                let component_config =
-                    <SimpleTerminator as Configurable>::Config::from_toml_value(config)?;
-                let terminator = SimpleTerminator::from_config(component_config)?;
-                Ok(terminator as Box<dyn Terminator>)
+    pub(crate) fn create_terminator(&self) -> Result<Box<dyn Terminator>> {
+        match self.config.terminator {
+            TerminatorType::Simple => {
+                let config = <SimpleTerminator as Configurable>::Config::from_toml_value(self.raw)?;
+                Ok(SimpleTerminator::from_config(config)?)
             }
-            _ => Err(AstrocapError::PluginInvalidConfigError(format!(
-                "Unknown terminator type: {}",
-                terminator_type
-            ))),
         }
     }
 
-    /// Create an associator from configuration
-    ///
-    /// Expected configuration format:
-    /// ```toml
-    /// associator = "nearest"  # component type
-    /// # ... other configuration
-    /// ```
-    pub(crate) fn create_associator(config: &Value) -> Result<Box<dyn Associator>> {
-        // Get the associator type from config
-        let associator_type = config
-            .get("associator")
-            .and_then(|v| v.as_str())
-            .unwrap_or("nearest"); // Default to nearest
-
-        match associator_type {
-            "nearest" => {
-                let component_config =
-                    <NearestAssociator as Configurable>::Config::from_toml_value(config)?;
-                let associator = NearestAssociator::from_config(component_config)?;
-                Ok(associator as Box<dyn Associator>)
+    pub(crate) fn create_associator(&self) -> Result<Box<dyn Associator>> {
+        match self.config.associator {
+            AssociatorType::Nearest => {
+                let config =
+                    <NearestAssociator as Configurable>::Config::from_toml_value(self.raw)?;
+                Ok(NearestAssociator::from_config(config)?)
             }
-            _ => Err(AstrocapError::PluginInvalidConfigError(format!(
-                "Unknown associator type: {}",
-                associator_type
-            ))),
         }
     }
 
-    /// Create an updater from configuration
-    ///
-    /// Expected configuration format:
-    /// ```toml
-    /// updater = "kalman"  # component type
-    /// # ... other configuration
-    /// ```
-    pub(crate) fn create_updater(config: &Value) -> Result<Box<dyn Updater>> {
-        // Get the updater type from config
-        let updater_type = config
-            .get("updater")
-            .and_then(|v| v.as_str())
-            .unwrap_or("kalman"); // Default to kalman
-
-        match updater_type {
-            "kalman" => {
-                let component_config =
-                    <KalmanUpdater as Configurable>::Config::from_toml_value(config)?;
-                let updater = KalmanUpdater::from_config(component_config)?;
-                Ok(updater as Box<dyn Updater>)
+    pub(crate) fn create_updater(&self) -> Result<Box<dyn Updater>> {
+        match self.config.updater {
+            UpdaterType::Kalman => {
+                let config = <KalmanUpdater as Configurable>::Config::from_toml_value(self.raw)?;
+                Ok(KalmanUpdater::from_config(config)?)
             }
-            _ => Err(AstrocapError::PluginInvalidConfigError(format!(
-                "Unknown updater type: {}",
-                updater_type
-            ))),
         }
     }
 
-    /// Create a predictor from configuration
-    ///
-    /// Expected configuration format:
-    /// ```toml
-    /// predictor = "kalman"  # component type
-    /// # ... other configuration
-    /// ```
-    pub(crate) fn create_predictor(config: &Value) -> Result<Box<dyn Predictor>> {
-        // Get the predictor type from config
-        let predictor_type = config
-            .get("predictor")
-            .and_then(|v| v.as_str())
-            .unwrap_or("kalman"); // Default to kalman
-
-        match predictor_type {
-            "kalman" => {
-                let component_config =
-                    <KalmanPredictor as Configurable>::Config::from_toml_value(config)?;
-                let predictor = KalmanPredictor::from_config(component_config)?;
-                Ok(predictor as Box<dyn Predictor>)
+    pub(crate) fn create_predictor(&self) -> Result<Box<dyn Predictor>> {
+        match self.config.predictor {
+            PredictorType::Kalman => {
+                let config = <KalmanPredictor as Configurable>::Config::from_toml_value(self.raw)?;
+                Ok(KalmanPredictor::from_config(config)?)
             }
-            _ => Err(AstrocapError::PluginInvalidConfigError(format!(
-                "Unknown predictor type: {}",
-                predictor_type
-            ))),
         }
     }
 }
@@ -167,12 +127,14 @@ mod tests {
     fn test_create_default_components() {
         let config = toml::Value::Table(toml::map::Map::new());
 
+        let factory = SingleHypothesisTrackerElementFactory::new(&config).unwrap();
+
         // All components should be creatable with empty config (using defaults)
-        assert!(SingleHypothesisTrackerElementFactory::create_initiator(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_terminator(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_associator(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_updater(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_predictor(&config).is_ok());
+        assert!(factory.create_initiator().is_ok());
+        assert!(factory.create_terminator().is_ok());
+        assert!(factory.create_associator().is_ok());
+        assert!(factory.create_updater().is_ok());
+        assert!(factory.create_predictor().is_ok());
     }
 
     #[test]
@@ -193,12 +155,14 @@ mod tests {
 
         let config: Value = toml::from_str(config_toml).unwrap();
 
+        let factory = SingleHypothesisTrackerElementFactory::new(&config).unwrap();
+
         // All components should be creatable with explicit config
-        assert!(SingleHypothesisTrackerElementFactory::create_initiator(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_terminator(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_associator(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_updater(&config).is_ok());
-        assert!(SingleHypothesisTrackerElementFactory::create_predictor(&config).is_ok());
+        assert!(factory.create_initiator().is_ok());
+        assert!(factory.create_terminator().is_ok());
+        assert!(factory.create_associator().is_ok());
+        assert!(factory.create_updater().is_ok());
+        assert!(factory.create_predictor().is_ok());
     }
 
     #[test]
@@ -210,6 +174,6 @@ mod tests {
         let config: Value = toml::from_str(config_toml).unwrap();
 
         // Should fail with unknown type
-        assert!(SingleHypothesisTrackerElementFactory::create_initiator(&config).is_err());
+        assert!(SingleHypothesisTrackerElementFactory::new(&config).is_err());
     }
 }

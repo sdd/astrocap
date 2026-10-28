@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::hypothesis_trackers::mht::config::MhtConfig;
 use crate::hypothesis_trackers::mht::LogProbs;
-use astrocap_core::{structs::Detection, traits::Dumpable};
+use astrocap_core::structs::Detection;
 use std::sync::LazyLock;
 
 static NEXT_KF_ID: AtomicU64 = AtomicU64::new(1);
@@ -110,40 +110,6 @@ pub struct KalmanFilter {
     pub r_amp_min: f32,  // std floor for r a
     pub r_amp_max: f32,  // std ceil for r a
     pub r_amp_beta: f32, // smoothing for a (usually > r_beta)
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct KalmanFilterRow {
-    pub id: u64,
-    pub run_id: u64,
-    pub frame_index: usize,
-
-    pub state: [f32; 5],
-    pub covariance: [f32; 25],
-    pub r: [f32; 9],
-    pub q_pos_scale: f32,
-    pub q_amp_scale: f32,
-    pub nis_ewma: f32,
-}
-
-impl Dumpable for KalmanFilter {
-    type Row = KalmanFilterRow;
-
-    const TABLE_NAME: &'static str = "kalman_filter";
-    const VERSION: u32 = 1;
-    fn to_row(&self, run_id: u64, frame_index: usize) -> Self::Row {
-        KalmanFilterRow {
-            run_id,
-            frame_index,
-            id: self.id,
-            state: self.state.as_slice().try_into().unwrap(),
-            covariance: self.covariance.as_slice().try_into().unwrap(),
-            r: self.r.as_slice().try_into().unwrap(),
-            q_pos_scale: self.q_pos_scale,
-            q_amp_scale: self.q_amp_scale,
-            nis_ewma: self.nis_ewma,
-        }
-    }
 }
 
 impl KalmanFilter {
