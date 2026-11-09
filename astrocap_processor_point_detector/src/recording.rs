@@ -3,8 +3,8 @@ use astrocap_core::structs::Detection;
 use astrocap_core::{FrameContext, FrameProcessorResult};
 use nalgebra::Vector2;
 use serde::{Deserialize, Serialize};
+use vyd::telemetry::TypedStageCodec;
 use vyd::VydError;
-use vyd_telemetry::TypedStageCodec;
 
 #[derive(Serialize, Deserialize)]
 struct DetectionRecord {
@@ -77,8 +77,8 @@ impl TypedStageCodec for PointDetectorCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vyd::telemetry::{new_adapter, StageCodec};
     use vyd::Frame;
-    use vyd_telemetry::{new_adapter, StageCodec};
 
     #[test]
     fn detection_rows_round_trip_through_arrow() {

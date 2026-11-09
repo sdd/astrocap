@@ -2,8 +2,8 @@ use astrocap_core::frame_metadata::TrackSummaries;
 use astrocap_core::traits::TrackSummary;
 use astrocap_core::{FrameContext, FrameProcessorResult};
 use serde::{Deserialize, Serialize};
+use vyd::telemetry::TypedStageCodec;
 use vyd::VydError;
-use vyd_telemetry::TypedStageCodec;
 
 #[derive(Serialize, Deserialize)]
 struct TrackRecord {
@@ -149,8 +149,8 @@ impl TypedStageCodec for TrackerCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vyd::telemetry::{new_adapter, StageCodec};
     use vyd::Frame;
-    use vyd_telemetry::{new_adapter, StageCodec};
 
     #[test]
     fn track_rows_round_trip_through_arrow() {

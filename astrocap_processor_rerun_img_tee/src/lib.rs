@@ -57,20 +57,20 @@ impl FrameProcessor for RerunTeeProcessor {
         Ok(())
     }
 
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         let rec = match ctx.services().latest::<RerunRecording>() {
             Ok(Some(rec)) => rec,
             Ok(None) => {
                 tracing::error!("Rerun recording was not initialized");
-                return Skip;
+                return Ok(Skip);
             }
             Err(error) => {
                 tracing::error!(%error, "Rerun service lookup failed");
-                return Skip;
+                return Ok(Skip);
             }
         };
 
@@ -81,19 +81,19 @@ impl FrameProcessor for RerunTeeProcessor {
                 Ok(frame) => {
                     let Ok(pixels) = frame.try_read_cpu_luma8(WaitPolicy::Immediate) else {
                         tracing::warn!("No frame to process");
-                        return Skip;
+                        return Ok(Skip);
                     };
 
                     pixels
                 }
                 Err(_) => {
-                    return Skip;
+                    return Ok(Skip);
                 }
             },
             None => {
                 let Ok(pixels) = frame_ctx.frame.try_read_cpu_luma8(WaitPolicy::Immediate) else {
                     tracing::warn!("No frame to process");
-                    return Skip;
+                    return Ok(Skip);
                 };
 
                 pixels
@@ -105,10 +105,10 @@ impl FrameProcessor for RerunTeeProcessor {
             &rerun::Image::from_l8(pixels, [width, height]),
         ) {
             tracing::error!("Failed to log frame: {}", err);
-            return Skip;
+            return Ok(Skip);
         }
 
-        Continue
+        Ok(Continue)
     }
 
     fn name(&self) -> &str {

@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 vyd = { workspace = true }
-vyd-telemetry = { workspace = true }
 chrono = { workspace = true }
 nalgebra = { workspace = true }
 serde = { workspace = true }
