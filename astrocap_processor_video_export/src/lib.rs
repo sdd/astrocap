@@ -1,7 +1,7 @@
 mod config;
 mod frame_exporter;
 
-use astrocap_core::FrameProcessorResult::{Continue, Skip};
+use astrocap_core::FrameProcessorResult::Continue;
 use astrocap_core::pipeline_services::IntegratedFrame;
 use astrocap_core::traits::FrameProcessor;
 use astrocap_core::{AstrocapError, Frame, FrameContext, FrameProcessorResult};
@@ -83,20 +83,6 @@ impl FrameProcessor for VideoExportProcessor {
             .lock()
             .map_err(|e| AstrocapError::GeneralPluginError(e.to_string()))?
             .close()
-    }
-
-    fn process(
-        &mut self,
-        frame_ctx: &mut FrameContext,
-        ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
-        match self.try_process(frame_ctx, ctx) {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::error!(%error, "video export failed");
-                Skip
-            }
-        }
     }
 
     fn try_process(

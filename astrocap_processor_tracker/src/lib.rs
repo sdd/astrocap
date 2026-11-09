@@ -7,7 +7,7 @@ pub mod traits;
 
 pub use processor::TrackerProcessor;
 vyd::register_vyd_frame_processor!(TrackerProcessor);
-vyd_telemetry::register_vyd_stage_codec!(
+vyd::register_vyd_stage_codec!(
     recording::TrackerCodec,
     "astrocap_processor_tracker::TrackerProcessor"
 );

@@ -39,33 +39,29 @@ impl PointDetectorProcessor {
 }
 
 impl FrameProcessor for PointDetectorProcessor {
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         if frame_ctx.frame.as_cpu_image().is_none() {
             tracing::error!("Frame is not present");
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
-        let mask = match ctx.services().latest::<MaskFrame>() {
-            Ok(mask) => mask,
-            Err(error) => {
-                tracing::error!(%error, "mask service lookup failed");
-                return FrameProcessorResult::Skip;
-            }
-        };
+        let mask = ctx
+            .services()
+            .latest::<MaskFrame>()
+            .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?;
         // A mask is a persistent pipeline service, not per-frame metadata.
         // A native geometry change cannot rewrite it through the frame hook.
         if let Some(mask) = &mask {
             if mask.0.dimensions() != frame_ctx.frame.dimensions() {
-                tracing::error!(
-                    mask = ?mask.0.dimensions(),
-                    frame = ?frame_ctx.frame.dimensions(),
-                    "mask dimensions do not match native output frame"
-                );
-                return FrameProcessorResult::Skip;
+                return Err(AstrocapError::GeneralPluginError(format!(
+                    "mask dimensions do not match native output frame: {:?} versus {:?}",
+                    mask.0.dimensions(),
+                    frame_ctx.frame.dimensions()
+                )));
             }
         }
         let median = frame_ctx
@@ -98,34 +94,13 @@ impl FrameProcessor for PointDetectorProcessor {
             Ok(None) => {}
             Err(error) => {
                 tracing::error!(%error, "Rerun service lookup failed");
-                return FrameProcessorResult::Skip;
+                return Ok(FrameProcessorResult::Skip);
             }
         }
 
         frame_ctx.put_typed(DetectedPoints(detected_points_list));
 
-        FrameProcessorResult::Continue
-    }
-
-    fn try_process(
-        &mut self,
-        frame_ctx: &mut FrameContext,
-        ctx: &mut PipelineContext,
-    ) -> Result<FrameProcessorResult, AstrocapError> {
-        if let Some(mask) = ctx
-            .services()
-            .latest::<MaskFrame>()
-            .map_err(|error| AstrocapError::GeneralPluginError(error.to_string()))?
-        {
-            if mask.0.dimensions() != frame_ctx.frame.dimensions() {
-                return Err(AstrocapError::GeneralPluginError(format!(
-                    "mask dimensions do not match native output frame: {:?} versus {:?}",
-                    mask.0.dimensions(),
-                    frame_ctx.frame.dimensions()
-                )));
-            }
-        }
-        Ok(self.process(frame_ctx, ctx))
+        Ok(FrameProcessorResult::Continue)
     }
 
     fn name(&self) -> &str {

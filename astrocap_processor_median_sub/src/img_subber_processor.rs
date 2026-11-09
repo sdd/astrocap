@@ -219,20 +219,6 @@ impl FrameProcessor for ImgSubberProcessor {
         Ok(())
     }
 
-    fn process(
-        &mut self,
-        frame_ctx: &mut FrameContext,
-        ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
-        match self.try_process(frame_ctx, ctx) {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::error!(%error, "image subtraction failed");
-                Skip
-            }
-        }
-    }
-
     fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,

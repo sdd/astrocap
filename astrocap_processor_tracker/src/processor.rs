@@ -29,17 +29,17 @@ impl TrackerProcessor {
 }
 
 impl FrameProcessor for TrackerProcessor {
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         let Some(detections) = frame_ctx.get_typed::<DetectedPoints>() else {
             tracing::warn!(
                 frame_index = frame_ctx.frame_index,
                 "tracker input has no detected points"
             );
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
         tracing::debug!("processing frame");
@@ -55,11 +55,11 @@ impl FrameProcessor for TrackerProcessor {
             Ok(None) => {}
             Err(error) => {
                 tracing::error!(%error, "Rerun service lookup failed");
-                return FrameProcessorResult::Skip;
+                return Ok(FrameProcessorResult::Skip);
             }
         }
 
-        FrameProcessorResult::Continue
+        Ok(FrameProcessorResult::Continue)
     }
 
     fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {

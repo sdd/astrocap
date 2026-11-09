@@ -45,18 +45,18 @@ impl SolvastroProcessor {
 }
 
 impl FrameProcessor for SolvastroProcessor {
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         let dims = frame_ctx.frame.dimensions();
 
         let Ok(star_candidates) =
             frame_ctx.try_get_as::<Arc<Vec<StarCandidate>>>("solvastro/star_candidates")
         else {
             tracing::warn!("No candidates");
-            return FrameProcessorResult::Continue;
+            return Ok(FrameProcessorResult::Continue);
         };
 
         self.star_candidates.store(Some(star_candidates.clone()));
@@ -76,7 +76,7 @@ impl FrameProcessor for SolvastroProcessor {
             }
         }
 
-        FrameProcessorResult::Continue
+        Ok(FrameProcessorResult::Continue)
     }
 
     fn name(&self) -> &str {

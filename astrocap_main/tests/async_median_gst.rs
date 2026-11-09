@@ -46,9 +46,13 @@ impl FrameSource for ValuesSource {
 struct SpaceAdmissions(Duration);
 
 impl FrameProcessor for SpaceAdmissions {
-    fn process(&mut self, _: &mut FrameContext, _: &mut PipelineContext) -> FrameProcessorResult {
+    fn try_process(
+        &mut self,
+        _: &mut FrameContext,
+        _: &mut PipelineContext,
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         std::thread::sleep(self.0);
-        FrameProcessorResult::Continue
+        Ok(FrameProcessorResult::Continue)
     }
     fn name(&self) -> &str {
         "space-admissions"

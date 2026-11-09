@@ -203,17 +203,17 @@ impl FrameProcessor for ModelState {
         Ok(())
     }
 
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         // pull detected_points from frame context
         let Ok(detected_points_list) =
             frame_ctx.try_get_as::<Vec<DetectedPoint>>("detected_points")
         else {
             tracing::error!("Detected points not found");
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
         // create a frame state from detected points
@@ -233,7 +233,7 @@ impl FrameProcessor for ModelState {
         // pull tracked_objects from pipeline context
         let Ok(tracked_objects) = ctx.try_get_as::<Vec<StarCandidate>>("tracked_objects") else {
             tracing::error!("Tracked objects not found");
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
         // pull rerun from pipeline context
@@ -242,7 +242,7 @@ impl FrameProcessor for ModelState {
         // pull rerun from pipeline context
         let Ok(point_fitter) = ctx.try_get_as::<Arc<dyn PointFitter>>("point_fitter") else {
             tracing::error!("Point fitter not found");
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
         // set them on self
@@ -262,12 +262,12 @@ impl FrameProcessor for ModelState {
 
         if let Err(err) = self.process_frame(frame, point_fitter.clone(), rec) {
             tracing::error!("Error processing frame: {}", err);
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         }
 
         ctx.put("tracked_objects", self.star_candidates.clone());
 
-        FrameProcessorResult::Continue
+        Ok(FrameProcessorResult::Continue)
     }
 
     fn name(&self) -> &str {
