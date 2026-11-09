@@ -52,11 +52,11 @@ impl DetectionExportProcessor {
 }
 
 impl FrameProcessor for DetectionExportProcessor {
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         _ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         let frame_detections = if let Some(detected_points) =
             frame_ctx.get_typed::<DetectedPoints>()
         {
@@ -76,7 +76,7 @@ impl FrameProcessor for DetectionExportProcessor {
             frame_ctx.frame_index
         );
 
-        FrameProcessorResult::Continue
+        Ok(FrameProcessorResult::Continue)
     }
 
     fn pipeline_finished(&mut self, _ctx: &mut PipelineContext) -> Result<(), AstrocapError> {

@@ -28,19 +28,19 @@ impl PointFitterProcessor {
 }
 
 impl FrameProcessor for PointFitterProcessor {
-    fn process(
+    fn try_process(
         &mut self,
         frame_ctx: &mut FrameContext,
         ctx: &mut PipelineContext,
-    ) -> FrameProcessorResult {
+    ) -> Result<FrameProcessorResult, AstrocapError> {
         let Some(frame) = frame_ctx.frame.as_cpu_frame() else {
             tracing::error!("Frame is not present");
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
         let Some(DetectedPoints(detected_points_list)) = frame_ctx.get_typed::<DetectedPoints>()
         else {
-            return FrameProcessorResult::Skip;
+            return Ok(FrameProcessorResult::Skip);
         };
 
         let fitted_points_list: Vec<FittedPoint> = detected_points_list
@@ -64,13 +64,13 @@ impl FrameProcessor for PointFitterProcessor {
             Ok(None) => {}
             Err(error) => {
                 tracing::error!(%error, "Rerun service lookup failed");
-                return FrameProcessorResult::Skip;
+                return Ok(FrameProcessorResult::Skip);
             }
         }
 
         frame_ctx.put_typed(FittedPoints(fitted_points_list));
 
-        FrameProcessorResult::Continue
+        Ok(FrameProcessorResult::Continue)
     }
 
     fn name(&self) -> &str {
