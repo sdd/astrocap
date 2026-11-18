@@ -109,7 +109,7 @@ mod tests {
         frame.put_typed(DetectedPoints(vec![Detection::new(2.0, 3.0, 4.0)]));
         let mut context = PipelineContext::new();
         assert!(matches!(
-            processor.process(&mut frame, &mut context),
+            processor.try_process(&mut frame, &mut context).unwrap(),
             FrameProcessorResult::Continue
         ));
         assert_eq!(processor.detections.len(), 1);
